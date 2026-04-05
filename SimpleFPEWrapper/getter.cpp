@@ -60,7 +60,7 @@ const GLubyte* glGetStringi(GLenum name, GLuint index) {
     case 7:
         return (const GLubyte*)"OpenGL20";
     default:
-        return g_glesFuncs.glGetStringi(name, index - 7);
+        return g_glesFuncs.glGetStringi(name, index - 8);
     }
 }
 

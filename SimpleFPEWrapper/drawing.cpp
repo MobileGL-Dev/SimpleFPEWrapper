@@ -6,11 +6,6 @@
 void glDrawArrays(GLenum mode, GLint first, GLsizei count) {
     LIST_RECORD(glDrawArrays, {}, mode, first, count)
 
-    // TODO: deal with draw in list later
-    if (DisplayListManager::isCalling()) {
-        return;
-    }
-
     GET_PREV_PROGRAM
     int do_draw_element = commit_fpe_state_on_draw(&mode, &first, &count);
     if (do_draw_element) {

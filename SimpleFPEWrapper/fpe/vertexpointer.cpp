@@ -5,6 +5,8 @@
 #define DEBUG 0
 
 void glVertexPointer(GLint size, GLenum type, GLsizei stride, const void* pointer) {
+    LIST_RECORD(glVertexPointer, {}, size, type, stride, pointer)
+
     // LOG_D("glVertexPointer, size = %d, type = %s, stride = %d, pointer = 0x%x", size, glEnumToString(type), stride,
     // pointer)
     auto& attr = g_glstate.fpe_state.vertexpointer_array.attributes[vp2idx(GL_VERTEX_ARRAY)];
@@ -20,6 +22,8 @@ void glVertexPointer(GLint size, GLenum type, GLsizei stride, const void* pointe
 }
 
 void glNormalPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
+    LIST_RECORD(glNormalPointer, {}, type, stride, pointer)
+
     // LOG_D("glNormalPointer, type = %s, stride = %d, pointer = 0x%x", glEnumToString(type), stride, pointer)
     g_glstate.fpe_state.vertexpointer_array.attributes[vp2idx(GL_NORMAL_ARRAY)] = {
         .size = 3,
@@ -34,6 +38,8 @@ void glNormalPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
 }
 
 void glColorPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* pointer) {
+    LIST_RECORD(glColorPointer, {}, size, type, stride, pointer)
+
     // LOG_D("glColorPointer, size = %d, type = %s, stride = %d, pointer = 0x%x", size, glEnumToString(type), stride,
     // pointer)
     g_glstate.fpe_state.vertexpointer_array.attributes[vp2idx(GL_COLOR_ARRAY)] = {
@@ -49,6 +55,8 @@ void glColorPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* point
 }
 
 void glTexCoordPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* pointer) {
+    LIST_RECORD(glTexCoordPointer, {}, size, type, stride, pointer)
+
     // LOG_D("glTexCoordPointer, size = %d, type = %s, stride = %d, pointer = 0x%x", size, glEnumToString(type), stride,
     // pointer) LOG_D("Active texture: %s", glEnumToString(g_glstate.fpe_state.client_active_texture))
     g_glstate.fpe_state.vertexpointer_array.attributes[vp2idx(GL_TEXTURE_COORD_ARRAY)] = {
@@ -64,6 +72,8 @@ void glTexCoordPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* po
 }
 
 void glIndexPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
+    LIST_RECORD(glIndexPointer, {}, type, stride, pointer)
+
     // LOG_D("glIndexPointer, size = %d, type = %s, stride = %d, pointer = 0x%x", glEnumToString(type), stride, pointer)
     g_glstate.fpe_state.vertexpointer_array.attributes[vp2idx(GL_INDEX_ARRAY)] = {
         .size = 1,

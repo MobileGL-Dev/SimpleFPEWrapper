@@ -8,6 +8,7 @@
 
 #include "fpe_shadergen.h"
 #include "types.h"
+#include <cstdio>
 #include <format>
 #include <string_view>
 #include <GL/gl.h>
@@ -1520,8 +1521,8 @@ int program_t::compile_shader(GLenum shader_type, const char* src) {
     if (!success) {
         g_glFuncs.glGetShaderInfoLog(shader, 1024, NULL, compile_info);
 
-        // LOG_E("%s: %s shader compile error: %s\nsrc:\n%s", __func__,
-        //      (shader_type == GL_VERTEX_SHADER) ? "vertex" : "fragment", compile_info, src);
+        printf("[FPE] %s shader compile error: %s\nShader source:\n%s\n",
+               (shader_type == GL_VERTEX_SHADER) ? "vertex" : "fragment", compile_info, src);
 #if DEBUG || GLOBAL_DEBUG
         abort();
 #endif
@@ -1548,7 +1549,7 @@ int program_t::link_program(GLuint vs, GLuint fs) {
     if (!success) {
         g_glFuncs.glGetProgramInfoLog(program, 1024, NULL, compile_info);
 
-        // LOG_E("program link error: %s", compile_info);
+        printf("[FPE] program link error: %s\n", compile_info);
 #if DEBUG || GLOBAL_DEBUG
         abort();
 #endif

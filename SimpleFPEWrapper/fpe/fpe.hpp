@@ -18,13 +18,38 @@
     GLint m_prev_program;                                                                                              \
     g_glFuncs.glGetIntegerv(GL_CURRENT_PROGRAM, &m_prev_program);
 #define SET_PREV_PROGRAM                                                                                               \
-    if (m_prev_program) g_glFuncs.glUseProgram(m_prev_program);
+    g_glFuncs.glUseProgram(m_prev_program);
 
 #define g_glstate glstate_t::get_instance()
 
 extern bool fpe_inited;
 
 int init_fpe();
+std::vector<uint32_t> quad_to_triangle(GLsizei count, GLuint first = 0);
 
-// 0 - keep DrawArray, 1 - switch to DrawElements
+struct fpe_backend_draw_state_guard_t {
+    GLint program = 0;
+    GLint vertex_array = 0;
+    GLint array_buffer = 0;
+    GLint element_array_buffer = 0;
+
+    fpe_backend_draw_state_guard_t() {
+        g_glFuncs.glGetIntegerv(GL_CURRENT_PROGRAM, &program);
+        g_glFuncs.glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &vertex_array);
+        g_glFuncs.glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &array_buffer);
+        g_glFuncs.glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &element_array_buffer);
+    }
+
+    ~fpe_backend_draw_state_guard_t() {
+        g_glFuncs.glUseProgram(program);
+        g_glFuncs.glBindVertexArray(vertex_array);
+        g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, element_array_buffer);
+        g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, array_buffer);
+    }
+
+    fpe_backend_draw_state_guard_t(const fpe_backend_draw_state_guard_t&) = delete;
+    fpe_backend_draw_state_guard_t& operator=(const fpe_backend_draw_state_guard_t&) = delete;
+};
+
+// -1 - FPE unavailable, 0 - keep DrawArrays, 1 - switch to DrawElements
 int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count);

@@ -31,7 +31,6 @@ void Init() {
         throw std::runtime_error("Failed to acquire BackendGL functions");
     } // FIXME: actually we should acquire gl functions after egl initialization
 
-    init_fpe();
 }
 
 struct InitClass {

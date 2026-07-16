@@ -35,6 +35,15 @@ extern "C"
     GLAPI void GLAPIENTRY glLightModeli(GLenum pname, GLint param);
     GLAPI void GLAPIENTRY glLightModelfv(GLenum pname, const GLfloat* params);
     GLAPI void GLAPIENTRY glLightModeliv(GLenum pname, const GLint* params);
+    GLAPI void GLAPIENTRY glColorMaterial(GLenum face, GLenum mode);
+    GLAPI void GLAPIENTRY glMaterialf(GLenum face, GLenum pname, GLfloat param);
+    GLAPI void GLAPIENTRY glMateriali(GLenum face, GLenum pname, GLint param);
+    GLAPI void GLAPIENTRY glMaterialfv(GLenum face, GLenum pname, const GLfloat* params);
+    GLAPI void GLAPIENTRY glMaterialiv(GLenum face, GLenum pname, const GLint* params);
+    GLAPI void GLAPIENTRY glTexEnvf(GLenum target, GLenum pname, GLfloat param);
+    GLAPI void GLAPIENTRY glTexEnvi(GLenum target, GLenum pname, GLint param);
+    GLAPI void GLAPIENTRY glTexEnvfv(GLenum target, GLenum pname, const GLfloat* params);
+    GLAPI void GLAPIENTRY glTexEnviv(GLenum target, GLenum pname, const GLint* params);
     GLAPI void GLAPIENTRY glColor4f(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha);
 
 #ifdef __cplusplus

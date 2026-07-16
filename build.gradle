@@ -1,0 +1,33 @@
+apply plugin: 'com.android.library'
+
+android {
+    namespace 'top.mobilegl.simplefpewrapper'
+    compileSdk 35
+
+    defaultConfig {
+        minSdk 26
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+        fordebug {
+            debuggable true
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path 'CMakeLists.txt'
+            version '3.22.1'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    ndkVersion '27.0.12077973'
+}

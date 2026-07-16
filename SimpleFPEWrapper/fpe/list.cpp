@@ -52,7 +52,7 @@ void glCallList(GLuint list) {
 
     if (DisplayListManager::shouldRecord()) {
         displayListManager.record<glCallList>({}, list);
-        if (DisplayListManager::isRecording()) return;
+        if (DisplayListManager::shouldFinish()) return;
     }
     GET_PREV_PROGRAM
     DisplayListManager::callList(list);
@@ -65,7 +65,7 @@ void glCallLists(GLsizei n, GLenum type, const GLvoid* lists) {
 
     if (DisplayListManager::shouldRecord()) {
         displayListManager.record<glCallLists>({{2, n * PointerUtils::type_to_bytes(type)}}, n, type, lists);
-        if (DisplayListManager::isRecording()) return;
+        if (DisplayListManager::shouldFinish()) return;
     }
     GET_PREV_PROGRAM
     const auto* ptr = static_cast<const uint8_t*>(lists);

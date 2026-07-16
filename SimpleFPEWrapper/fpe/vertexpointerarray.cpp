@@ -31,6 +31,12 @@ vertex_pointer_array_t vertex_pointer_array_t::normalize() {
         break;
     }
 
+    if (first_va_idx < 0) {
+        that.starting_pointer = nullptr;
+        that.stride = 0;
+        return that;
+    }
+
     if (stride == 0) that.stride = attributes[first_va_idx].stride;
 
     // if not valid starting pointer

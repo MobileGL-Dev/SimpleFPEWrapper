@@ -11,6 +11,8 @@
 #include "types.h"
 #include "fpe.hpp"
 
+#include <array>
+
 // a bit bad for perf, but keep this for now...
 template <typename Type, GLint N>
 void mglNormal(std::array<Type, N> normal) {
@@ -27,6 +29,7 @@ template <typename Type, GLint N>
 void mglTexCoord(std::array<Type, N> uv, GLint texid) {
     auto& state = g_glstate.fpe_state.fpe_draw;
     auto& cur = state.current_data.texcoord[texid];
+    cur = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
     // let's hope this vectorizes well...
     for (auto i = 0; i < N; ++i) {
         glm::value_ptr(cur)[i] = (GLfloat)uv[i];
@@ -38,11 +41,44 @@ template <typename Type, GLint N>
 void mglColor(std::array<Type, N> color) {
     auto& state = g_glstate.fpe_state.fpe_draw;
     auto& cur = state.current_data.color;
+    // Desktop GL defines alpha=1 for every glColor3* entry point.
+    cur = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
     // let's hope this vectorizes well...
     for (auto i = 0; i < N; ++i) {
         glm::value_ptr(cur)[i] = (GLfloat)color[i];
     }
     state.current_data.sizes.color_size = N;
+
+    if (g_glstate.fpe_state.fpe_bools.color_material_enable) {
+        const auto apply = [&](material_t& material) {
+            switch (g_glstate.fpe_state.color_material_mode) {
+            case GL_AMBIENT:
+                material.ambient = cur;
+                break;
+            case GL_DIFFUSE:
+                material.diffuse = cur;
+                break;
+            case GL_SPECULAR:
+                material.specular = cur;
+                break;
+            case GL_EMISSION:
+                material.emission = cur;
+                break;
+            case GL_AMBIENT_AND_DIFFUSE:
+                material.ambient = cur;
+                material.diffuse = cur;
+                break;
+            default:
+                break;
+            }
+        };
+        if (g_glstate.fpe_state.color_material_face == GL_FRONT ||
+            g_glstate.fpe_state.color_material_face == GL_FRONT_AND_BACK)
+            apply(g_glstate.fpe_uniform.materials[0]);
+        if (g_glstate.fpe_state.color_material_face == GL_BACK ||
+            g_glstate.fpe_state.color_material_face == GL_FRONT_AND_BACK)
+            apply(g_glstate.fpe_uniform.materials[1]);
+    }
 }
 
 template <typename Type, GLint N>
@@ -51,6 +87,9 @@ void mglVertex(std::array<Type, N> vertex) {
 
     auto& state = g_glstate.fpe_state.fpe_draw;
     auto& cur = state.current_data.vertex;
+    // Missing components are (0, 0, 0, 1), rather than values left over
+    // from the previous immediate-mode vertex.
+    cur = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
     // let's hope this vectorizes well...
     for (auto i = 0; i < N; ++i) {
         glm::value_ptr(cur)[i] = (GLfloat)vertex[i];

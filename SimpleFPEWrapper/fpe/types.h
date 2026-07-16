@@ -16,6 +16,7 @@
 #include <vector>
 #include <sstream>
 #include <memory>
+#include <cstddef>
 #include "fpe_shadergen.h"
 #include "vertexpointer_utils.h"
 #include <xxhash64.h>
@@ -23,8 +24,20 @@
 GLsizei type_size(GLenum type);
 
 struct transformation_t {
-    glm::mat4 matrices[4];
+    glm::mat4 matrices[4] = {
+        glm::mat4(1.0f),
+        glm::mat4(1.0f),
+        glm::mat4(1.0f),
+        glm::mat4(1.0f),
+    };
     std::vector<glm::mat4> matrices_stack[4];
+    glm::mat4 texture_matrices[MAX_TEX] = {
+        glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f),
+        glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f),
+        glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f),
+        glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f),
+    };
+    std::vector<glm::mat4> texture_matrices_stack[MAX_TEX];
     GLenum matrix_mode = GL_MODELVIEW;
 };
 
@@ -39,7 +52,7 @@ struct vertexattribute_t {
     //    bool varying = true;
 };
 
-#define VERTEX_POINTER_COUNT (8 + MAX_TEX)
+#define VERTEX_POINTER_COUNT (7 + MAX_TEX)
 struct vertex_pointer_array_t {
     const void* starting_pointer = NULL;
     GLsizei stride = 0;
@@ -65,7 +78,11 @@ struct fixed_function_bool_t {      // glEnable/glDisable
     bool fog_enable = false;        // GL_FOG
     bool lighting_enable = false;   // GL_LIGHTING
     bool alpha_test_enable = false; // GL_ALPHA_TEST
+    bool color_material_enable = false;
+    bool normalize_enable = false;
+    bool rescale_normal_enable = false;
     bool light_enable[MAX_LIGHTS] = {false};
+    bool texture_2d_enable[MAX_TEX] = {false};
 };
 
 struct light_t {
@@ -81,6 +98,30 @@ struct light_t {
     GLfloat spot_cutoff = 180.; // 0-90, 180
 };
 
+struct material_t {
+    glm::vec4 ambient = {0.2f, 0.2f, 0.2f, 1.0f};
+    glm::vec4 diffuse = {0.8f, 0.8f, 0.8f, 1.0f};
+    glm::vec4 specular = {0.0f, 0.0f, 0.0f, 1.0f};
+    glm::vec4 emission = {0.0f, 0.0f, 0.0f, 1.0f};
+    glm::vec3 color_indexes = {0.0f, 1.0f, 1.0f};
+    GLfloat shininess = 0.0f;
+};
+
+struct texture_env_t {
+    GLenum mode = GL_MODULATE;
+    glm::vec4 color = {0.0f, 0.0f, 0.0f, 0.0f};
+
+    GLenum combine_rgb = GL_MODULATE;
+    GLenum combine_alpha = GL_MODULATE;
+    GLenum source_rgb[3] = {GL_TEXTURE, GL_PREVIOUS, GL_CONSTANT};
+    GLenum source_alpha[3] = {GL_TEXTURE, GL_PREVIOUS, GL_CONSTANT};
+    GLenum operand_rgb[3] = {GL_SRC_COLOR, GL_SRC_COLOR, GL_SRC_ALPHA};
+    GLenum operand_alpha[3] = {GL_SRC_ALPHA, GL_SRC_ALPHA, GL_SRC_ALPHA};
+    GLfloat rgb_scale = 1.0f;
+    GLfloat alpha_scale = 1.0f;
+    GLfloat lod_bias = 0.0f;
+};
+
 // size = 0 means disabled
 struct fixed_function_draw_size_t {
     union {
@@ -92,12 +133,16 @@ struct fixed_function_draw_size_t {
             GLint edge_size = 0;
             GLint fog_size = 0;
             GLint secondary_color_size = 0;
-            GLint placeholder_8th = 0; // data[7]
             GLint texcoord_size[MAX_TEX] = {0};
         };
         GLint data[VERTEX_POINTER_COUNT];
     };
 };
+
+static_assert(offsetof(fixed_function_draw_size_t, texcoord_size) == 7 * sizeof(GLint),
+              "texture coordinate sizes must start at vertex attribute slot 7");
+static_assert(sizeof(fixed_function_draw_size_t) == VERTEX_POINTER_COUNT * sizeof(GLint),
+              "fixed-function size layout must match the vertex attribute slots");
 
 struct fixed_function_draw_data_t {
     glm::vec4 vertex = {0, 0, 0, 1};
@@ -135,6 +180,16 @@ struct fixed_function_state_t {
     GLenum light_model_color_ctrl = GL_SINGLE_COLOR; // glLightModel(GL_LIGHT_MODEL_COLOR_CONTROL)
     int light_model_local_viewer = 0;                // glLightModel(GL_LIGHT_MODEL_LOCAL_VIEWER)
     int light_model_two_side = 0;                    // glLightModel(GL_LIGHT_MODEL_TWO_SIDE)
+    GLenum color_material_face = GL_FRONT_AND_BACK;
+    GLenum color_material_mode = GL_AMBIENT_AND_DIFFUSE;
+    // Texture environment mode changes the generated fragment shader. Keep a
+    // compact copy in shader state while the numeric parameters remain uniforms.
+    GLenum texture_env_mode[MAX_TEX] = {
+        GL_MODULATE, GL_MODULATE, GL_MODULATE, GL_MODULATE,
+        GL_MODULATE, GL_MODULATE, GL_MODULATE, GL_MODULATE,
+        GL_MODULATE, GL_MODULATE, GL_MODULATE, GL_MODULATE,
+        GL_MODULATE, GL_MODULATE, GL_MODULATE, GL_MODULATE,
+    };
 
     // Fixed-function VAO
     // Reserve a vao purely for fpe, so that
@@ -173,6 +228,11 @@ struct fixed_function_uniform_t {
 
     // glLightf/i/fv/iv
     light_t lights[MAX_LIGHTS];
+
+    // glMaterial* and glTexEnv*. These are retained even while the current
+    // shader generator only approximates their effect.
+    material_t materials[2]; // front, back
+    texture_env_t texture_env[MAX_TEX];
 };
 
 struct program_t {
@@ -184,7 +244,8 @@ struct program_t {
 private:
     static int compile_shader(GLenum shader_type, const char* src);
     static int link_program(GLuint vs, GLuint fs);
-    int program = -1;
+    bool compile_attempted = false;
+    int program = 0;
 };
 
 struct glstate_t {

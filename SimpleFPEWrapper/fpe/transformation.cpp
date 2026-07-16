@@ -19,7 +19,32 @@
 #include <glm/ext/vector_relational.hpp>
 #include <glm/ext/vector_float4.hpp>
 #include <glm/ext/vector_float3.hpp>
+#include <algorithm>
 #define DEBUG 0
+
+namespace {
+
+int active_texture_index() {
+    GLint active = GL_TEXTURE0;
+    g_glFuncs.glGetIntegerv(GL_ACTIVE_TEXTURE, &active);
+    return std::clamp(active - (GLint)GL_TEXTURE0, 0, MAX_TEX - 1);
+}
+
+glm::mat4& current_matrix(transformation_t& transformation) {
+    if (transformation.matrix_mode == GL_TEXTURE) {
+        return transformation.texture_matrices[active_texture_index()];
+    }
+    return transformation.matrices[matrix_idx(transformation.matrix_mode)];
+}
+
+std::vector<glm::mat4>& current_matrix_stack(transformation_t& transformation) {
+    if (transformation.matrix_mode == GL_TEXTURE) {
+        return transformation.texture_matrices_stack[active_texture_index()];
+    }
+    return transformation.matrices_stack[matrix_idx(transformation.matrix_mode)];
+}
+
+} // namespace
 
 int matrix_idx(GLenum matrix_mode) {
     switch (matrix_mode) {
@@ -78,10 +103,10 @@ void glLoadIdentity() {
 
     auto& transformation = g_glstate.fpe_uniform.transformation;
 
-    transformation.matrices[matrix_idx(transformation.matrix_mode)] = glm::mat4(1.0);
+    current_matrix(transformation) = glm::mat4(1.0);
 
     // LOG_D("Matrix %s:", glEnumToString(transformation.matrix_mode))
-    print_matrix(transformation.matrices[matrix_idx(transformation.matrix_mode)]);
+    print_matrix(current_matrix(transformation));
 }
 
 void glOrtho(GLdouble left, GLdouble right, GLdouble bottom, GLdouble top, GLdouble near_val, GLdouble far_val) {
@@ -102,10 +127,27 @@ void glOrthof(GLfloat left, GLfloat right, GLfloat bottom, GLfloat top, GLfloat 
 
     auto& transformation = g_glstate.fpe_uniform.transformation;
 
-    transformation.matrices[matrix_idx(transformation.matrix_mode)] *=
-        glm::ortho(left, right, bottom, top, zNear, zFar);
+    current_matrix(transformation) *= glm::ortho(left, right, bottom, top, zNear, zFar);
     // LOG_D("Matrix %s:", glEnumToString(transformation.matrix_mode))
-    print_matrix(transformation.matrices[matrix_idx(transformation.matrix_mode)]);
+    print_matrix(current_matrix(transformation));
+}
+
+void glFrustum(GLdouble left, GLdouble right, GLdouble bottom, GLdouble top, GLdouble zNear, GLdouble zFar) {
+    LIST_RECORD(glFrustum, {}, left, right, bottom, top, zNear, zFar)
+
+    // The emulated transform state is float-based, matching the generated ES
+    // uniforms. Keep the desktop double entry point while accepting that final
+    // storage has GLfloat precision.
+    SELF_CALL(glFrustumf, (GLfloat)left, (GLfloat)right, (GLfloat)bottom, (GLfloat)top, (GLfloat)zNear,
+              (GLfloat)zFar)
+}
+
+void glFrustumf(GLfloat left, GLfloat right, GLfloat bottom, GLfloat top, GLfloat zNear, GLfloat zFar) {
+    LIST_RECORD(glFrustumf, {}, left, right, bottom, top, zNear, zFar)
+
+    auto& transformation = g_glstate.fpe_uniform.transformation;
+    current_matrix(transformation) *= glm::frustum(left, right, bottom, top, zNear, zFar);
+    print_matrix(current_matrix(transformation));
 }
 
 void glScalef(GLfloat x, GLfloat y, GLfloat z) {
@@ -116,10 +158,10 @@ void glScalef(GLfloat x, GLfloat y, GLfloat z) {
 
     auto& transformation = g_glstate.fpe_uniform.transformation;
 
-    transformation.matrices[matrix_idx(transformation.matrix_mode)] =
-        glm::scale(transformation.matrices[matrix_idx(transformation.matrix_mode)], glm::vec3(x, y, z));
+    auto& matrix = current_matrix(transformation);
+    matrix = glm::scale(matrix, glm::vec3(x, y, z));
     // LOG_D("Matrix %s:", glEnumToString(transformation.matrix_mode))
-    print_matrix(transformation.matrices[matrix_idx(transformation.matrix_mode)]);
+    print_matrix(matrix);
 }
 
 void glTranslatef(GLfloat x, GLfloat y, GLfloat z) {
@@ -130,10 +172,10 @@ void glTranslatef(GLfloat x, GLfloat y, GLfloat z) {
 
     auto& transformation = g_glstate.fpe_uniform.transformation;
 
-    transformation.matrices[matrix_idx(transformation.matrix_mode)] =
-        glm::translate(transformation.matrices[matrix_idx(transformation.matrix_mode)], glm::vec3(x, y, z));
+    auto& matrix = current_matrix(transformation);
+    matrix = glm::translate(matrix, glm::vec3(x, y, z));
     // LOG_D("Matrix %s:", glEnumToString(transformation.matrix_mode))
-    print_matrix(transformation.matrices[matrix_idx(transformation.matrix_mode)]);
+    print_matrix(matrix);
 }
 
 void glRotatef(GLfloat angle, GLfloat x, GLfloat y, GLfloat z) {
@@ -144,11 +186,10 @@ void glRotatef(GLfloat angle, GLfloat x, GLfloat y, GLfloat z) {
 
     auto& transformation = g_glstate.fpe_uniform.transformation;
 
-    transformation.matrices[matrix_idx(transformation.matrix_mode)] =
-        glm::rotate(transformation.matrices[matrix_idx(transformation.matrix_mode)], (GLfloat)(angle * M_PI / 180.f),
-                    glm::vec3(x, y, z));
+    auto& matrix = current_matrix(transformation);
+    matrix = glm::rotate(matrix, (GLfloat)(angle * M_PI / 180.f), glm::vec3(x, y, z));
     // LOG_D("Matrix %s:", glEnumToString(transformation.matrix_mode))
-    print_matrix(transformation.matrices[matrix_idx(transformation.matrix_mode)]);
+    print_matrix(matrix);
 }
 
 void glRotated(GLdouble angle, GLdouble x, GLdouble y, GLdouble z) {
@@ -181,24 +222,53 @@ void glTranslated(GLdouble x, GLdouble y, GLdouble z) {
     SELF_CALL(glTranslatef, x, y, z);
 }
 
+void glLoadMatrixd(const GLdouble* m) {
+    LIST_RECORD(glLoadMatrixd, {{0, sizeof(GLdouble) * 16}}, m)
+
+    if (!m) return;
+    GLfloat converted[16];
+    for (int i = 0; i < 16; ++i) converted[i] = (GLfloat)m[i];
+    SELF_CALL(glLoadMatrixf, converted)
+}
+
+void glLoadMatrixf(const GLfloat* m) {
+    LIST_RECORD(glLoadMatrixf, {{0, sizeof(GLfloat) * 16}}, m)
+
+    if (!m) return;
+    auto& transformation = g_glstate.fpe_uniform.transformation;
+    current_matrix(transformation) = glm::make_mat4(m);
+    print_matrix(current_matrix(transformation));
+}
+
+void glMultMatrixd(const GLdouble* m) {
+    LIST_RECORD(glMultMatrixd, {{0, sizeof(GLdouble) * 16}}, m)
+
+    if (!m) return;
+    GLfloat converted[16];
+    for (int i = 0; i < 16; ++i) converted[i] = (GLfloat)m[i];
+    SELF_CALL(glMultMatrixf, converted)
+}
+
 void glMultMatrixf(const GLfloat* m) {
     // LOG()
     //  LOG_D("glMultMatrixf(%p)", m)
 
     LIST_RECORD(glMultMatrixf, {{0, sizeof(GLfloat) * 16}}, m)
 
+    if (!m) return;
     auto& transformation = g_glstate.fpe_uniform.transformation;
 
     // LOG_D("Matrix %s:", glEnumToString(transformation.matrix_mode))
-    print_matrix(transformation.matrices[matrix_idx(transformation.matrix_mode)]);
+    auto& matrix = current_matrix(transformation);
+    print_matrix(matrix);
     // LOG_D("*")
     auto mat = glm::make_mat4(m);
     print_matrix(mat);
 
-    transformation.matrices[matrix_idx(transformation.matrix_mode)] *= mat;
+    matrix *= mat;
     // LOG_D("=")
 
-    print_matrix(transformation.matrices[matrix_idx(transformation.matrix_mode)]);
+    print_matrix(matrix);
 }
 
 void glPushMatrix(void) {
@@ -209,12 +279,11 @@ void glPushMatrix(void) {
 
     auto& transformation = g_glstate.fpe_uniform.transformation;
 
-    auto idx = matrix_idx(transformation.matrix_mode);
-    auto& mat = transformation.matrices[idx];
-    transformation.matrices_stack[idx].push_back(mat);
+    auto& mat = current_matrix(transformation);
+    current_matrix_stack(transformation).push_back(mat);
 
     // LOG_D("Matrix %s:", glEnumToString(transformation.matrix_mode))
-    print_matrix(transformation.matrices[matrix_idx(transformation.matrix_mode)]);
+    print_matrix(mat);
 }
 
 void glPopMatrix(void) {
@@ -225,11 +294,12 @@ void glPopMatrix(void) {
 
     auto& transformation = g_glstate.fpe_uniform.transformation;
 
-    auto idx = matrix_idx(transformation.matrix_mode);
-    auto& mat = transformation.matrices[idx];
-    mat = transformation.matrices_stack[idx].back();
-    transformation.matrices_stack[idx].pop_back();
+    auto& mat = current_matrix(transformation);
+    auto& stack = current_matrix_stack(transformation);
+    if (stack.empty()) return;
+    mat = stack.back();
+    stack.pop_back();
 
     // LOG_D("Matrix %s:", glEnumToString(transformation.matrix_mode))
-    print_matrix(transformation.matrices[matrix_idx(transformation.matrix_mode)]);
+    print_matrix(mat);
 }

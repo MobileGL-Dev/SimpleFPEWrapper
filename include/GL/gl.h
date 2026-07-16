@@ -865,8 +865,11 @@ GLAPI void GLAPIENTRY glOrtho( GLdouble left, GLdouble right,
                                  GLdouble near_val, GLdouble far_val );
 
 GLAPI void GLAPIENTRY glFrustum( GLdouble left, GLdouble right,
-                                   GLdouble bottom, GLdouble top,
-                                   GLdouble near_val, GLdouble far_val );
+                                GLdouble bottom, GLdouble top,
+                                GLdouble near_val, GLdouble far_val );
+GLAPI void GLAPIENTRY glFrustumf( GLfloat left, GLfloat right,
+                                 GLfloat bottom, GLfloat top,
+                                 GLfloat near_val, GLfloat far_val );
 
 GLAPI void GLAPIENTRY glViewport( GLint x, GLint y,
                                     GLsizei width, GLsizei height );

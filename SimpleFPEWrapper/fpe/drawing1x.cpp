@@ -13,14 +13,30 @@
 
 #define DEBUG 0
 
+namespace {
+
+struct immediate_client_state_guard_t {
+    vertex_pointer_array_t vertexPointerArray = g_glstate.fpe_state.vertexpointer_array;
+    vertex_pointer_array_t normalizedVertexPointerArray = g_glstate.fpe_state.normalized_vpa;
+
+    immediate_client_state_guard_t() = default;
+
+    ~immediate_client_state_guard_t() {
+        g_glstate.fpe_state.vertexpointer_array = vertexPointerArray;
+        g_glstate.fpe_state.normalized_vpa = normalizedVertexPointerArray;
+    }
+
+    immediate_client_state_guard_t(const immediate_client_state_guard_t&) = delete;
+    immediate_client_state_guard_t& operator=(const immediate_client_state_guard_t&) = delete;
+};
+
+} // namespace
+
 void glBegin(GLenum mode) {
     LIST_RECORD(glBegin, {}, mode)
 
     if (!fpe_inited) {
-        if (init_fpe() != 0)
-            abort();
-        else
-            fpe_inited = true;
+        if (init_fpe() != 0) return;
     }
 
     auto& s = g_glstate.fpe_state.fpe_draw;
@@ -44,7 +60,11 @@ void glEnd() {
         return;
     }
 
-    GET_PREV_PROGRAM
+    fpe_backend_draw_state_guard_t backend_state;
+    // glBegin/glEnd uses temporary interleaved data. Preserve the caller's
+    // client-array declarations so an immediate draw cannot invalidate the
+    // following glDrawArrays call.
+    immediate_client_state_guard_t client_state;
 
     // actual assembly work, and draw!
     {
@@ -62,7 +82,10 @@ void glEnd() {
         auto& prog = g_glstate.get_or_generate_program(key);
 
         int prog_id = prog.get_program();
-        if (prog_id < 0) {}
+        if (prog_id <= 0) {
+            s.reset();
+            return;
+        }
         g_glFuncs.glUseProgram(prog_id);
 
         // VAO, VB
@@ -83,14 +106,21 @@ void glEnd() {
         // LOG_D("glEnd: glDrawArrays(%s, %d, %d), vb = %d, vb size = %d", glEnumToString(s.primitive), 0,
         // s.vertex_count,
         //      g_glstate.fpe_state.fpe_vbo, vbbuf.size())
-        g_glFuncs.glDrawArrays(s.primitive, 0, s.vertex_count);
+        if (s.primitive == GL_QUADS) {
+            g_glstate.fpe_state.fpe_ib = quad_to_triangle(s.vertex_count, 0);
+            g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_glstate.fpe_state.fpe_ibo);
+            g_glFuncs.glBufferData(GL_ELEMENT_ARRAY_BUFFER,
+                                   g_glstate.fpe_state.fpe_ib.size() * sizeof(uint32_t),
+                                   g_glstate.fpe_state.fpe_ib.data(), GL_DYNAMIC_DRAW);
+            g_glFuncs.glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(g_glstate.fpe_state.fpe_ib.size()),
+                                     GL_UNSIGNED_INT, (void*)0);
+        } else {
+            g_glFuncs.glDrawArrays(s.primitive, 0, s.vertex_count);
+        }
     }
-
-    SET_PREV_PROGRAM
 
     // resetting draw state
     s.reset();
-    raw_va.reset();
 }
 
 void glNormal3f(GLfloat nx, GLfloat ny, GLfloat nz) {

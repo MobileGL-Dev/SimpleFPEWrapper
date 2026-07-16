@@ -139,6 +139,10 @@ public:
             argsTuple);
     }
 
+    void recordCommand(std::unique_ptr<GLCmd> command) {
+        if (command != nullptr) lists[currentListID].emplace_back(std::move(command));
+    }
+
     static void callList(GLuint listID) {
         auto it = lists.find(listID);
         if (it == lists.end()) return;

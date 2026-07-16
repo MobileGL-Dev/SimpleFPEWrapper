@@ -15,7 +15,10 @@ struct scratch_t {
     std::string last_stage_linkage;
     std::string vs_body;
 
+    bool has_color_input = false;
+    bool has_normal_input = false;
     bool has_vertex_color = false;
+    bool has_back_vertex_color = false;
     bool has_texcoord[MAX_TEX] = {false};
 };
 

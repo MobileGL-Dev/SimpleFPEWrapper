@@ -9,11 +9,14 @@
 #include "types.h"
 #include "transformation.h"
 #include "../init.h"
+#include <format>
+#include <glm/gtc/matrix_inverse.hpp>
 
 #define DEBUG 0
 
 void glstate_t::send_uniforms(int program) {
     // LOG()
+    if (program <= 0) return;
 
     const auto& mv = fpe_uniform.transformation.matrices[matrix_idx(GL_MODELVIEW)];
     const auto& proj = fpe_uniform.transformation.matrices[matrix_idx(GL_PROJECTION)];
@@ -33,32 +36,83 @@ void glstate_t::send_uniforms(int program) {
     GLint mat_id = g_glFuncs.glGetUniformLocation(program, "ModelViewProjMat");
 
     const auto mat = proj * mv;
-    g_glFuncs.glUniformMatrix4fv(mvmat, 1, GL_FALSE,
-                                 glm::value_ptr(fpe_uniform.transformation.matrices[matrix_idx(GL_MODELVIEW)]));
+    if (mvmat >= 0) {
+        g_glFuncs.glUniformMatrix4fv(mvmat, 1, GL_FALSE,
+                                     glm::value_ptr(fpe_uniform.transformation.matrices[matrix_idx(GL_MODELVIEW)]));
+    }
 
     //    g_glFuncs.glUniformMatrix4fv(projmat, 1, GL_FALSE,
     //    glm::value_ptr(fpe_uniform.transformation.matrices[matrix_idx(GL_PROJECTION)]));
-    g_glFuncs.glUniformMatrix4fv(mat_id, 1, GL_FALSE, glm::value_ptr(mat));
+    if (mat_id >= 0) g_glFuncs.glUniformMatrix4fv(mat_id, 1, GL_FALSE, glm::value_ptr(mat));
 
-    g_glFuncs.glUniform1i(g_glFuncs.glGetUniformLocation(program, "Sampler0"), 0);
+    if (fpe_state.fpe_bools.lighting_enable) {
+        const auto send_vec4 = [program](const std::string& name, const glm::vec4& value) {
+            const GLint location = g_glFuncs.glGetUniformLocation(program, name.c_str());
+            if (location >= 0) g_glFuncs.glUniform4fv(location, 1, glm::value_ptr(value));
+        };
+
+        const glm::mat3 normal_matrix = glm::inverseTranspose(glm::mat3(mv));
+        const GLint normal_matrix_id = g_glFuncs.glGetUniformLocation(program, "NormalMat");
+        if (normal_matrix_id >= 0) {
+            g_glFuncs.glUniformMatrix3fv(normal_matrix_id, 1, GL_FALSE, glm::value_ptr(normal_matrix));
+        }
+
+        send_vec4("LightModelAmbient", fpe_uniform.light_model_ambient);
+
+        const auto send_material = [&send_vec4](const char* prefix, const material_t& material) {
+            send_vec4(std::format("{}Ambient", prefix), material.ambient);
+            send_vec4(std::format("{}Diffuse", prefix), material.diffuse);
+            send_vec4(std::format("{}Emission", prefix), material.emission);
+        };
+        send_material("FrontMaterial", fpe_uniform.materials[0]);
+        if (fpe_state.light_model_two_side) {
+            send_material("BackMaterial", fpe_uniform.materials[1]);
+        }
+
+        for (int i = 0; i < MAX_LIGHTS; ++i) {
+            if (!fpe_state.fpe_bools.light_enable[i]) continue;
+
+            const auto& light = fpe_uniform.lights[i];
+            send_vec4(std::format("Light{}Ambient", i), light.ambient);
+            send_vec4(std::format("Light{}Diffuse", i), light.diffuse);
+            send_vec4(std::format("Light{}Position", i), light.position);
+        }
+    }
+
+    for (int i = 0; i < MAX_TEX; ++i) {
+        if (!fpe_state.fpe_bools.texture_2d_enable[i]) continue;
+
+        const auto sampler_name = std::format("Sampler{}", i);
+        const GLint sampler = g_glFuncs.glGetUniformLocation(program, sampler_name.c_str());
+        if (sampler >= 0) g_glFuncs.glUniform1i(sampler, i);
+
+        const auto matrix_name = std::format("TexMat{}", i);
+        const GLint texture_matrix = g_glFuncs.glGetUniformLocation(program, matrix_name.c_str());
+        if (texture_matrix >= 0) {
+            g_glFuncs.glUniformMatrix4fv(texture_matrix, 1, GL_FALSE,
+                                         glm::value_ptr(fpe_uniform.transformation.texture_matrices[i]));
+        }
+
+        const auto env_color_name = std::format("TexEnvColor{}", i);
+        const GLint env_color = g_glFuncs.glGetUniformLocation(program, env_color_name.c_str());
+        if (env_color >= 0) {
+            g_glFuncs.glUniform4fv(env_color, 1, glm::value_ptr(fpe_uniform.texture_env[i].color));
+        }
+    }
 
     if (fpe_state.fpe_bools.fog_enable) {
-        GLint fogcolor_id = g_glFuncs.glGetUniformLocation(program, "fogParam.color");
+        const GLint fogcolor_id = g_glFuncs.glGetUniformLocation(program, "FogColor");
+        if (fogcolor_id >= 0)
+            g_glFuncs.glUniform4fv(fogcolor_id, 1, glm::value_ptr(fpe_uniform.fog_color));
 
-        // LOG_D("fogcolor_id = %d", fogcolor_id)
-        g_glFuncs.glUniform4fv(fogcolor_id, 1, glm::value_ptr(fpe_uniform.fog_color));
+        const GLint fogdensity_id = g_glFuncs.glGetUniformLocation(program, "FogDensity");
+        if (fogdensity_id >= 0) g_glFuncs.glUniform1f(fogdensity_id, fpe_uniform.fog_density);
 
-        GLint fogdensity_id = g_glFuncs.glGetUniformLocation(program, "fogParam.density");
+        const GLint fogstart_id = g_glFuncs.glGetUniformLocation(program, "FogStart");
+        if (fogstart_id >= 0) g_glFuncs.glUniform1f(fogstart_id, fpe_uniform.fog_start);
 
-        g_glFuncs.glUniform1f(fogdensity_id, fpe_uniform.fog_density);
-
-        GLint fogstart_id = g_glFuncs.glGetUniformLocation(program, "fogParam.start");
-
-        g_glFuncs.glUniform1f(fogstart_id, fpe_uniform.fog_start);
-
-        GLint fogend_id = g_glFuncs.glGetUniformLocation(program, "fogParam.end");
-
-        g_glFuncs.glUniform1f(fogend_id, fpe_uniform.fog_end);
+        const GLint fogend_id = g_glFuncs.glGetUniformLocation(program, "FogEnd");
+        if (fogend_id >= 0) g_glFuncs.glUniform1f(fogend_id, fpe_uniform.fog_end);
     }
 
     if (fpe_state.fpe_bools.alpha_test_enable) {
@@ -87,8 +141,11 @@ uint64_t glstate_t::program_hash(bool reset) {
     hash.add(&fpe_state.light_model_color_ctrl, sizeof(fpe_state.light_model_color_ctrl));
     hash.add(&fpe_state.light_model_local_viewer, sizeof(fpe_state.light_model_local_viewer));
     hash.add(&fpe_state.light_model_two_side, sizeof(fpe_state.light_model_two_side));
+    hash.add(&fpe_state.color_material_face, sizeof(fpe_state.color_material_face));
+    hash.add(&fpe_state.color_material_mode, sizeof(fpe_state.color_material_mode));
 
     hash.add(&fpe_state.fpe_bools, sizeof(fpe_state.fpe_bools));
+    hash.add(&fpe_state.texture_env_mode, sizeof(fpe_state.texture_env_mode));
 
     uint64_t key = hash.hash();
 
@@ -125,7 +182,6 @@ uint64_t glstate_t::vertex_attrib_hash(bool reset) {
                 hash.add(&attr.type, sizeof(attr.type));
                 hash.add(&attr.normalized, sizeof(attr.normalized));
                 //                hash.add(&attr.stride, sizeof(attr.stride));
-                hash.add(&attr.pointer, sizeof(attr.pointer));
             } else {
                 const GLenum t = GL_FLOAT;
                 hash.add(&t, sizeof(t));
@@ -139,24 +195,18 @@ uint64_t glstate_t::vertex_attrib_hash(bool reset) {
 
 program_t& glstate_t::get_or_generate_program(const uint64_t key) {
     // LOG()
-    if (fpe_programs.find(key) == fpe_programs.end()) {
+    auto it = fpe_programs.find(key);
+    if (it == fpe_programs.end()) {
         // LOG_D("Generating new shader: 0x%x", key)
         fpe_shader_generator gen(fpe_state);
         program_t program = gen.generate_program();
-        int prog_id = program.get_program();
-        if (prog_id > 0)
-            fpe_programs[key] = program;
-        else {
-            // LOG_D("Error: FPE shader link failed!")
-            // reserve key==0 as null program for failure
-            return fpe_programs[0];
-        }
+        program.get_program();
+        it = fpe_programs.emplace(key, std::move(program)).first;
     } else {
         // LOG_D("Using existing shader: 0x%x", key)
     }
 
-    auto& prog = fpe_programs[key];
-    return prog;
+    return it->second;
 }
 
 bool glstate_t::get_vao(const uint64_t key, GLuint* vao) {
@@ -213,7 +263,17 @@ bool glstate_t::send_vertex_attributes(const vertex_pointer_array_t& va) const {
                 }
                 break;
             default:
-                // LOG_D("attrib #%d: (disabled)", i)
+                // A disabled texture-coordinate array consumes the current
+                // coordinate for that unit. Minecraft uses this path for the
+                // entity lightmap via glMultiTexCoord* rather than a second
+                // client array.
+                if (i >= 7 && i < 7 + MAX_TEX) {
+                    const int textureUnit = i - 7;
+                    if (fpe_state.fpe_draw.current_data.sizes.texcoord_size[textureUnit] > 0) {
+                        const auto& v = fpe_state.fpe_draw.current_data.texcoord[textureUnit];
+                        g_glFuncs.glVertexAttrib4fv(va.cidx(i), glm::value_ptr(v));
+                    }
+                }
                 break;
             }
 

@@ -26,10 +26,17 @@ extern "C"
                                   GLdouble far_val);
     GLAPI GLAPIENTRY void glOrthof(GLfloat left, GLfloat right, GLfloat bottom, GLfloat top, GLfloat near_val,
                                    GLfloat far_val);
+    GLAPI GLAPIENTRY void glFrustum(GLdouble left, GLdouble right, GLdouble bottom, GLdouble top, GLdouble near_val,
+                                    GLdouble far_val);
+    GLAPI GLAPIENTRY void glFrustumf(GLfloat left, GLfloat right, GLfloat bottom, GLfloat top, GLfloat near_val,
+                                     GLfloat far_val);
     GLAPI GLAPIENTRY void glScalef(GLfloat x, GLfloat y, GLfloat z);
     GLAPI GLAPIENTRY void glTranslatef(GLfloat x, GLfloat y, GLfloat z);
     GLAPI GLAPIENTRY void glRotatef(GLfloat angle, GLfloat x, GLfloat y, GLfloat z);
 
+    GLAPI GLAPIENTRY void glLoadMatrixd(const GLdouble* m);
+    GLAPI GLAPIENTRY void glLoadMatrixf(const GLfloat* m);
+    GLAPI GLAPIENTRY void glMultMatrixd(const GLdouble* m);
     GLAPI GLAPIENTRY void glMultMatrixf(const GLfloat* m);
 
     GLAPI GLAPIENTRY void glRotated(GLdouble angle, GLdouble x, GLdouble y, GLdouble z);

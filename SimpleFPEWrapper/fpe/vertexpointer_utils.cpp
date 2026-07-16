@@ -61,13 +61,16 @@ GLenum idx2vp(int idx) {
     case 3:
         return GL_INDEX_ARRAY;
     case 4:
-        return GL_TEXTURE_COORD_ARRAY;
-    case 5:
         return GL_EDGE_FLAG_ARRAY;
-    case 6:
+    case 5:
         return GL_FOG_COORD_ARRAY;
-    case 7:
+    case 6:
         return GL_SECONDARY_COLOR_ARRAY;
+    default:
+        if (idx >= 7 && idx < VERTEX_POINTER_COUNT) {
+            return GL_TEXTURE_COORD_ARRAY + (idx - 7);
+        }
+        break;
     }
     // LOG_E("ERROR: 1280")
 

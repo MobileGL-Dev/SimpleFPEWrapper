@@ -7,14 +7,30 @@
 // End of Source File Header
 
 #include "vertexpointer.h"
-#include "list.h"
 #include "fpe.hpp"
 
 #define DEBUG 0
 
-void glVertexPointer(GLint size, GLenum type, GLsizei stride, const void* pointer) {
-    LIST_RECORD(glVertexPointer, {}, size, type, stride, pointer)
+namespace {
 
+GLuint clientArrayBufferBindings[VERTEX_POINTER_COUNT] = {};
+
+void rememberClientArrayBufferBinding(int index) {
+    if (index < 0 || index >= VERTEX_POINTER_COUNT) return;
+
+    GLint binding = 0;
+    g_glFuncs.glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &binding);
+    clientArrayBufferBindings[index] = static_cast<GLuint>(binding);
+}
+
+} // namespace
+
+GLuint getClientArrayBufferBinding(int index) {
+    if (index < 0 || index >= VERTEX_POINTER_COUNT) return 0;
+    return clientArrayBufferBindings[index];
+}
+
+void glVertexPointer(GLint size, GLenum type, GLsizei stride, const void* pointer) {
     // LOG_D("glVertexPointer, size = %d, type = %s, stride = %d, pointer = 0x%x", size, glEnumToString(type), stride,
     // pointer)
     auto& attr = g_glstate.fpe_state.vertexpointer_array.attributes[vp2idx(GL_VERTEX_ARRAY)];
@@ -24,30 +40,28 @@ void glVertexPointer(GLint size, GLenum type, GLsizei stride, const void* pointe
     attr.normalized = GL_FALSE;
     attr.stride = stride;
     attr.pointer = pointer;
+    rememberClientArrayBufferBinding(vp2idx(GL_VERTEX_ARRAY));
     //    attr.varying = true;
     g_glstate.fpe_state.vertexpointer_array.dirty = true;
     g_glstate.fpe_state.vertexpointer_array.buffer_based = true;
 }
 
 void glNormalPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
-    LIST_RECORD(glNormalPointer, {}, type, stride, pointer)
-
     // LOG_D("glNormalPointer, type = %s, stride = %d, pointer = 0x%x", glEnumToString(type), stride, pointer)
     g_glstate.fpe_state.vertexpointer_array.attributes[vp2idx(GL_NORMAL_ARRAY)] = {
         .size = 3,
         .usage = GL_NORMAL_ARRAY,
         .type = type,
-        .normalized = GL_FALSE,
+        .normalized = static_cast<GLenum>((type == GL_FLOAT || type == GL_DOUBLE) ? GL_FALSE : GL_TRUE),
         .stride = stride,
         .pointer = pointer,
         //            .varying = true
     };
+    rememberClientArrayBufferBinding(vp2idx(GL_NORMAL_ARRAY));
     g_glstate.fpe_state.vertexpointer_array.dirty = true;
 }
 
 void glColorPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* pointer) {
-    LIST_RECORD(glColorPointer, {}, size, type, stride, pointer)
-
     // LOG_D("glColorPointer, size = %d, type = %s, stride = %d, pointer = 0x%x", size, glEnumToString(type), stride,
     // pointer)
     g_glstate.fpe_state.vertexpointer_array.attributes[vp2idx(GL_COLOR_ARRAY)] = {
@@ -59,15 +73,15 @@ void glColorPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* point
         .pointer = pointer,
         //            .varying = true
     };
+    rememberClientArrayBufferBinding(vp2idx(GL_COLOR_ARRAY));
     g_glstate.fpe_state.vertexpointer_array.dirty = true;
 }
 
 void glTexCoordPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* pointer) {
-    LIST_RECORD(glTexCoordPointer, {}, size, type, stride, pointer)
-
     // LOG_D("glTexCoordPointer, size = %d, type = %s, stride = %d, pointer = 0x%x", size, glEnumToString(type), stride,
     // pointer) LOG_D("Active texture: %s", glEnumToString(g_glstate.fpe_state.client_active_texture))
-    g_glstate.fpe_state.vertexpointer_array.attributes[vp2idx(GL_TEXTURE_COORD_ARRAY)] = {
+    const int index = vp2idx(GL_TEXTURE_COORD_ARRAY);
+    g_glstate.fpe_state.vertexpointer_array.attributes[index] = {
         .size = size,
         .usage = GL_TEXTURE_COORD_ARRAY + (g_glstate.fpe_state.client_active_texture - GL_TEXTURE0),
         .type = type,
@@ -76,12 +90,11 @@ void glTexCoordPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* po
         .pointer = pointer,
         //            .varying = true
     };
+    rememberClientArrayBufferBinding(index);
     g_glstate.fpe_state.vertexpointer_array.dirty = true;
 }
 
 void glIndexPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
-    LIST_RECORD(glIndexPointer, {}, type, stride, pointer)
-
     // LOG_D("glIndexPointer, size = %d, type = %s, stride = %d, pointer = 0x%x", glEnumToString(type), stride, pointer)
     g_glstate.fpe_state.vertexpointer_array.attributes[vp2idx(GL_INDEX_ARRAY)] = {
         .size = 1,
@@ -92,13 +105,12 @@ void glIndexPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
         .pointer = pointer,
         //            .varying = true
     };
+    rememberClientArrayBufferBinding(vp2idx(GL_INDEX_ARRAY));
     g_glstate.fpe_state.vertexpointer_array.dirty = true;
 }
 
 void glEnableClientState(GLenum cap) {
     // LOG_D("glEnableClientState, cap = %s", glEnumToString(cap))
-
-    LIST_RECORD(glEnableClientState, {}, cap)
 
     auto mask = vp_mask(cap);
     g_glstate.fpe_state.vertexpointer_array.enabled_pointers |= mask;
@@ -109,8 +121,6 @@ void glEnableClientState(GLenum cap) {
 void glDisableClientState(GLenum cap) {
     // LOG_D("glDisableClientState, cap = %s", glEnumToString(cap))
     auto mask = vp_mask(cap);
-
-    LIST_RECORD(glDisableClientState, {}, cap)
 
     g_glstate.fpe_state.vertexpointer_array.enabled_pointers &= (~mask);
     // LOG_D("Enabled Ptr: 0x%x", g_glstate.fpe_state.vertexpointer_array.enabled_pointers)

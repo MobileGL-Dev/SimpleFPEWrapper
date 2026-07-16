@@ -28,4 +28,9 @@ extern "C"
 
 #ifdef __cplusplus
 }
+
+// The array-buffer binding is part of each legacy client-array pointer's
+// state. Keep it alongside the existing pointer metadata without expanding
+// vertex_pointer_array_t, which is shared with shader-generation work.
+GLuint getClientArrayBufferBinding(int index);
 #endif

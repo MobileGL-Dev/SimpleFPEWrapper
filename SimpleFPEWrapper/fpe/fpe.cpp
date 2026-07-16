@@ -18,11 +18,17 @@ glstate_t& glstate_t::get_instance() {
 
 GLsizei type_size(GLenum type) {
     switch (type) {
+    case GL_BYTE:
+    case GL_UNSIGNED_BYTE:
+        return 1;
     case GL_SHORT:
+    case GL_UNSIGNED_SHORT:
+    case GL_HALF_FLOAT:
         return 2;
     case GL_INT:
-        return 4;
+    case GL_UNSIGNED_INT:
     case GL_FLOAT:
+    case GL_FIXED:
         return 4;
     case GL_DOUBLE:
         return 8;
@@ -32,14 +38,14 @@ GLsizei type_size(GLenum type) {
     }
 }
 
-std::vector<uint32_t> quad_to_triangle(int n) {
+std::vector<uint32_t> quad_to_triangle(GLsizei n, GLuint first) {
     int num_quads = n / 4;
     int num_indices = num_quads * 6;
 
     std::vector<uint32_t> indices(num_indices, 0);
 
     for (int i = 0; i < num_quads; i++) {
-        int base_index = i * 4;
+        uint32_t base_index = first + i * 4;
 
         indices[i * 6 + 0] = base_index + 0;
         indices[i * 6 + 1] = base_index + 1;
@@ -82,6 +88,21 @@ bool fpe_inited = false;
 int init_fpe() {
     // LOG_I("Initializing fixed-function pipeline...")
 
+    if (fpe_inited) return 0;
+
+    if (g_eglFuncs.eglGetCurrentContext == nullptr || g_eglFuncs.eglGetCurrentContext() == EGL_NO_CONTEXT) {
+        return -1;
+    }
+
+    if (g_glFuncs.glGenVertexArrays == nullptr || g_glFuncs.glDeleteVertexArrays == nullptr ||
+        g_glFuncs.glGenBuffers == nullptr || g_glFuncs.glDeleteBuffers == nullptr) {
+        SFPEW::Utils::BackendLoader::AcquireBackendGLFunctions(g_glFuncs, g_eglFuncs.eglGetProcAddress);
+    }
+    if (g_glFuncs.glGenVertexArrays == nullptr || g_glFuncs.glDeleteVertexArrays == nullptr ||
+        g_glFuncs.glGenBuffers == nullptr || g_glFuncs.glDeleteBuffers == nullptr) {
+        return -1;
+    }
+
     g_glFuncs.glGenVertexArrays(1, &g_glstate.fpe_state.fpe_vao);
 
     g_glFuncs.glGenBuffers(1, &g_glstate.fpe_state.fpe_vbo);
@@ -92,10 +113,21 @@ int init_fpe() {
     // LOG_D("fpe_vbo: %d", g_glstate.fpe_state.fpe_vbo)
     // LOG_D("fpe_ibo: %d", g_glstate.fpe_state.fpe_ibo)
 
-    g_glFuncs.glBindVertexArray(g_glstate.fpe_state.fpe_vao);
+    if (g_glstate.fpe_state.fpe_vao == 0 || g_glstate.fpe_state.fpe_vbo == 0 ||
+        g_glstate.fpe_state.fpe_ibo == 0) {
+        if (g_glstate.fpe_state.fpe_vao != 0)
+            g_glFuncs.glDeleteVertexArrays(1, &g_glstate.fpe_state.fpe_vao);
+        if (g_glstate.fpe_state.fpe_vbo != 0)
+            g_glFuncs.glDeleteBuffers(1, &g_glstate.fpe_state.fpe_vbo);
+        if (g_glstate.fpe_state.fpe_ibo != 0)
+            g_glFuncs.glDeleteBuffers(1, &g_glstate.fpe_state.fpe_ibo);
+        g_glstate.fpe_state.fpe_vao = 0;
+        g_glstate.fpe_state.fpe_vbo = 0;
+        g_glstate.fpe_state.fpe_ibo = 0;
+        return -1;
+    }
 
-    g_glFuncs.glBindVertexArray(0);
-
+    fpe_inited = true;
     return 0;
 }
 
@@ -103,10 +135,7 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count) {
     // LOG()
 
     if (!fpe_inited) {
-        if (init_fpe() != 0)
-            abort();
-        else
-            fpe_inited = true;
+        if (init_fpe() != 0) return -1;
     }
 
     // Need to generate_compressed_index first (shadergen will use that)
@@ -124,7 +153,10 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count) {
     // LOG_D("%s: key=0x%x", __func__, key)
     auto& prog = g_glstate.get_or_generate_program(key);
     int prog_id = prog.get_program();
-    // if (prog_id < 0) LOG_D("Error: FPE shader link failed!")
+    if (prog_id <= 0) {
+        vpa.reset();
+        return -1;
+    }
     g_glFuncs.glUseProgram(prog_id);
 
     GLint prev_vbo = 0;
@@ -144,7 +176,7 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count) {
     int ret = 0;
 
     // Making sure it is a valid pointer rather than an offset into the buffer
-    if (vpa.starting_pointer != nullptr && vpa.starting_pointer > (void*)vpa.stride) {
+    if (reinterpret_cast<uintptr_t>(vpa.starting_pointer) > static_cast<uintptr_t>(vpa.stride)) {
         // LOG_D("VB @ 0x%x, size = %d * %d = %d", vpa.starting_pointer, *count, vpa.stride, *count * vpa.stride)
 
 #if DEBUG || GLOBAL_DEBUG
@@ -170,14 +202,16 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count) {
         // vpa.starting_pointer,
         //      g_glstate.fpe_state.fpe_vbo)
 
-        g_glFuncs.glBufferData(GL_ARRAY_BUFFER, *count * vpa.stride, vpa.starting_pointer, GL_DYNAMIC_DRAW);
+        const auto* draw_start = static_cast<const uint8_t*>(vpa.starting_pointer) + *first * vpa.stride;
+        g_glFuncs.glBufferData(GL_ARRAY_BUFFER, *count * vpa.stride, draw_start, GL_DYNAMIC_DRAW);
+        *first = 0;
 
     } else {
         // LOG_D("Using already bound VB")
     }
 
     if (*mode == GL_QUADS) {
-        g_glstate.fpe_state.fpe_ib = quad_to_triangle(*count);
+        g_glstate.fpe_state.fpe_ib = quad_to_triangle(*count, static_cast<uint32_t>(*first));
 
         // LOG_D("glBufferData: size = %d, data = 0x%x -> GL_ELEMENT_ARRAY_BUFFER (%d)",
         //      g_glstate.fpe_state.fpe_ib.size() * sizeof(uint32_t), g_glstate.fpe_state.fpe_ib.data(),

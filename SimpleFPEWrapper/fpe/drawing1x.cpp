@@ -123,6 +123,8 @@ struct pending_glyph_batch_t {
     std::vector<GLfloat> vertices;
     size_t vertexCount = 0;
     size_t glyphCount = 0;
+    GLenum activeTexture = GL_TEXTURE0;
+    GLuint texture2D = 0;
 };
 
 thread_local pending_glyph_batch_t pendingGlyphBatch;
@@ -195,7 +197,14 @@ bool queueGlyphTriangleStrip(const fixed_function_draw_state_t& draw) {
 
     auto& batch = pendingGlyphBatch;
     const auto& sizes = draw.current_data.sizes;
-    if (batch.active && std::memcmp(&batch.sizes, &sizes, sizeof(sizes)) != 0) {
+    GLint activeTexture = GL_TEXTURE0;
+    GLint texture2D = 0;
+    g_glFuncs.glGetIntegerv(GL_ACTIVE_TEXTURE, &activeTexture);
+    g_glFuncs.glGetIntegerv(GL_TEXTURE_BINDING_2D, &texture2D);
+    if (batch.active &&
+        (std::memcmp(&batch.sizes, &sizes, sizeof(sizes)) != 0 ||
+         batch.activeTexture != static_cast<GLenum>(activeTexture) ||
+         batch.texture2D != static_cast<GLuint>(texture2D))) {
         flushPendingImmediateDraws();
     }
     if (!batch.active) {
@@ -204,13 +213,18 @@ bool queueGlyphTriangleStrip(const fixed_function_draw_state_t& draw) {
         batch.vertices.clear();
         batch.vertexCount = 0;
         batch.glyphCount = 0;
+        batch.activeTexture = static_cast<GLenum>(activeTexture);
+        batch.texture2D = static_cast<GLuint>(texture2D);
         batch.vertices.reserve(kImmediateGlyphBatchLimit * (draw.vb.size() / 4u) * 6u);
     }
 
     const size_t stride = draw.vb.size() / 4u;
+    const size_t oldSize = batch.vertices.size();
+    batch.vertices.resize(oldSize + stride * 6u);
+    GLfloat* output = batch.vertices.data() + oldSize;
     const auto appendVertex = [&](size_t index) {
-        const auto begin = draw.vb.begin() + static_cast<ptrdiff_t>(index * stride);
-        batch.vertices.insert(batch.vertices.end(), begin, begin + static_cast<ptrdiff_t>(stride));
+        std::memcpy(output, draw.vb.data() + index * stride, stride * sizeof(GLfloat));
+        output += stride;
     };
     // Four vertices in a triangle strip form 0-1-2 and 2-1-3. Expand to
     // independent triangles so adjacent glyphs can share one draw call.
@@ -233,8 +247,23 @@ void flushPendingImmediateDraws() {
     auto& batch = pendingGlyphBatch;
     if (!batch.active) return;
 
+    GLint callerActiveTexture = GL_TEXTURE0;
+    g_glFuncs.glGetIntegerv(GL_ACTIVE_TEXTURE, &callerActiveTexture);
+    if (static_cast<GLenum>(callerActiveTexture) != batch.activeTexture)
+        g_glFuncs.glActiveTexture(batch.activeTexture);
+
+    GLint callerTexture2D = 0;
+    g_glFuncs.glGetIntegerv(GL_TEXTURE_BINDING_2D, &callerTexture2D);
+    if (static_cast<GLuint>(callerTexture2D) != batch.texture2D)
+        g_glFuncs.glBindTexture(GL_TEXTURE_2D, batch.texture2D);
+
     drawImmediateVertices(GL_TRIANGLES, batch.vertices.data(), batch.vertices.size(),
                           batch.vertexCount, batch.sizes);
+
+    if (static_cast<GLuint>(callerTexture2D) != batch.texture2D)
+        g_glFuncs.glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(callerTexture2D));
+    if (static_cast<GLenum>(callerActiveTexture) != batch.activeTexture)
+        g_glFuncs.glActiveTexture(static_cast<GLenum>(callerActiveTexture));
     batch.active = false;
     batch.vertices.clear();
     batch.vertexCount = 0;

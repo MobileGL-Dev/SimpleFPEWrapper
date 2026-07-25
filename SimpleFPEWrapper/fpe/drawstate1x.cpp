@@ -21,10 +21,19 @@ void fixed_function_draw_state_t::advance() {
     ++vertex_count;
 
     const auto& sizes = current_data.sizes;
-    const auto append = [this](const GLfloat* values, GLint count) {
-        const size_t old_size = vb.size();
-        vb.resize(old_size + static_cast<size_t>(count));
-        std::memcpy(vb.data() + old_size, values, static_cast<size_t>(count) * sizeof(GLfloat));
+    size_t float_count = 0;
+    for (GLint count : sizes.data) {
+        if (count > 0) float_count += static_cast<size_t>(count);
+    }
+
+    const size_t old_size = vb.size();
+    vb.resize(old_size + float_count);
+    GLfloat* output = vb.data() + old_size;
+    const auto append = [&output](const GLfloat* values, GLint count) {
+        if (count <= 0) return;
+        const size_t byte_count = static_cast<size_t>(count) * sizeof(GLfloat);
+        std::memcpy(output, values, byte_count);
+        output += count;
     };
 
     // vertex

@@ -20,6 +20,8 @@ SFPEW_APIENTRY const GLubyte* glGetString(GLenum name);
 SFPEW_APIENTRY const GLubyte* glGetStringi(GLenum name, GLuint index);
 SFPEW_APIENTRY void glGetIntegerv(GLenum pname, GLint* params);
 SFPEW_APIENTRY void glDrawArrays(GLenum mode, GLint first, GLsizei count);
+SFPEW_APIENTRY void glBindBuffer(GLenum target, GLuint buffer);
+SFPEW_APIENTRY void glDeleteBuffers(GLsizei n, const GLuint* buffers);
 SFPEW_APIENTRY void glGetFloatv(GLenum pname, GLfloat* params);
 SFPEW_APIENTRY void glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height,
                                 GLint border, GLenum format, GLenum type, const GLvoid* pixels);

@@ -289,12 +289,12 @@ void drawArraysNow(GLenum mode, GLint first, GLsizei count, bool forceFixedFunct
         return;
     }
 
-    fpe_backend_draw_state_guard_t backend_state;
-    int do_draw_element = commit_fpe_state_on_draw(&mode, &first, &count);
+    fpe_backend_draw_state_guard_t backend_state(current_program);
+    int do_draw_element = commit_fpe_state_on_draw(&mode, &first, &count, backend_state.array_buffer);
     if (do_draw_element < 0) {
         return;
     } else if (do_draw_element > 0) {
-        g_glFuncs.glDrawElements(mode, count, GL_UNSIGNED_INT, (void*)0);
+        g_glFuncs.glDrawElements(mode, count, quad_index_type(), (void*)0);
     } else {
         g_glFuncs.glDrawArrays(mode, first, count);
     }

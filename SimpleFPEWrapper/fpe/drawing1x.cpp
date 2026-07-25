@@ -97,23 +97,28 @@ void glEnd() {
         g_glFuncs.glBufferData(GL_ARRAY_BUFFER, vbbuf.size(), vbbuf.c_str(), GL_DYNAMIC_DRAW);
 
         // Vertex Pointer to ES
-        g_glstate.send_vertex_attributes(va);
+        g_glstate.send_vertex_attributes(va, g_glstate.fpe_state.fpe_vbo);
 
         // Uniform
-        { g_glstate.send_uniforms(prog_id); }
+        { g_glstate.send_uniforms(prog); }
 
         // Draw
         // LOG_D("glEnd: glDrawArrays(%s, %d, %d), vb = %d, vb size = %d", glEnumToString(s.primitive), 0,
         // s.vertex_count,
         //      g_glstate.fpe_state.fpe_vbo, vbbuf.size())
         if (s.primitive == GL_QUADS) {
-            g_glstate.fpe_state.fpe_ib = quad_to_triangle(s.vertex_count, 0);
-            g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_glstate.fpe_state.fpe_ibo);
-            g_glFuncs.glBufferData(GL_ELEMENT_ARRAY_BUFFER,
-                                   g_glstate.fpe_state.fpe_ib.size() * sizeof(uint32_t),
-                                   g_glstate.fpe_state.fpe_ib.data(), GL_DYNAMIC_DRAW);
-            g_glFuncs.glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(g_glstate.fpe_state.fpe_ib.size()),
-                                     GL_UNSIGNED_INT, (void*)0);
+            const GLsizei vertex_count = static_cast<GLsizei>(s.vertex_count);
+            const GLsizei index_count = (vertex_count / 4) * 6;
+            const bool upload_indices = prepare_quad_indices(vertex_count, 0);
+            if (!g_glstate.fpe_state.fpe_ibo_bound) {
+                g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_glstate.fpe_state.fpe_ibo);
+                g_glstate.fpe_state.fpe_ibo_bound = true;
+            }
+            if (upload_indices) {
+                g_glFuncs.glBufferData(GL_ELEMENT_ARRAY_BUFFER, quad_index_size_bytes(), quad_index_data(),
+                                       GL_DYNAMIC_DRAW);
+            }
+            g_glFuncs.glDrawElements(GL_TRIANGLES, index_count, quad_index_type(), (void*)0);
         } else {
             g_glFuncs.glDrawArrays(s.primitive, 0, s.vertex_count);
         }

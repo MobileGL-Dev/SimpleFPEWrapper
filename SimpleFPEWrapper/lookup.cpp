@@ -22,6 +22,14 @@ SFPEW_APIENTRY __eglMustCastToProperFunctionPointerType eglGetProcAddress(const 
     GETPROC(glGetStringi, name)
     GETPROC(glGetIntegerv, name)
     GETPROC(glDrawArrays, name)
+    GETPROC(glBindBuffer, name)
+    GETPROC(glDeleteBuffers, name)
+    if (std::strcmp("glBindBufferARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glBindBuffer;
+    }
+    if (std::strcmp("glDeleteBuffersARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glDeleteBuffers;
+    }
     GETPROC(glTexImage2D, name)
     GETPROC(glGetTexLevelParameteriv, name)
     GETPROC(glGetTexLevelParameterfv, name)

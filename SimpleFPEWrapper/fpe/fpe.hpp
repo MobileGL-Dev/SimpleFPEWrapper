@@ -25,7 +25,10 @@
 extern bool fpe_inited;
 
 int init_fpe();
-std::vector<uint32_t> quad_to_triangle(GLsizei count, GLuint first = 0);
+bool prepare_quad_indices(GLsizei count, GLuint first = 0);
+const void* quad_index_data();
+size_t quad_index_size_bytes();
+GLenum quad_index_type();
 
 struct fpe_backend_draw_state_guard_t {
     GLint program = 0;
@@ -33,8 +36,11 @@ struct fpe_backend_draw_state_guard_t {
     GLint array_buffer = 0;
     GLint element_array_buffer = 0;
 
-    fpe_backend_draw_state_guard_t() {
-        g_glFuncs.glGetIntegerv(GL_CURRENT_PROGRAM, &program);
+    explicit fpe_backend_draw_state_guard_t(GLint known_program = -1) {
+        if (known_program >= 0)
+            program = known_program;
+        else
+            g_glFuncs.glGetIntegerv(GL_CURRENT_PROGRAM, &program);
         g_glFuncs.glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &vertex_array);
         g_glFuncs.glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &array_buffer);
         g_glFuncs.glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &element_array_buffer);
@@ -52,4 +58,4 @@ struct fpe_backend_draw_state_guard_t {
 };
 
 // -1 - FPE unavailable, 0 - keep DrawArrays, 1 - switch to DrawElements
-int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count);
+int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint previous_array_buffer);

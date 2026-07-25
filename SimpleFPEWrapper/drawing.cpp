@@ -11,6 +11,7 @@
 #include "fpe/fpe.hpp"
 #include "fpe/list.h"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -75,6 +76,226 @@ struct array_buffer_binding_guard_t {
     array_buffer_binding_guard_t& operator=(const array_buffer_binding_guard_t&) = delete;
 };
 
+constexpr size_t kDisplayListArenaCapacity = 64u * 1024u * 1024u;
+
+struct display_list_vertex_allocation_t {
+    GLuint buffer = 0;
+    size_t offset = 0;
+    size_t size = 0;
+    uint64_t generation = 0;
+};
+
+class display_list_vertex_arena_t {
+    struct block_t {
+        size_t offset = 0;
+        size_t size = 0;
+    };
+
+    struct retired_block_t {
+        block_t block;
+        GLsync fence = nullptr;
+    };
+
+public:
+    bool allocate(const void* data, size_t size, size_t stride,
+                  display_list_vertex_allocation_t* allocation) {
+        if (allocation == nullptr || data == nullptr || size == 0 || stride == 0 ||
+            g_eglFuncs.eglGetCurrentContext == nullptr) {
+            return false;
+        }
+
+        const EGLContext currentContext = g_eglFuncs.eglGetCurrentContext();
+        if (currentContext == EGL_NO_CONTEXT) return false;
+        if (context != currentContext) resetForContext(currentContext);
+        if (!ensureStorage()) return false;
+
+        reapRetired(false);
+
+        size_t offset = 0;
+        if (!allocateFreeBlock(size, stride, &offset)) {
+            if (!allocateTail(size, stride, &offset)) {
+                // A full arena is exceptional. Finish once so regions retired
+                // by rebuilt/deleted lists can be safely reused; active list
+                // allocations remain untouched.
+                reapRetired(true);
+                if (!allocateFreeBlock(size, stride, &offset) &&
+                    !allocateTail(size, stride, &offset)) {
+                    return false;
+                }
+            }
+        }
+
+        std::memcpy(mapped + offset, data, size);
+        allocation->buffer = buffer;
+        allocation->offset = offset;
+        allocation->size = size;
+        allocation->generation = generation;
+        return true;
+    }
+
+    bool isCurrent(const display_list_vertex_allocation_t& allocation) const {
+        return allocation.buffer != 0 && allocation.buffer == buffer &&
+               allocation.generation == generation && mapped != nullptr;
+    }
+
+    void release(display_list_vertex_allocation_t* allocation) {
+        if (allocation == nullptr || allocation->buffer == 0) return;
+
+        const display_list_vertex_allocation_t old = *allocation;
+        *allocation = {};
+        if (!isCurrent(old) || g_eglFuncs.eglGetCurrentContext == nullptr ||
+            g_eglFuncs.eglGetCurrentContext() != context) {
+            return;
+        }
+
+        GLsync fence = nullptr;
+        if (g_glFuncs.glFenceSync != nullptr && g_glFuncs.glClientWaitSync != nullptr &&
+            g_glFuncs.glDeleteSync != nullptr) {
+            fence = g_glFuncs.glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+        }
+        if (fence != nullptr) {
+            retired.push_back({{old.offset, old.size}, fence});
+        }
+        // Without sync objects, conservatively leave the region unavailable.
+        // Reusing mapped bytes while an earlier draw is in flight is unsafe.
+    }
+
+private:
+    static size_t alignTo(size_t value, size_t alignment) {
+        const size_t remainder = value % alignment;
+        return remainder == 0 ? value : value + alignment - remainder;
+    }
+
+    void resetForContext(EGLContext currentContext) {
+        context = currentContext;
+        buffer = 0;
+        mapped = nullptr;
+        tail = 0;
+        storageAttempted = false;
+        freeBlocks.clear();
+        retired.clear();
+        ++generation;
+    }
+
+    bool ensureStorage() {
+        if (mapped != nullptr) return true;
+        if (storageAttempted) return false;
+        storageAttempted = true;
+
+        auto storage = g_glFuncs.glBufferStorage != nullptr ? g_glFuncs.glBufferStorage
+                                                            : g_glFuncs.glBufferStorageEXT;
+        if (storage == nullptr || g_glFuncs.glMapBufferRange == nullptr ||
+            g_glFuncs.glGenBuffers == nullptr || g_glFuncs.glDeleteBuffers == nullptr) {
+            return false;
+        }
+
+        array_buffer_binding_guard_t bindingState;
+        g_glFuncs.glGenBuffers(1, &buffer);
+        if (buffer == 0) return false;
+        g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, buffer);
+
+        constexpr GLbitfield mapFlags =
+            GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT;
+        constexpr GLbitfield storageFlags = mapFlags | GL_DYNAMIC_STORAGE_BIT;
+        storage(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(kDisplayListArenaCapacity), nullptr,
+                storageFlags);
+        mapped = static_cast<uint8_t*>(g_glFuncs.glMapBufferRange(
+            GL_ARRAY_BUFFER, 0, static_cast<GLsizeiptr>(kDisplayListArenaCapacity), mapFlags));
+        if (mapped == nullptr) {
+            g_glFuncs.glDeleteBuffers(1, &buffer);
+            buffer = 0;
+            return false;
+        }
+        return true;
+    }
+
+    bool allocateTail(size_t size, size_t alignment, size_t* offset) {
+        const size_t aligned = alignTo(tail, alignment);
+        if (aligned > kDisplayListArenaCapacity ||
+            size > kDisplayListArenaCapacity - aligned) {
+            return false;
+        }
+        *offset = aligned;
+        tail = aligned + size;
+        return true;
+    }
+
+    bool allocateFreeBlock(size_t size, size_t alignment, size_t* offset) {
+        for (size_t i = 0; i < freeBlocks.size(); ++i) {
+            const block_t block = freeBlocks[i];
+            const size_t aligned = alignTo(block.offset, alignment);
+            if (aligned < block.offset || aligned - block.offset > block.size ||
+                size > block.size - (aligned - block.offset)) {
+                continue;
+            }
+
+            freeBlocks.erase(freeBlocks.begin() + static_cast<ptrdiff_t>(i));
+            if (aligned > block.offset) freeBlocks.push_back({block.offset, aligned - block.offset});
+            const size_t end = aligned + size;
+            const size_t blockEnd = block.offset + block.size;
+            if (end < blockEnd) freeBlocks.push_back({end, blockEnd - end});
+            coalesceFreeBlocks();
+            *offset = aligned;
+            return true;
+        }
+        return false;
+    }
+
+    void addFreeBlock(block_t block) {
+        if (block.size == 0) return;
+        freeBlocks.push_back(block);
+        coalesceFreeBlocks();
+    }
+
+    void coalesceFreeBlocks() {
+        std::sort(freeBlocks.begin(), freeBlocks.end(),
+                  [](const block_t& lhs, const block_t& rhs) { return lhs.offset < rhs.offset; });
+        size_t output = 0;
+        for (const block_t& block : freeBlocks) {
+            if (output != 0 &&
+                freeBlocks[output - 1].offset + freeBlocks[output - 1].size >= block.offset) {
+                auto& previous = freeBlocks[output - 1];
+                previous.size = std::max(previous.offset + previous.size, block.offset + block.size) -
+                                previous.offset;
+            } else {
+                freeBlocks[output++] = block;
+            }
+        }
+        freeBlocks.resize(output);
+    }
+
+    void reapRetired(bool waitForAll) {
+        if (retired.empty() || g_glFuncs.glClientWaitSync == nullptr ||
+            g_glFuncs.glDeleteSync == nullptr) {
+            return;
+        }
+        if (waitForAll && g_glFuncs.glFinish != nullptr) g_glFuncs.glFinish();
+
+        size_t output = 0;
+        for (auto& entry : retired) {
+            const GLenum result = g_glFuncs.glClientWaitSync(entry.fence, 0, 0);
+            if (result == GL_ALREADY_SIGNALED || result == GL_CONDITION_SATISFIED) {
+                g_glFuncs.glDeleteSync(entry.fence);
+                addFreeBlock(entry.block);
+            } else {
+                retired[output++] = entry;
+            }
+        }
+        retired.resize(output);
+    }
+
+    EGLContext context = EGL_NO_CONTEXT;
+    GLuint buffer = 0;
+    uint8_t* mapped = nullptr;
+    size_t tail = 0;
+    uint64_t generation = 0;
+    bool storageAttempted = false;
+    std::vector<block_t> freeBlocks;
+    std::vector<retired_block_t> retired;
+};
+
+display_list_vertex_arena_t displayListVertexArena;
+
 struct wrapper_client_state_guard_t {
     vertex_pointer_array_t vertexPointerArray = g_glstate.fpe_state.vertexpointer_array;
     vertex_pointer_array_t normalizedVertexPointerArray = g_glstate.fpe_state.normalized_vpa;
@@ -110,6 +331,7 @@ public:
     }
 
     ~captured_draw_arrays_cmd_t() override {
+        displayListVertexArena.release(&arenaAllocation);
         if (vertexBuffer == 0 || g_glFuncs.glDeleteBuffers == nullptr ||
             g_eglFuncs.eglGetCurrentContext == nullptr ||
             g_eglFuncs.eglGetCurrentContext() == EGL_NO_CONTEXT) {
@@ -140,7 +362,9 @@ public:
         auto replayState = layout;
         replayState.starting_pointer = nullptr;
         replayState.dirty = true;
-        const bool useStaticBuffer = bindStaticVertexBuffer();
+        GLuint staticVertexBuffer = 0;
+        GLint drawFirst = 0;
+        const bool useStaticBuffer = bindStaticVertexBuffer(&staticVertexBuffer, &drawFirst);
         replayState.buffer_based = useStaticBuffer;
 
         for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
@@ -160,12 +384,29 @@ public:
         // buffer only after capturing the caller's backend state, avoiding a
         // second per-draw state guard. If allocation fails, override the
         // binding with zero to retain the previous CPU-backed upload path.
-        drawArraysNow(mode, 0, count, true,
-                      useStaticBuffer ? static_cast<GLint>(vertexBuffer) : 0);
+        drawArraysNow(mode, drawFirst, count, true,
+                      useStaticBuffer ? static_cast<GLint>(staticVertexBuffer) : 0);
     }
 
 private:
-    bool bindStaticVertexBuffer() const {
+    bool bindStaticVertexBuffer(GLuint* selectedBuffer, GLint* drawFirst) const {
+        if (!fpe_inited && init_fpe() != 0) return false;
+
+        if (displayListVertexArena.isCurrent(arenaAllocation)) {
+            *drawFirst = static_cast<GLint>(arenaAllocation.offset / static_cast<size_t>(layout.stride));
+            *selectedBuffer = arenaAllocation.buffer;
+            return true;
+        }
+        arenaAllocation = {};
+
+        if (vertexBuffer == 0 &&
+            displayListVertexArena.allocate(vertexData.data(), vertexData.size(),
+                                            static_cast<size_t>(layout.stride), &arenaAllocation)) {
+            *drawFirst = static_cast<GLint>(arenaAllocation.offset / static_cast<size_t>(layout.stride));
+            *selectedBuffer = arenaAllocation.buffer;
+            return true;
+        }
+
         if (vertexBuffer == 0) {
             if ((!fpe_inited && init_fpe() != 0) || g_glFuncs.glGenBuffers == nullptr ||
                 g_glFuncs.glBufferData == nullptr) {
@@ -182,6 +423,8 @@ private:
                                    vertexData.data(), GL_STATIC_DRAW);
             vertexBufferUploaded = true;
         }
+        *selectedBuffer = vertexBuffer;
+        *drawFirst = 0;
         return true;
     }
 
@@ -321,6 +564,7 @@ private:
     vertex_pointer_array_t layout{};
     std::array<size_t, VERTEX_POINTER_COUNT> packedOffsets{};
     std::vector<uint8_t> vertexData;
+    mutable display_list_vertex_allocation_t arenaAllocation{};
     mutable GLuint vertexBuffer = 0;
     mutable bool vertexBufferUploaded = false;
 };
@@ -338,10 +582,14 @@ void drawArraysNow(GLenum mode, GLint first, GLsizei count, bool forceFixedFunct
         const int doDrawElement =
             commit_fpe_state_on_draw(&mode, &first, &count, arrayBufferOverride);
         if (doDrawElement < 0) return;
-        if (doDrawElement > 0)
-            g_glFuncs.glDrawElements(mode, count, quad_index_type(), (void*)0);
-        else
+        if (doDrawElement > 0) {
+            if (first != 0 && g_glFuncs.glDrawElementsBaseVertex != nullptr)
+                g_glFuncs.glDrawElementsBaseVertex(mode, count, quad_index_type(), (void*)0, first);
+            else
+                g_glFuncs.glDrawElements(mode, count, quad_index_type(), (void*)0);
+        } else {
             g_glFuncs.glDrawArrays(mode, first, count);
+        }
         return;
     }
 
@@ -366,7 +614,10 @@ void drawArraysNow(GLenum mode, GLint first, GLsizei count, bool forceFixedFunct
     if (do_draw_element < 0) {
         return;
     } else if (do_draw_element > 0) {
-        g_glFuncs.glDrawElements(mode, count, quad_index_type(), (void*)0);
+        if (first != 0 && g_glFuncs.glDrawElementsBaseVertex != nullptr)
+            g_glFuncs.glDrawElementsBaseVertex(mode, count, quad_index_type(), (void*)0, first);
+        else
+            g_glFuncs.glDrawElements(mode, count, quad_index_type(), (void*)0);
     } else {
         g_glFuncs.glDrawArrays(mode, first, count);
     }

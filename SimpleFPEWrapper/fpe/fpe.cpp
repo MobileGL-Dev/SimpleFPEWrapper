@@ -272,7 +272,15 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint p
 
     if (*mode == GL_QUADS) {
         const GLsizei index_count = (*count / 4) * 6;
-        const bool upload_indices = prepare_quad_indices(*count, static_cast<uint32_t>(*first));
+        // A base-vertex draw lets display lists share one large immutable VBO
+        // without regenerating and uploading quad indices for every list.
+        // Retain baked indices as the compatibility fallback when the backend
+        // doesn't expose the GLES 3.2/core entry point.
+        const GLuint index_first =
+            *first != 0 && g_glFuncs.glDrawElementsBaseVertex != nullptr
+                ? 0u
+                : static_cast<uint32_t>(*first);
+        const bool upload_indices = prepare_quad_indices(*count, index_first);
 
         // LOG_D("glBufferData: size = %d, data = 0x%x -> GL_ELEMENT_ARRAY_BUFFER (%d)",
         //      g_glstate.fpe_state.fpe_ib.size() * sizeof(uint32_t), g_glstate.fpe_state.fpe_ib.data(),

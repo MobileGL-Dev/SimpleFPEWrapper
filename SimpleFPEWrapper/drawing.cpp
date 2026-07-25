@@ -355,6 +355,43 @@ public:
     }
 
     bool isValid() const { return valid; }
+    bool tryMerge(const GLCmd& nextCommand) override {
+        // A GLFuncCmd between two captured draws prevents this path. With no
+        // intervening command, identical array layouts can share one packed
+        // vertex block. Restrict merging to primitive modes whose topology
+        // cannot connect vertices across the original draw boundary.
+        const auto* next = dynamic_cast<const captured_draw_arrays_cmd_t*>(&nextCommand);
+        if (next == nullptr || !valid || !next->valid || mode != next->mode ||
+            clientActiveTexture != next->clientActiveTexture || !hasIndependentPrimitives() ||
+            !next->hasIndependentPrimitives() ||
+            count > std::numeric_limits<GLsizei>::max() - next->count ||
+            arenaAllocation.buffer != 0 || next->arenaAllocation.buffer != 0 || vertexBuffer != 0 ||
+            next->vertexBuffer != 0 || vertexBufferUploaded || next->vertexBufferUploaded ||
+            layout.enabled_pointers != next->layout.enabled_pointers || layout.stride != next->layout.stride ||
+            packedOffsets != next->packedOffsets) {
+            return false;
+        }
+
+        for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
+            if (((layout.enabled_pointers >> i) & 1u) == 0) continue;
+            const auto& left = layout.attributes[i];
+            const auto& right = next->layout.attributes[i];
+            if (left.size != right.size || left.usage != right.usage || left.type != right.type ||
+                left.normalized != right.normalized || left.stride != right.stride ||
+                left.pointer != right.pointer) {
+                return false;
+            }
+        }
+
+        size_t mergedSize = 0;
+        if (!checkedAdd(vertexData.size(), next->vertexData.size(), &mergedSize)) return false;
+        const size_t oldSize = vertexData.size();
+        vertexData.resize(mergedSize);
+        std::memcpy(vertexData.data() + oldSize, next->vertexData.data(), next->vertexData.size());
+        count += next->count;
+        return true;
+    }
+
     void execute() const override {
         if (!valid) return;
 
@@ -390,6 +427,21 @@ public:
     }
 
 private:
+    bool hasIndependentPrimitives() const {
+        switch (mode) {
+        case GL_POINTS:
+            return true;
+        case GL_LINES:
+            return count % 2 == 0;
+        case GL_TRIANGLES:
+            return count % 3 == 0;
+        case GL_QUADS:
+            return count % 4 == 0;
+        default:
+            return false;
+        }
+    }
+
     bool bindStaticVertexBuffer(GLuint* selectedBuffer, GLint* drawFirst) const {
         if (!fpe_inited && init_fpe() != 0) return false;
 

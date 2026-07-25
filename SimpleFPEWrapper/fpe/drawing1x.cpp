@@ -197,14 +197,11 @@ bool queueGlyphTriangleStrip(const fixed_function_draw_state_t& draw) {
 
     auto& batch = pendingGlyphBatch;
     const auto& sizes = draw.current_data.sizes;
-    GLint activeTexture = GL_TEXTURE0;
-    GLint texture2D = 0;
-    g_glFuncs.glGetIntegerv(GL_ACTIVE_TEXTURE, &activeTexture);
-    g_glFuncs.glGetIntegerv(GL_TEXTURE_BINDING_2D, &texture2D);
+    const GLenum activeTexture = sfpewLogicalActiveTexture();
+    const GLuint texture2D = sfpewLogicalTextureBinding(GL_TEXTURE_2D);
     if (batch.active &&
         (std::memcmp(&batch.sizes, &sizes, sizeof(sizes)) != 0 ||
-         batch.activeTexture != static_cast<GLenum>(activeTexture) ||
-         batch.texture2D != static_cast<GLuint>(texture2D))) {
+         batch.activeTexture != activeTexture || batch.texture2D != texture2D)) {
         flushPendingImmediateDraws();
     }
     if (!batch.active) {
@@ -213,8 +210,8 @@ bool queueGlyphTriangleStrip(const fixed_function_draw_state_t& draw) {
         batch.vertices.clear();
         batch.vertexCount = 0;
         batch.glyphCount = 0;
-        batch.activeTexture = static_cast<GLenum>(activeTexture);
-        batch.texture2D = static_cast<GLuint>(texture2D);
+        batch.activeTexture = activeTexture;
+        batch.texture2D = texture2D;
         batch.vertices.reserve(kImmediateGlyphBatchLimit * (draw.vb.size() / 4u) * 6u);
     }
 
@@ -247,23 +244,21 @@ void flushPendingImmediateDraws() {
     auto& batch = pendingGlyphBatch;
     if (!batch.active) return;
 
-    GLint callerActiveTexture = GL_TEXTURE0;
-    g_glFuncs.glGetIntegerv(GL_ACTIVE_TEXTURE, &callerActiveTexture);
-    if (static_cast<GLenum>(callerActiveTexture) != batch.activeTexture)
+    const GLenum callerActiveTexture = sfpewLogicalActiveTexture();
+    if (callerActiveTexture != batch.activeTexture)
         g_glFuncs.glActiveTexture(batch.activeTexture);
 
-    GLint callerTexture2D = 0;
-    g_glFuncs.glGetIntegerv(GL_TEXTURE_BINDING_2D, &callerTexture2D);
-    if (static_cast<GLuint>(callerTexture2D) != batch.texture2D)
+    const GLuint callerTexture2D = sfpewLogicalTextureBinding(GL_TEXTURE_2D);
+    if (callerTexture2D != batch.texture2D)
         g_glFuncs.glBindTexture(GL_TEXTURE_2D, batch.texture2D);
 
     drawImmediateVertices(GL_TRIANGLES, batch.vertices.data(), batch.vertices.size(),
                           batch.vertexCount, batch.sizes);
 
-    if (static_cast<GLuint>(callerTexture2D) != batch.texture2D)
-        g_glFuncs.glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(callerTexture2D));
-    if (static_cast<GLenum>(callerActiveTexture) != batch.activeTexture)
-        g_glFuncs.glActiveTexture(static_cast<GLenum>(callerActiveTexture));
+    if (callerTexture2D != batch.texture2D)
+        g_glFuncs.glBindTexture(GL_TEXTURE_2D, callerTexture2D);
+    if (callerActiveTexture != batch.activeTexture)
+        g_glFuncs.glActiveTexture(callerActiveTexture);
     batch.active = false;
     batch.vertices.clear();
     batch.vertexCount = 0;

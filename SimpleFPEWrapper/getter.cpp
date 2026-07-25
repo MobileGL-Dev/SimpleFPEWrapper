@@ -237,6 +237,26 @@ bool getProxyTextureLevelParameter(GLint level, GLenum pname, GLint& value) {
 }
 } // namespace
 
+GLenum sfpewLogicalActiveTexture() {
+    auto& state = getLogicalTextureBindings();
+    return getLogicalActiveTexture(state);
+}
+
+GLuint sfpewLogicalTextureBinding(GLenum target) {
+    auto& state = getLogicalTextureBindings();
+    const GLenum query = textureBindingQuery(target);
+    if (query == GL_NONE) return 0;
+
+    const uint64_t key = textureBindingKey(getLogicalActiveTexture(state), target);
+    auto binding = state.bindings.find(key);
+    if (binding == state.bindings.end()) {
+        GLint current = 0;
+        g_glFuncs.glGetIntegerv(query, &current);
+        binding = state.bindings.emplace(key, static_cast<GLuint>(current)).first;
+    }
+    return binding->second;
+}
+
 inline bool containsMobileGLDev(const std::string& str) {
     return str.find("MobileGL-Dev") != std::string::npos;
 }
@@ -358,13 +378,7 @@ void glBindTexture(GLenum target, GLuint texture) {
     const uint64_t key = textureBindingKey(activeTexture, target);
 
     if (query != GL_NONE) {
-        auto binding = state.bindings.find(key);
-        if (binding == state.bindings.end()) {
-            GLint current = 0;
-            g_glFuncs.glGetIntegerv(query, &current);
-            binding = state.bindings.emplace(key, static_cast<GLuint>(current)).first;
-        }
-        if (binding->second == texture) return;
+        if (sfpewLogicalTextureBinding(target) == texture) return;
     }
 
     flushPendingImmediateDraws();

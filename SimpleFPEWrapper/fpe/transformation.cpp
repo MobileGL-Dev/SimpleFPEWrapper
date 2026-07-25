@@ -21,6 +21,8 @@
 #include <glm/ext/vector_float4.hpp>
 #include <glm/ext/vector_float3.hpp>
 #include <algorithm>
+#include <array>
+#include <cstdint>
 #define DEBUG 0
 
 namespace {
@@ -43,6 +45,58 @@ std::vector<glm::mat4>& current_matrix_stack(transformation_t& transformation) {
         return transformation.texture_matrices_stack[active_texture_index()];
     }
     return transformation.matrices_stack[matrix_idx(transformation.matrix_mode)];
+}
+
+enum class matrix_transform_kind_t : uint8_t {
+    translate,
+    scale,
+};
+
+struct matrix_transform_op_t {
+    matrix_transform_kind_t kind;
+    glm::vec3 value;
+};
+
+class matrix_transform_cmd_t final : public GLCmd {
+public:
+    matrix_transform_cmd_t(matrix_transform_kind_t kind, const glm::vec3& value) {
+        operations[0] = {kind, value};
+        operationCount = 1;
+    }
+
+    void execute() const override {
+        // Preserve the original specialized translate/scale operations and
+        // their order while avoiding repeated virtual dispatch, state lookup,
+        // and pending-draw checks for adjacent display-list transforms.
+        flushPendingImmediateDraws();
+        auto& matrix = current_matrix(g_glstate.fpe_uniform.transformation);
+        for (size_t i = 0; i < operationCount; ++i) {
+            const auto& operation = operations[i];
+            if (operation.kind == matrix_transform_kind_t::translate)
+                matrix = glm::translate(matrix, operation.value);
+            else
+                matrix = glm::scale(matrix, operation.value);
+        }
+    }
+
+    bool tryMerge(const GLCmd& nextCommand) override {
+        const auto* next = dynamic_cast<const matrix_transform_cmd_t*>(&nextCommand);
+        if (next == nullptr || operationCount + next->operationCount > operations.size()) return false;
+        std::copy_n(next->operations.begin(), next->operationCount,
+                    operations.begin() + operationCount);
+        operationCount += next->operationCount;
+        return true;
+    }
+
+private:
+    std::array<matrix_transform_op_t, 8> operations{};
+    size_t operationCount = 0;
+};
+
+bool recordMatrixTransform(matrix_transform_kind_t kind, const glm::vec3& value) {
+    if (disableRecording || !DisplayListManager::shouldRecord()) return false;
+    displayListManager.recordCommand(std::make_unique<matrix_transform_cmd_t>(kind, value));
+    return DisplayListManager::shouldFinish();
 }
 
 } // namespace
@@ -159,7 +213,7 @@ void glScalef(GLfloat x, GLfloat y, GLfloat z) {
     // LOG()
     //  LOG_D("glScalef(%f, %f, %f)", x, y, z)
 
-    LIST_RECORD(glScalef, {}, x, y, z)
+    if (recordMatrixTransform(matrix_transform_kind_t::scale, glm::vec3(x, y, z))) return;
 
     auto& transformation = g_glstate.fpe_uniform.transformation;
 
@@ -174,7 +228,7 @@ void glTranslatef(GLfloat x, GLfloat y, GLfloat z) {
     // LOG()
     //  LOG_D("glTranslatef(%f, %f, %f)", x, y, z)
 
-    LIST_RECORD(glTranslatef, {}, x, y, z)
+    if (recordMatrixTransform(matrix_transform_kind_t::translate, glm::vec3(x, y, z))) return;
 
     auto& transformation = g_glstate.fpe_uniform.transformation;
 

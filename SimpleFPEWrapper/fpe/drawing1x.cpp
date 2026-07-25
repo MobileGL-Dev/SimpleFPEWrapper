@@ -9,11 +9,87 @@
 #include <glm/gtc/type_ptr.hpp>
 #include "drawing1x.h"
 #include "list.h"
+#include <algorithm>
 #include <bit>
+#include <cstdint>
+#include <cstring>
 
 #define DEBUG 0
 
 namespace {
+
+constexpr size_t kImmediateVboMinCapacity = 16u * 1024u * 1024u;
+constexpr size_t kImmediateVboAlignment = 256u;
+
+GLintptr uploadImmediateVertexData(const void* data, size_t size) {
+    auto& state = g_glstate.fpe_state;
+    const auto replaceImmediateBuffer = [&]() {
+        if (state.fpe_immediate_vbo_map != nullptr && g_glFuncs.glUnmapBuffer != nullptr) {
+            g_glFuncs.glUnmapBuffer(GL_ARRAY_BUFFER);
+        }
+        g_glFuncs.glDeleteBuffers(1, &state.fpe_immediate_vbo);
+        g_glFuncs.glGenBuffers(1, &state.fpe_immediate_vbo);
+        g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, state.fpe_immediate_vbo);
+        state.fpe_immediate_vbo_capacity = 0;
+        state.fpe_immediate_vbo_offset = 0;
+        state.fpe_immediate_vbo_map = nullptr;
+        g_glstate.fpe_vertex_binding_valid = false;
+        for (auto& cached : g_glstate.fpe_vertex_attributes) cached.pointer_valid = false;
+    };
+
+    const size_t required_capacity = std::max(kImmediateVboMinCapacity, std::bit_ceil(size));
+    if (state.fpe_immediate_vbo_map != nullptr && required_capacity > state.fpe_immediate_vbo_capacity) {
+        // Oversized immediate draws are rare, but an immutable persistent
+        // store cannot grow in place. Finish users of the old store, replace
+        // it, and retry with a power-of-two capacity large enough for this draw.
+        if (g_glFuncs.glFinish != nullptr) g_glFuncs.glFinish();
+        replaceImmediateBuffer();
+        state.fpe_immediate_vbo_persistent_attempted = false;
+        return uploadImmediateVertexData(data, size);
+    }
+    if (!state.fpe_immediate_vbo_persistent_attempted) {
+        state.fpe_immediate_vbo_persistent_attempted = true;
+        auto storage = g_glFuncs.glBufferStorage != nullptr ? g_glFuncs.glBufferStorage
+                                                           : g_glFuncs.glBufferStorageEXT;
+        if (storage != nullptr && g_glFuncs.glMapBufferRange != nullptr) {
+            constexpr GLbitfield map_flags = GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT;
+            constexpr GLbitfield storage_flags = map_flags | GL_DYNAMIC_STORAGE_BIT;
+            storage(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(required_capacity), nullptr, storage_flags);
+            state.fpe_immediate_vbo_map =
+                g_glFuncs.glMapBufferRange(GL_ARRAY_BUFFER, 0, static_cast<GLsizeiptr>(required_capacity), map_flags);
+            if (state.fpe_immediate_vbo_map != nullptr) {
+                state.fpe_immediate_vbo_capacity = required_capacity;
+                state.fpe_immediate_vbo_offset = 0;
+            } else {
+                // Immutable storage can't be respecified with BufferData. Replace
+                // the failed persistent candidate with a fresh mutable fallback.
+                replaceImmediateBuffer();
+            }
+        }
+    }
+
+    if (state.fpe_immediate_vbo_map == nullptr) {
+        // The backend lacks coherent persistent storage. Keep the previous
+        // orphaning behaviour, which is faster than synchronous SubData on
+        // mobile drivers and preserves compatibility with other backends.
+        g_glFuncs.glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(size), data, GL_STREAM_DRAW);
+        return 0;
+    }
+
+    size_t offset = (state.fpe_immediate_vbo_offset + kImmediateVboAlignment - 1u) &
+                    ~(kImmediateVboAlignment - 1u);
+    if (offset + size > state.fpe_immediate_vbo_capacity) {
+        // The ring is deliberately large, so this is infrequent. Waiting at
+        // wrap keeps persistent mapped writes from racing old GPU consumers.
+        if (g_glFuncs.glFinish != nullptr) g_glFuncs.glFinish();
+        offset = 0;
+    }
+    if (size > 0) {
+        std::memcpy(static_cast<uint8_t*>(state.fpe_immediate_vbo_map) + offset, data, size);
+    }
+    state.fpe_immediate_vbo_offset = offset + size;
+    return static_cast<GLintptr>(offset);
+}
 
 struct immediate_client_state_guard_t {
     vertex_pointer_array_t vertexPointerArray = g_glstate.fpe_state.vertexpointer_array;
@@ -91,13 +167,12 @@ void glEnd() {
         // VAO, VB
         g_glFuncs.glBindVertexArray(g_glstate.fpe_state.fpe_vao);
 
-        g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, g_glstate.fpe_state.fpe_vbo);
+        g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, g_glstate.fpe_state.fpe_immediate_vbo);
 
-        auto vbbuf = vb.str();
-        g_glFuncs.glBufferData(GL_ARRAY_BUFFER, vbbuf.size(), vbbuf.c_str(), GL_DYNAMIC_DRAW);
+        const GLintptr vertex_offset = uploadImmediateVertexData(vb.data(), vb.size() * sizeof(GLfloat));
 
         // Vertex Pointer to ES
-        g_glstate.send_vertex_attributes(va, g_glstate.fpe_state.fpe_vbo);
+        g_glstate.send_vertex_attributes(va, g_glstate.fpe_state.fpe_immediate_vbo, vertex_offset);
 
         // Uniform
         { g_glstate.send_uniforms(prog); }
@@ -105,7 +180,7 @@ void glEnd() {
         // Draw
         // LOG_D("glEnd: glDrawArrays(%s, %d, %d), vb = %d, vb size = %d", glEnumToString(s.primitive), 0,
         // s.vertex_count,
-        //      g_glstate.fpe_state.fpe_vbo, vbbuf.size())
+        //      g_glstate.fpe_state.fpe_vbo, vb.size() * sizeof(GLfloat))
         if (s.primitive == GL_QUADS) {
             const GLsizei vertex_count = static_cast<GLsizei>(s.vertex_count);
             const GLsizei index_count = (vertex_count / 4) * 6;

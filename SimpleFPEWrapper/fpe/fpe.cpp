@@ -8,6 +8,7 @@
 
 #include "fpe.hpp"
 #include <glm/gtc/type_ptr.hpp>
+#include <limits>
 
 #define DEBUG 0
 
@@ -38,25 +39,70 @@ GLsizei type_size(GLenum type) {
     }
 }
 
-std::vector<uint32_t> quad_to_triangle(GLsizei n, GLuint first) {
-    int num_quads = n / 4;
-    int num_indices = num_quads * 6;
-
-    std::vector<uint32_t> indices(num_indices, 0);
-
-    for (int i = 0; i < num_quads; i++) {
-        uint32_t base_index = first + i * 4;
-
-        indices[i * 6 + 0] = base_index + 0;
-        indices[i * 6 + 1] = base_index + 1;
-        indices[i * 6 + 2] = base_index + 2;
-
-        indices[i * 6 + 3] = base_index + 2;
-        indices[i * 6 + 4] = base_index + 3;
-        indices[i * 6 + 5] = base_index + 0;
+bool prepare_quad_indices(GLsizei n, GLuint first) {
+    auto& state = g_glstate.fpe_state;
+    const size_t num_quads = n > 0 ? static_cast<size_t>(n) / 4u : 0u;
+    const uint64_t max_index = num_quads == 0
+                                   ? static_cast<uint64_t>(first)
+                                   : static_cast<uint64_t>(first) + num_quads * 4u - 1u;
+    const GLenum index_type = max_index <= std::numeric_limits<uint16_t>::max()
+                                  ? GL_UNSIGNED_SHORT
+                                  : GL_UNSIGNED_INT;
+    if (state.fpe_ib_valid && state.fpe_ib_first == first && state.fpe_ib_type == index_type &&
+        state.fpe_ib_quad_count >= num_quads) {
+        return false;
     }
 
-    return indices;
+    size_t first_quad_to_generate = 0;
+    if (state.fpe_ib_valid && state.fpe_ib_first == first && state.fpe_ib_type == index_type) {
+        first_quad_to_generate = state.fpe_ib_quad_count;
+    }
+
+    if (index_type == GL_UNSIGNED_SHORT) {
+        state.fpe_ib16.resize(num_quads * 6u);
+        for (size_t i = first_quad_to_generate; i < num_quads; ++i) {
+            const uint16_t base_index = static_cast<uint16_t>(first + i * 4u);
+            state.fpe_ib16[i * 6u + 0u] = static_cast<uint16_t>(base_index + 0u);
+            state.fpe_ib16[i * 6u + 1u] = static_cast<uint16_t>(base_index + 1u);
+            state.fpe_ib16[i * 6u + 2u] = static_cast<uint16_t>(base_index + 2u);
+            state.fpe_ib16[i * 6u + 3u] = static_cast<uint16_t>(base_index + 2u);
+            state.fpe_ib16[i * 6u + 4u] = static_cast<uint16_t>(base_index + 3u);
+            state.fpe_ib16[i * 6u + 5u] = static_cast<uint16_t>(base_index + 0u);
+        }
+    } else {
+        state.fpe_ib.resize(num_quads * 6u);
+        for (size_t i = first_quad_to_generate; i < num_quads; ++i) {
+            const uint32_t base_index = first + static_cast<uint32_t>(i * 4u);
+            state.fpe_ib[i * 6u + 0u] = base_index + 0u;
+            state.fpe_ib[i * 6u + 1u] = base_index + 1u;
+            state.fpe_ib[i * 6u + 2u] = base_index + 2u;
+            state.fpe_ib[i * 6u + 3u] = base_index + 2u;
+            state.fpe_ib[i * 6u + 4u] = base_index + 3u;
+            state.fpe_ib[i * 6u + 5u] = base_index + 0u;
+        }
+    }
+    state.fpe_ib_first = first;
+    state.fpe_ib_quad_count = num_quads;
+    state.fpe_ib_type = index_type;
+    state.fpe_ib_valid = true;
+    return true;
+}
+
+const void* quad_index_data() {
+    const auto& state = g_glstate.fpe_state;
+    return state.fpe_ib_type == GL_UNSIGNED_SHORT
+               ? static_cast<const void*>(state.fpe_ib16.data())
+               : static_cast<const void*>(state.fpe_ib.data());
+}
+
+size_t quad_index_size_bytes() {
+    const auto& state = g_glstate.fpe_state;
+    return state.fpe_ib_type == GL_UNSIGNED_SHORT ? state.fpe_ib16.size() * sizeof(uint16_t)
+                                                  : state.fpe_ib.size() * sizeof(uint32_t);
+}
+
+GLenum quad_index_type() {
+    return g_glstate.fpe_state.fpe_ib_type;
 }
 
 #if DEBUG || GLOBAL_DEBUG
@@ -131,7 +177,7 @@ int init_fpe() {
     return 0;
 }
 
-int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count) {
+int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint previous_array_buffer) {
     // LOG()
 
     if (!fpe_inited) {
@@ -159,18 +205,18 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count) {
     }
     g_glFuncs.glUseProgram(prog_id);
 
-    GLint prev_vbo = 0;
-    g_glFuncs.glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &prev_vbo);
-
     // Ugh...Why binding vbo is required BEFORE calling VertexAttrib* functions?
-    if (prev_vbo == 0) {
+    if (previous_array_buffer == 0) {
         g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, g_glstate.fpe_state.fpe_vbo);
     }
 
     // LOG_D("starting_ptr = %p", vpa.starting_pointer)
     // LOG_D("stride = %d", vpa.stride)
 
-    g_glstate.send_vertex_attributes(vpa);
+    const GLuint attribute_array_buffer = previous_array_buffer == 0
+                                              ? g_glstate.fpe_state.fpe_vbo
+                                              : static_cast<GLuint>(previous_array_buffer);
+    g_glstate.send_vertex_attributes(vpa, attribute_array_buffer);
     vpa.dirty = false;
 
     int ret = 0;
@@ -211,24 +257,30 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count) {
     }
 
     if (*mode == GL_QUADS) {
-        g_glstate.fpe_state.fpe_ib = quad_to_triangle(*count, static_cast<uint32_t>(*first));
+        const GLsizei index_count = (*count / 4) * 6;
+        const bool upload_indices = prepare_quad_indices(*count, static_cast<uint32_t>(*first));
 
         // LOG_D("glBufferData: size = %d, data = 0x%x -> GL_ELEMENT_ARRAY_BUFFER (%d)",
         //      g_glstate.fpe_state.fpe_ib.size() * sizeof(uint32_t), g_glstate.fpe_state.fpe_ib.data(),
         //      g_glstate.fpe_state.fpe_ibo)
 
-        g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_glstate.fpe_state.fpe_ibo);
+        if (!g_glstate.fpe_state.fpe_ibo_bound) {
+            g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_glstate.fpe_state.fpe_ibo);
+            g_glstate.fpe_state.fpe_ibo_bound = true;
+        }
 
-        g_glFuncs.glBufferData(GL_ELEMENT_ARRAY_BUFFER, g_glstate.fpe_state.fpe_ib.size() * sizeof(uint32_t),
-                               g_glstate.fpe_state.fpe_ib.data(), GL_DYNAMIC_DRAW);
+        if (upload_indices) {
+            g_glFuncs.glBufferData(GL_ELEMENT_ARRAY_BUFFER, quad_index_size_bytes(), quad_index_data(),
+                                   GL_DYNAMIC_DRAW);
+        }
 
-        *count = g_glstate.fpe_state.fpe_ib.size();
+        *count = index_count;
 
         *mode = GL_TRIANGLES;
         ret = 1;
     }
 
-    g_glstate.send_uniforms(prog_id);
+    g_glstate.send_uniforms(prog);
     vpa.reset();
     //    vpa.starting_pointer = 0;
     //    vpa.stride = 0;

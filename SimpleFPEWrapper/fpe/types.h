@@ -15,7 +15,6 @@
 #include <unordered_map>
 #include <vector>
 #include <sstream>
-#include <memory>
 #include <cstddef>
 #include "fpe_shadergen.h"
 #include "vertexpointer_utils.h"
@@ -202,6 +201,12 @@ struct fixed_function_state_t {
     GLuint fpe_ibo = 0;
 
     std::vector<uint32_t> fpe_ib;
+    std::vector<uint16_t> fpe_ib16;
+    GLuint fpe_ib_first = 0;
+    size_t fpe_ib_quad_count = 0;
+    GLenum fpe_ib_type = GL_UNSIGNED_SHORT;
+    bool fpe_ib_valid = false;
+    bool fpe_ibo_bound = false;
 
     struct vertex_pointer_array_t vertexpointer_array;
     struct vertex_pointer_array_t normalized_vpa;
@@ -235,9 +240,58 @@ struct fixed_function_uniform_t {
     texture_env_t texture_env[MAX_TEX];
 };
 
+struct program_uniform_locations_t {
+    GLint model_view = -1;
+    GLint model_view_projection = -1;
+    GLint normal = -1;
+    GLint light_model_ambient = -1;
+    GLint front_material_ambient = -1;
+    GLint front_material_diffuse = -1;
+    GLint front_material_emission = -1;
+    GLint back_material_ambient = -1;
+    GLint back_material_diffuse = -1;
+    GLint back_material_emission = -1;
+    GLint light_ambient[MAX_LIGHTS] = {};
+    GLint light_diffuse[MAX_LIGHTS] = {};
+    GLint light_position[MAX_LIGHTS] = {};
+    GLint sampler[MAX_TEX] = {};
+    GLint texture_matrix[MAX_TEX] = {};
+    GLint texture_env_color[MAX_TEX] = {};
+    GLint fog_color = -1;
+    GLint fog_density = -1;
+    GLint fog_start = -1;
+    GLint fog_end = -1;
+    GLint alpha_ref = -1;
+    bool initialized = false;
+
+    void initialize(GLuint program);
+};
+
+struct program_uniform_values_t {
+    glm::mat4 model_view{};
+    glm::mat4 projection{};
+    glm::vec4 light_model_ambient{};
+    glm::vec4 material_ambient[2]{};
+    glm::vec4 material_diffuse[2]{};
+    glm::vec4 material_emission[2]{};
+    glm::vec4 light_ambient[MAX_LIGHTS]{};
+    glm::vec4 light_diffuse[MAX_LIGHTS]{};
+    glm::vec4 light_position[MAX_LIGHTS]{};
+    glm::mat4 texture_matrix[MAX_TEX]{};
+    glm::vec4 texture_env_color[MAX_TEX]{};
+    glm::vec4 fog_color{};
+    GLfloat fog_density = 0.0f;
+    GLfloat fog_start = 0.0f;
+    GLfloat fog_end = 0.0f;
+    GLclampf alpha_ref = 0.0f;
+    bool initialized = false;
+};
+
 struct program_t {
     std::string vs;
     std::string fs;
+    program_uniform_locations_t uniforms;
+    program_uniform_values_t uniform_values;
 
     int get_program();
 
@@ -246,6 +300,47 @@ private:
     static int link_program(GLuint vs, GLuint fs);
     bool compile_attempted = false;
     int program = 0;
+};
+
+struct vertex_attribute_cache_entry_t {
+    bool enable_known = false;
+    bool enabled = false;
+    bool pointer_valid = false;
+    bool separate_binding = false;
+    GLuint array_buffer = 0;
+    GLint size = 0;
+    GLenum type = 0;
+    GLenum normalized = 0;
+    GLsizei stride = 0;
+    const void* pointer = nullptr;
+};
+
+struct program_vertex_signature_t {
+    GLint size = 0;
+    GLenum usage = 0;
+    GLenum type = 0;
+    GLenum normalized = 0;
+};
+
+struct program_hash_cache_t {
+    bool valid = false;
+    uint64_t hash = 0;
+    uint32_t enabled_pointers = 0;
+    fixed_function_draw_size_t constant_sizes{};
+    program_vertex_signature_t vertices[VERTEX_POINTER_COUNT]{};
+    GLenum client_active_texture = 0;
+    GLenum alpha_func = 0;
+    GLenum fog_mode = 0;
+    GLint fog_index = 0;
+    GLenum fog_coord_src = 0;
+    GLenum shade_model = 0;
+    GLenum light_model_color_ctrl = 0;
+    int light_model_local_viewer = 0;
+    int light_model_two_side = 0;
+    GLenum color_material_face = 0;
+    GLenum color_material_mode = 0;
+    fixed_function_bool_t bools{};
+    GLenum texture_env_mode[MAX_TEX]{};
 };
 
 struct glstate_t {
@@ -264,6 +359,13 @@ struct glstate_t {
     // TODO: using vp as key is bad! Try to hash the whole fpe_state
     unordered_map<uint64_t, program_t> fpe_programs;
     unordered_map<uint64_t, GLuint> fpe_vaos;
+    uint64_t last_program_key = 0;
+    program_t* last_program = nullptr;
+    program_hash_cache_t program_hash_cache;
+    vertex_attribute_cache_entry_t fpe_vertex_attributes[VERTEX_POINTER_COUNT];
+    bool fpe_vertex_binding_valid = false;
+    GLuint fpe_vertex_binding_buffer = 0;
+    GLsizei fpe_vertex_binding_stride = 0;
 
     static constexpr uint64_t s_hash_seed = 2123456789;
 
@@ -272,13 +374,9 @@ struct glstate_t {
 
     static glstate_t& get_instance();
 
-    void send_uniforms(int program);
+    void send_uniforms(program_t& program);
 
-    std::unique_ptr<XXHash64> p_hash = std::make_unique<XXHash64>(s_hash_seed);
-
-    uint64_t program_hash(bool reset = true);
-
-    uint64_t vertex_attrib_hash(bool reset = true);
+    uint64_t program_hash();
 
     program_t& get_or_generate_program(const uint64_t key);
 
@@ -286,5 +384,5 @@ struct glstate_t {
 
     void save_vao(const uint64_t key, const GLuint vao);
 
-    bool send_vertex_attributes(const vertex_pointer_array_t& va) const;
+    bool send_vertex_attributes(const vertex_pointer_array_t& va, GLuint array_buffer);
 };

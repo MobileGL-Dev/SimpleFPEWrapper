@@ -56,7 +56,7 @@ public:
 class DisplayListManager {
     inline static GLuint nextListId = 1;
     inline static GLenum listMode = GL_COMPILE;
-    inline static GLboolean calling = GL_FALSE;
+    inline static GLuint callingDepth = 0;
 
     inline static unordered_map<GLuint, DisplayList> lists;
     inline static GLuint currentListID = 0;
@@ -98,9 +98,9 @@ public:
 
     static int isRecording() { return currentListID != 0 ? 1 : 0; }
 
-    static int isCalling() { return calling; }
+    static int isCalling() { return callingDepth != 0; }
 
-    static int shouldRecord() { return !calling && currentListID != 0; }
+    static int shouldRecord() { return callingDepth == 0 && currentListID != 0; }
 
     static int shouldFinish() { return (currentListID != 0 && listMode == GL_COMPILE) ? 1 : 0; }
 
@@ -147,11 +147,11 @@ public:
         auto it = lists.find(listID);
         if (it == lists.end()) return;
 
-        calling = GL_TRUE;
+        ++callingDepth;
         for (auto& cmd : it->second) {
             cmd->execute();
         }
-        calling = GL_FALSE;
+        --callingDepth;
     }
 };
 

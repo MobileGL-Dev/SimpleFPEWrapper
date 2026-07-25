@@ -54,9 +54,12 @@ void glCallList(GLuint list) {
         displayListManager.record<glCallList>({}, list);
         if (DisplayListManager::shouldFinish()) return;
     }
-    GET_PREV_PROGRAM
-    DisplayListManager::callList(list);
-    SET_PREV_PROGRAM
+    if (DisplayListManager::isCalling()) {
+        DisplayListManager::callList(list);
+    } else {
+        fpe_backend_draw_state_guard_t backendState;
+        DisplayListManager::callList(list);
+    }
 }
 
 void glCallLists(GLsizei n, GLenum type, const GLvoid* lists) {
@@ -67,7 +70,7 @@ void glCallLists(GLsizei n, GLenum type, const GLvoid* lists) {
         displayListManager.record<glCallLists>({{2, n * PointerUtils::type_to_bytes(type)}}, n, type, lists);
         if (DisplayListManager::shouldFinish()) return;
     }
-    GET_PREV_PROGRAM
+    fpe_backend_draw_state_guard_t backendState;
     const auto* ptr = static_cast<const uint8_t*>(lists);
     for (int i = 0; i < n; ++i) {
         GLuint offset = 0;
@@ -125,7 +128,6 @@ void glCallLists(GLsizei n, GLenum type, const GLvoid* lists) {
         }
         DisplayListManager::callList(currentListBase + offset);
     }
-    SET_PREV_PROGRAM
 }
 
 void glListBase(GLuint base) {

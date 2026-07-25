@@ -21,7 +21,8 @@
 
 namespace {
 
-void drawArraysNow(GLenum mode, GLint first, GLsizei count, bool forceFixedFunction);
+void drawArraysNow(GLenum mode, GLint first, GLsizei count, bool forceFixedFunction,
+                   GLint arrayBufferOverride = -1);
 
 size_t componentSize(GLenum type) {
     switch (type) {
@@ -108,36 +109,82 @@ public:
         valid = capture(first, source);
     }
 
+    ~captured_draw_arrays_cmd_t() override {
+        if (vertexBuffer == 0 || g_glFuncs.glDeleteBuffers == nullptr ||
+            g_eglFuncs.eglGetCurrentContext == nullptr ||
+            g_eglFuncs.eglGetCurrentContext() == EGL_NO_CONTEXT) {
+            return;
+        }
+
+        // Deleting a buffer clears backend VAO/binding references. Scrub the
+        // matching wrapper cache as well so a subsequently recycled GL name
+        // cannot make send_vertex_attributes incorrectly skip its rebind.
+        if (g_glstate.fpe_vertex_binding_valid &&
+            g_glstate.fpe_vertex_binding_buffer == vertexBuffer) {
+            g_glstate.fpe_vertex_binding_valid = false;
+        }
+        for (auto& attribute : g_glstate.fpe_vertex_attributes) {
+            if (!attribute.separate_binding && attribute.array_buffer == vertexBuffer) {
+                attribute.pointer_valid = false;
+            }
+        }
+        g_glFuncs.glDeleteBuffers(1, &vertexBuffer);
+    }
+
     bool isValid() const { return valid; }
     void execute() const override {
         if (!valid) return;
 
         wrapper_client_state_guard_t wrapperState;
-        fpe_backend_draw_state_guard_t backendState;
 
         auto replayState = layout;
         replayState.starting_pointer = nullptr;
         replayState.dirty = true;
-        replayState.buffer_based = false;
+        const bool useStaticBuffer = bindStaticVertexBuffer();
+        replayState.buffer_based = useStaticBuffer;
 
         for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
             if (((replayState.enabled_pointers >> i) & 1u) == 0) continue;
-            replayState.attributes[i].pointer = vertexData.data() + packedOffsets[i];
+            replayState.attributes[i].pointer = useStaticBuffer
+                                                    ? reinterpret_cast<const void*>(packedOffsets[i])
+                                                    : vertexData.data() + packedOffsets[i];
         }
 
         g_glstate.fpe_state.vertexpointer_array = replayState;
         g_glstate.fpe_state.normalized_vpa.reset();
         g_glstate.fpe_state.client_active_texture = clientActiveTexture;
 
-        // commit_fpe_state_on_draw treats a non-zero array-buffer binding as
-        // an offset-backed draw. Captured list data is CPU-owned, so make it
-        // select the internal FPE VBO; backendState restores the caller's
-        // program/VAO/VBO/EBO afterward.
-        g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, 0);
-        drawArraysNow(mode, 0, count, true);
+        // Static display-list geometry is immutable after glEndList. Keep it
+        // in its own backend VBO so glCallList does not re-upload the same
+        // client-array bytes every frame. drawArraysNow binds the selected
+        // buffer only after capturing the caller's backend state, avoiding a
+        // second per-draw state guard. If allocation fails, override the
+        // binding with zero to retain the previous CPU-backed upload path.
+        drawArraysNow(mode, 0, count, true,
+                      useStaticBuffer ? static_cast<GLint>(vertexBuffer) : 0);
     }
 
 private:
+    bool bindStaticVertexBuffer() const {
+        if (vertexBuffer == 0) {
+            if ((!fpe_inited && init_fpe() != 0) || g_glFuncs.glGenBuffers == nullptr ||
+                g_glFuncs.glBufferData == nullptr) {
+                return false;
+            }
+            g_glFuncs.glGenBuffers(1, &vertexBuffer);
+            if (vertexBuffer == 0) return false;
+        }
+
+        if (!vertexBufferUploaded) {
+            array_buffer_binding_guard_t bindingState;
+            g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer);
+            g_glFuncs.glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(vertexData.size()),
+                                   vertexData.data(), GL_STATIC_DRAW);
+            vertexBufferUploaded = true;
+        }
+        return true;
+    }
+
     bool capture(GLint first, const vertex_pointer_array_t& source) {
         if (first < 0 || count <= 0) {
             return false;
@@ -274,9 +321,29 @@ private:
     vertex_pointer_array_t layout{};
     std::array<size_t, VERTEX_POINTER_COUNT> packedOffsets{};
     std::vector<uint8_t> vertexData;
+    mutable GLuint vertexBuffer = 0;
+    mutable bool vertexBufferUploaded = false;
 };
 
-void drawArraysNow(GLenum mode, GLint first, GLsizei count, bool forceFixedFunction) {
+void drawArraysNow(GLenum mode, GLint first, GLsizei count, bool forceFixedFunction,
+                   GLint arrayBufferOverride) {
+
+    // A display-list API call owns one backend guard around the whole replay.
+    // Captured draws always provide an explicit static VBO (or zero for the
+    // allocation-failure fallback), so they can keep the FPE backend state
+    // live between commands and avoid four synchronous state queries per
+    // draw. The outer glCallList(s) guard restores all caller state once.
+    if (forceFixedFunction && DisplayListManager::isCalling() && arrayBufferOverride >= 0) {
+        g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, static_cast<GLuint>(arrayBufferOverride));
+        const int doDrawElement =
+            commit_fpe_state_on_draw(&mode, &first, &count, arrayBufferOverride);
+        if (doDrawElement < 0) return;
+        if (doDrawElement > 0)
+            g_glFuncs.glDrawElements(mode, count, quad_index_type(), (void*)0);
+        else
+            g_glFuncs.glDrawArrays(mode, first, count);
+        return;
+    }
 
     GLint current_program = 0;
     g_glFuncs.glGetIntegerv(GL_CURRENT_PROGRAM, &current_program);
@@ -290,7 +357,12 @@ void drawArraysNow(GLenum mode, GLint first, GLsizei count, bool forceFixedFunct
     }
 
     fpe_backend_draw_state_guard_t backend_state(current_program);
-    int do_draw_element = commit_fpe_state_on_draw(&mode, &first, &count, backend_state.array_buffer);
+    GLint attributeArrayBuffer = backend_state.array_buffer;
+    if (arrayBufferOverride >= 0) {
+        attributeArrayBuffer = arrayBufferOverride;
+        g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, static_cast<GLuint>(arrayBufferOverride));
+    }
+    int do_draw_element = commit_fpe_state_on_draw(&mode, &first, &count, attributeArrayBuffer);
     if (do_draw_element < 0) {
         return;
     } else if (do_draw_element > 0) {

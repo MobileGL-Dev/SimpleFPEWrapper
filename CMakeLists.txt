@@ -31,6 +31,7 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         SimpleFPEWrapper/drawing.cpp
         SimpleFPEWrapper/getter.cpp
         SimpleFPEWrapper/lookup.cpp
+        SimpleFPEWrapper/ordered_passthrough.cpp
 
         SimpleFPEWrapper/backend/loader.cpp
 

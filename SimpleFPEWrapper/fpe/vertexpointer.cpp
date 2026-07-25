@@ -8,6 +8,7 @@
 
 #include "vertexpointer.h"
 #include "fpe.hpp"
+#include "drawing1x.h"
 
 #define DEBUG 0
 
@@ -35,6 +36,7 @@ void rememberClientArrayBufferBinding(int index) {
 } // namespace
 
 void glBindBuffer(GLenum target, GLuint buffer) {
+    flushPendingImmediateDraws();
     g_glFuncs.glBindBuffer(target, buffer);
     if (target == GL_ARRAY_BUFFER) {
         logicalArrayBuffer = buffer;
@@ -43,6 +45,7 @@ void glBindBuffer(GLenum target, GLuint buffer) {
 }
 
 void glDeleteBuffers(GLsizei n, const GLuint* buffers) {
+    flushPendingImmediateDraws();
     g_glFuncs.glDeleteBuffers(n, buffers);
     if (n <= 0 || buffers == nullptr) return;
 
@@ -61,6 +64,7 @@ GLuint getClientArrayBufferBinding(int index) {
 }
 
 void glVertexPointer(GLint size, GLenum type, GLsizei stride, const void* pointer) {
+    flushPendingImmediateDraws();
     // LOG_D("glVertexPointer, size = %d, type = %s, stride = %d, pointer = 0x%x", size, glEnumToString(type), stride,
     // pointer)
     auto& attr = g_glstate.fpe_state.vertexpointer_array.attributes[vp2idx(GL_VERTEX_ARRAY)];
@@ -77,6 +81,7 @@ void glVertexPointer(GLint size, GLenum type, GLsizei stride, const void* pointe
 }
 
 void glNormalPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
+    flushPendingImmediateDraws();
     // LOG_D("glNormalPointer, type = %s, stride = %d, pointer = 0x%x", glEnumToString(type), stride, pointer)
     g_glstate.fpe_state.vertexpointer_array.attributes[vp2idx(GL_NORMAL_ARRAY)] = {
         .size = 3,
@@ -92,6 +97,7 @@ void glNormalPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
 }
 
 void glColorPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* pointer) {
+    flushPendingImmediateDraws();
     // LOG_D("glColorPointer, size = %d, type = %s, stride = %d, pointer = 0x%x", size, glEnumToString(type), stride,
     // pointer)
     g_glstate.fpe_state.vertexpointer_array.attributes[vp2idx(GL_COLOR_ARRAY)] = {
@@ -108,6 +114,7 @@ void glColorPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* point
 }
 
 void glTexCoordPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* pointer) {
+    flushPendingImmediateDraws();
     // LOG_D("glTexCoordPointer, size = %d, type = %s, stride = %d, pointer = 0x%x", size, glEnumToString(type), stride,
     // pointer) LOG_D("Active texture: %s", glEnumToString(g_glstate.fpe_state.client_active_texture))
     const int index = vp2idx(GL_TEXTURE_COORD_ARRAY);
@@ -125,6 +132,7 @@ void glTexCoordPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* po
 }
 
 void glIndexPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
+    flushPendingImmediateDraws();
     // LOG_D("glIndexPointer, size = %d, type = %s, stride = %d, pointer = 0x%x", glEnumToString(type), stride, pointer)
     g_glstate.fpe_state.vertexpointer_array.attributes[vp2idx(GL_INDEX_ARRAY)] = {
         .size = 1,
@@ -140,6 +148,7 @@ void glIndexPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
 }
 
 void glEnableClientState(GLenum cap) {
+    flushPendingImmediateDraws();
     // LOG_D("glEnableClientState, cap = %s", glEnumToString(cap))
 
     auto mask = vp_mask(cap);
@@ -149,6 +158,7 @@ void glEnableClientState(GLenum cap) {
 }
 
 void glDisableClientState(GLenum cap) {
+    flushPendingImmediateDraws();
     // LOG_D("glDisableClientState, cap = %s", glEnumToString(cap))
     auto mask = vp_mask(cap);
 

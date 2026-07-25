@@ -13,6 +13,8 @@
 
 #include <array>
 
+void flushPendingImmediateDraws();
+
 // a bit bad for perf, but keep this for now...
 template <typename Type, GLint N>
 void mglNormal(std::array<Type, N> normal) {
@@ -50,6 +52,10 @@ void mglColor(std::array<Type, N> color) {
     state.current_data.sizes.color_size = N;
 
     if (g_glstate.fpe_state.fpe_bools.color_material_enable) {
+        // Vertex colors are copied into the pending batch, so ordinary color
+        // changes do not affect older glyphs. Color-material also mutates
+        // uniform material state, which must remain ordered with the batch.
+        flushPendingImmediateDraws();
         const auto apply = [&](material_t& material) {
             switch (g_glstate.fpe_state.color_material_mode) {
             case GL_AMBIENT:

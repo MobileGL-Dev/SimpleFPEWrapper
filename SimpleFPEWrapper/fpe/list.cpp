@@ -9,6 +9,7 @@
 #include "list.h"
 #include "pointer_utils.h"
 #include "fpe.hpp"
+#include "drawing1x.h"
 
 #define DEBUG 0
 
@@ -35,6 +36,7 @@ GLboolean glIsList(GLuint list) {
 }
 
 void glNewList(GLuint list, GLenum mode) {
+    flushPendingImmediateDraws();
     // LOG()
     // LOG_D("glNewList(%d, %s)", list, glEnumToString(mode))
     DisplayListManager::startRecord(list, mode);
@@ -47,6 +49,7 @@ void glEndList() {
 }
 
 void glCallList(GLuint list) {
+    flushPendingImmediateDraws();
     // LOG()
     // LOG_D("glCallList(%d)", list)
 
@@ -63,6 +66,7 @@ void glCallList(GLuint list) {
 }
 
 void glCallLists(GLsizei n, GLenum type, const GLvoid* lists) {
+    flushPendingImmediateDraws();
     // LOG()
     // LOG_D("glCallLists(%i, %s, %p)", n, glEnumToString(type), lists)
 

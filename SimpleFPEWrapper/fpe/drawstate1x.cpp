@@ -7,43 +7,49 @@
 // End of Source File Header
 
 #include "types.h"
+#include <cstring>
 
 #define DEBUG 0
 
 void fixed_function_draw_state_t::reset() {
     primitive = GL_NONE;
     vertex_count = 0;
-    vb.str(std::string()); // clearing vb stringstream
+    vb.clear();
 }
 
 void fixed_function_draw_state_t::advance() {
     ++vertex_count;
 
     const auto& sizes = current_data.sizes;
+    const auto append = [this](const GLfloat* values, GLint count) {
+        const size_t old_size = vb.size();
+        vb.resize(old_size + static_cast<size_t>(count));
+        std::memcpy(vb.data() + old_size, values, static_cast<size_t>(count) * sizeof(GLfloat));
+    };
 
     // vertex
     if (sizes.vertex_size > 0) {
-        vb.write((const char*)glm::value_ptr(current_data.vertex), sizeof(GLfloat) * sizes.vertex_size);
+        append(glm::value_ptr(current_data.vertex), sizes.vertex_size);
     }
 
     // normal
     if (sizes.normal_size > 0) {
-        vb.write((const char*)glm::value_ptr(current_data.normal), sizeof(GLfloat) * sizes.normal_size);
+        append(glm::value_ptr(current_data.normal), sizes.normal_size);
     }
 
     // color
     if (sizes.color_size > 0) {
-        vb.write((const char*)glm::value_ptr(current_data.color), sizeof(GLfloat) * sizes.color_size);
+        append(glm::value_ptr(current_data.color), sizes.color_size);
     }
 
     // texcoord
     for (GLint i = 0; i < MAX_TEX; ++i) {
         if (sizes.texcoord_size[i] > 0) {
-            vb.write((const char*)glm::value_ptr(current_data.texcoord[i]), sizeof(GLfloat) * sizes.texcoord_size[i]);
+            append(glm::value_ptr(current_data.texcoord[i]), sizes.texcoord_size[i]);
         }
     }
 
-    // LOG_D("advance(): vertexcount = %d, vbsize = %d", vertex_count, vb.str().size())
+    // LOG_D("advance(): vertexcount = %d, vbsize = %d", vertex_count, vb.size() * sizeof(GLfloat))
 }
 
 void fixed_function_draw_state_t::compile_vertexattrib(vertex_pointer_array_t& va) const {

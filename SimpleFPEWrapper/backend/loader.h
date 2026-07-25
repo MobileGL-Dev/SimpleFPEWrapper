@@ -607,6 +607,8 @@ namespace SFPEW {
                             GLsizei width, GLsizei height, GLsizei depth, GLboolean fixedsamplelocations)
             GL_FUNC_TYPEDEF(void*, glMapBufferRange, GLenum target, GLintptr offset, GLsizeiptr length,
                             GLbitfield access)
+            GL_FUNC_TYPEDEF(void, glBufferStorage, GLenum target, GLsizeiptr size, const void* data,
+                            GLbitfield flags)
             GL_FUNC_TYPEDEF(void, glBufferStorageEXT, GLenum target, GLsizeiptr size, const void* data,
                             GLbitfield flags)
             GL_FUNC_TYPEDEF(void, glGetQueryObjectivEXT, GLuint id, GLenum pname, GLint* params)
@@ -982,6 +984,7 @@ namespace SFPEW {
             GL_FUNC_DECL(glTexBufferRange)
             GL_FUNC_DECL(glTexStorage3DMultisample)
             GL_FUNC_DECL(glMapBufferRange)
+            GL_FUNC_DECL(glBufferStorage)
             GL_FUNC_DECL(glBufferStorageEXT)
             GL_FUNC_DECL(glGetQueryObjectivEXT)
             GL_FUNC_DECL(glGetQueryObjecti64vEXT)

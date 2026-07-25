@@ -343,7 +343,8 @@ void glstate_t::save_vao(const uint64_t key, const GLuint vao) {
     fpe_vaos[key] = vao;
 }
 
-bool glstate_t::send_vertex_attributes(const vertex_pointer_array_t& va, GLuint array_buffer) {
+bool glstate_t::send_vertex_attributes(const vertex_pointer_array_t& va, GLuint array_buffer,
+                                       GLintptr binding_offset) {
     // LOG()
 
     //    auto& va = fpe_state.vertexpointer_array;
@@ -367,10 +368,11 @@ bool glstate_t::send_vertex_attributes(const vertex_pointer_array_t& va, GLuint 
 
     if (use_separate_binding) {
         if (!fpe_vertex_binding_valid || fpe_vertex_binding_buffer != array_buffer ||
-            fpe_vertex_binding_stride != va.stride) {
-            g_glFuncs.glBindVertexBuffer(0, array_buffer, 0, va.stride);
+            fpe_vertex_binding_offset != binding_offset || fpe_vertex_binding_stride != va.stride) {
+            g_glFuncs.glBindVertexBuffer(0, array_buffer, binding_offset, va.stride);
             fpe_vertex_binding_valid = true;
             fpe_vertex_binding_buffer = array_buffer;
+            fpe_vertex_binding_offset = binding_offset;
             fpe_vertex_binding_stride = va.stride;
         }
     } else {
@@ -403,11 +405,13 @@ bool glstate_t::send_vertex_attributes(const vertex_pointer_array_t& va, GLuint 
                     cached.pointer = vp.pointer;
                 }
             } else {
+                const void* effective_pointer = reinterpret_cast<const void*>(
+                    reinterpret_cast<uintptr_t>(vp.pointer) + static_cast<uintptr_t>(binding_offset));
                 if (!cached.pointer_valid || cached.separate_binding || cached.array_buffer != array_buffer ||
                     cached.size != vp.size || cached.type != vp.type || cached.normalized != vp.normalized ||
-                    cached.stride != vp.stride || cached.pointer != vp.pointer) {
+                    cached.stride != vp.stride || cached.pointer != effective_pointer) {
                     g_glFuncs.glVertexAttribPointer(index, vp.size, vp.type, vp.normalized, vp.stride,
-                                                    vp.pointer);
+                                                    effective_pointer);
                     cached.pointer_valid = true;
                     cached.separate_binding = false;
                     cached.array_buffer = array_buffer;
@@ -415,7 +419,7 @@ bool glstate_t::send_vertex_attributes(const vertex_pointer_array_t& va, GLuint 
                     cached.type = vp.type;
                     cached.normalized = vp.normalized;
                     cached.stride = vp.stride;
-                    cached.pointer = vp.pointer;
+                    cached.pointer = effective_pointer;
                 }
             }
 

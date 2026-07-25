@@ -153,6 +153,12 @@ int init_fpe() {
 
     g_glFuncs.glGenBuffers(1, &g_glstate.fpe_state.fpe_vbo);
 
+    g_glFuncs.glGenBuffers(1, &g_glstate.fpe_state.fpe_immediate_vbo);
+    g_glstate.fpe_state.fpe_immediate_vbo_capacity = 0;
+    g_glstate.fpe_state.fpe_immediate_vbo_offset = 0;
+    g_glstate.fpe_state.fpe_immediate_vbo_map = nullptr;
+    g_glstate.fpe_state.fpe_immediate_vbo_persistent_attempted = false;
+
     g_glFuncs.glGenBuffers(1, &g_glstate.fpe_state.fpe_ibo);
 
     // LOG_D("fpe_vao: %d", g_glstate.fpe_state.fpe_vao)
@@ -160,15 +166,23 @@ int init_fpe() {
     // LOG_D("fpe_ibo: %d", g_glstate.fpe_state.fpe_ibo)
 
     if (g_glstate.fpe_state.fpe_vao == 0 || g_glstate.fpe_state.fpe_vbo == 0 ||
+        g_glstate.fpe_state.fpe_immediate_vbo == 0 ||
         g_glstate.fpe_state.fpe_ibo == 0) {
         if (g_glstate.fpe_state.fpe_vao != 0)
             g_glFuncs.glDeleteVertexArrays(1, &g_glstate.fpe_state.fpe_vao);
         if (g_glstate.fpe_state.fpe_vbo != 0)
             g_glFuncs.glDeleteBuffers(1, &g_glstate.fpe_state.fpe_vbo);
+        if (g_glstate.fpe_state.fpe_immediate_vbo != 0)
+            g_glFuncs.glDeleteBuffers(1, &g_glstate.fpe_state.fpe_immediate_vbo);
         if (g_glstate.fpe_state.fpe_ibo != 0)
             g_glFuncs.glDeleteBuffers(1, &g_glstate.fpe_state.fpe_ibo);
         g_glstate.fpe_state.fpe_vao = 0;
         g_glstate.fpe_state.fpe_vbo = 0;
+        g_glstate.fpe_state.fpe_immediate_vbo = 0;
+        g_glstate.fpe_state.fpe_immediate_vbo_capacity = 0;
+        g_glstate.fpe_state.fpe_immediate_vbo_offset = 0;
+        g_glstate.fpe_state.fpe_immediate_vbo_map = nullptr;
+        g_glstate.fpe_state.fpe_immediate_vbo_persistent_attempted = false;
         g_glstate.fpe_state.fpe_ibo = 0;
         return -1;
     }

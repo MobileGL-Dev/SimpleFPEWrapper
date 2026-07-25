@@ -14,7 +14,6 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <unordered_map>
 #include <vector>
-#include <sstream>
 #include <cstddef>
 #include "fpe_shadergen.h"
 #include "vertexpointer_utils.h"
@@ -157,7 +156,11 @@ struct fixed_function_draw_state_t {
 
     fixed_function_draw_data_t current_data;
 
-    std::stringstream vb;
+    // Immediate-mode attributes are normalized to GLfloat before they reach
+    // this buffer. Keep the storage alive across glBegin/glEnd pairs so small
+    // legacy draws can reuse their allocation instead of constructing a stream
+    // and copying its full string again at glEnd.
+    std::vector<GLfloat> vb;
 
     size_t vertex_count = 0;
 
@@ -197,6 +200,12 @@ struct fixed_function_state_t {
     GLuint fpe_vao = 0;
 
     GLuint fpe_vbo = 0;
+
+    GLuint fpe_immediate_vbo = 0;
+    size_t fpe_immediate_vbo_capacity = 0;
+    size_t fpe_immediate_vbo_offset = 0;
+    void* fpe_immediate_vbo_map = nullptr;
+    bool fpe_immediate_vbo_persistent_attempted = false;
 
     GLuint fpe_ibo = 0;
 
@@ -365,6 +374,7 @@ struct glstate_t {
     vertex_attribute_cache_entry_t fpe_vertex_attributes[VERTEX_POINTER_COUNT];
     bool fpe_vertex_binding_valid = false;
     GLuint fpe_vertex_binding_buffer = 0;
+    GLintptr fpe_vertex_binding_offset = 0;
     GLsizei fpe_vertex_binding_stride = 0;
 
     static constexpr uint64_t s_hash_seed = 2123456789;
@@ -384,5 +394,5 @@ struct glstate_t {
 
     void save_vao(const uint64_t key, const GLuint vao);
 
-    bool send_vertex_attributes(const vertex_pointer_array_t& va, GLuint array_buffer);
+    bool send_vertex_attributes(const vertex_pointer_array_t& va, GLuint array_buffer, GLintptr binding_offset = 0);
 };

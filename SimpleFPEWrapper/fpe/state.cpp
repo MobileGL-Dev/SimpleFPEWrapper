@@ -123,6 +123,7 @@ bool hijack_fpe_states(GLenum cap, bool enable, fixed_function_bool_t* bools) {
 }
 
 void glEnable(GLenum cap) {
+    flushPendingImmediateDraws();
     // LOG()
     // LOG_D("glEnable, cap = %s", glEnumToString(cap));
 
@@ -134,6 +135,7 @@ void glEnable(GLenum cap) {
 }
 
 void glDisable(GLenum cap) {
+    flushPendingImmediateDraws();
     // LOG()
     // LOG_D("glDisable, cap = %s", glEnumToString(cap))
 
@@ -145,6 +147,7 @@ void glDisable(GLenum cap) {
 }
 
 void glClientActiveTexture(GLenum texture) {
+    flushPendingImmediateDraws();
     // LOG()
     // LOG_D("glClientActiveTexture(GL_TEXTURE%d)", texture - GL_TEXTURE0)
 
@@ -154,6 +157,7 @@ void glClientActiveTexture(GLenum texture) {
 }
 
 void glAlphaFunc(GLenum func, GLclampf ref) {
+    flushPendingImmediateDraws();
     // LOG()
     // LOG_D("glAlphaFunc(%s, %f)", glEnumToString(func), ref)
 
@@ -164,6 +168,7 @@ void glAlphaFunc(GLenum func, GLclampf ref) {
 }
 
 void glFogf(GLenum pname, GLfloat param) {
+    flushPendingImmediateDraws();
     // LOG()
     // LOG_D("glFogf(%s, %f)", glEnumToString(pname), param)
 
@@ -193,6 +198,7 @@ void glFogf(GLenum pname, GLfloat param) {
 }
 
 void glFogi(GLenum pname, GLint param) {
+    flushPendingImmediateDraws();
     // LOG()
     // LOG_D("glFogi(%s, %s)", glEnumToString(pname), glEnumToString(param))
 
@@ -221,6 +227,7 @@ void glFogi(GLenum pname, GLint param) {
 }
 
 void glFogfv(GLenum pname, const GLfloat* params) {
+    flushPendingImmediateDraws();
     // LOG()
     // LOG_D("glFogfv(%s, [...])", glEnumToString(pname))
 
@@ -250,6 +257,7 @@ void glFogfv(GLenum pname, const GLfloat* params) {
 }
 
 void glFogiv(GLenum pname, const GLint* params) {
+    flushPendingImmediateDraws();
     // LOG()
     // LOG_D("glFogiv(%s, [...])", glEnumToString(pname))
 
@@ -281,6 +289,7 @@ void glFogiv(GLenum pname, const GLint* params) {
 }
 
 void glShadeModel(GLenum mode) {
+    flushPendingImmediateDraws();
     // LOG()
     // LOG_D("glShadeModel(%s)", glEnumToString(mode))
 
@@ -290,6 +299,7 @@ void glShadeModel(GLenum mode) {
 }
 
 void glLightf(GLenum light, GLenum pname, GLfloat param) {
+    flushPendingImmediateDraws();
     // LOG()
     // LOG_D("glLightf(%s, %s, %f)", glEnumToString(light), glEnumToString(pname), param)
 
@@ -321,6 +331,7 @@ void glLightf(GLenum light, GLenum pname, GLfloat param) {
 }
 
 void glLighti(GLenum light, GLenum pname, GLint param) {
+    flushPendingImmediateDraws();
     // LOG()
     // LOG_D("glLighti(%s, %s, %d)", glEnumToString(light), glEnumToString(pname), param)
 
@@ -330,6 +341,7 @@ void glLighti(GLenum light, GLenum pname, GLint param) {
 }
 
 void glLightfv(GLenum light, GLenum pname, const GLfloat* params) {
+    flushPendingImmediateDraws();
     // LOG()
     // LOG_D("glLightfv(%s, %s, [...])", glEnumToString(light), glEnumToString(pname))
 
@@ -379,6 +391,7 @@ void glLightfv(GLenum light, GLenum pname, const GLfloat* params) {
 }
 
 void glLightiv(GLenum light, GLenum pname, const GLint* params) {
+    flushPendingImmediateDraws();
     // LOG()
     // LOG_D("glLightiv(%s, %s, [...])", glEnumToString(light), glEnumToString(pname))
 
@@ -419,6 +432,7 @@ void glLightiv(GLenum light, GLenum pname, const GLint* params) {
 }
 
 void glLightModelf(GLenum pname, GLfloat param) {
+    flushPendingImmediateDraws();
     // LOG()
     // LOG_D("glLightModelf(%s, %f)", glEnumToString(pname), param)
 
@@ -435,6 +449,7 @@ void glLightModelf(GLenum pname, GLfloat param) {
 }
 
 void glLightModeli(GLenum pname, GLint param) {
+    flushPendingImmediateDraws();
     // LOG()
     // LOG_D("glLightModelf(%s, %d)", glEnumToString(pname), param)
 
@@ -456,6 +471,7 @@ void glLightModeli(GLenum pname, GLint param) {
 }
 
 void glLightModelfv(GLenum pname, const GLfloat* params) {
+    flushPendingImmediateDraws();
     // LOG()
     // LOG_D("glLightModelfv(%s, [...])", glEnumToString(pname))
 
@@ -476,6 +492,7 @@ void glLightModelfv(GLenum pname, const GLfloat* params) {
 }
 
 void glLightModeliv(GLenum pname, const GLint* params) {
+    flushPendingImmediateDraws();
     // LOG()
     // LOG_D("glLightModeliv(%s, [...])", glEnumToString(pname))
 
@@ -499,6 +516,7 @@ void glLightModeliv(GLenum pname, const GLint* params) {
 }
 
 void glColorMaterial(GLenum face, GLenum mode) {
+    flushPendingImmediateDraws();
     LIST_RECORD(glColorMaterial, {}, face, mode)
 
     if (face != GL_FRONT && face != GL_BACK && face != GL_FRONT_AND_BACK) return;
@@ -517,6 +535,7 @@ void glColorMaterial(GLenum face, GLenum mode) {
 }
 
 void glMaterialf(GLenum face, GLenum pname, GLfloat param) {
+    flushPendingImmediateDraws();
     LIST_RECORD(glMaterialf, {}, face, pname, param)
 
     if (pname != GL_SHININESS || param < 0.0f || param > 128.0f) return;
@@ -524,12 +543,14 @@ void glMaterialf(GLenum face, GLenum pname, GLfloat param) {
 }
 
 void glMateriali(GLenum face, GLenum pname, GLint param) {
+    flushPendingImmediateDraws();
     LIST_RECORD(glMateriali, {}, face, pname, param)
 
     SELF_CALL(glMaterialf, face, pname, (GLfloat)param)
 }
 
 void glMaterialfv(GLenum face, GLenum pname, const GLfloat* params) {
+    flushPendingImmediateDraws();
     LIST_RECORD(glMaterialfv, {{2, material_param_count(pname) * sizeof(GLfloat)}}, face, pname, params)
 
     if (!params) return;
@@ -564,6 +585,7 @@ void glMaterialfv(GLenum face, GLenum pname, const GLfloat* params) {
 }
 
 void glMaterialiv(GLenum face, GLenum pname, const GLint* params) {
+    flushPendingImmediateDraws();
     LIST_RECORD(glMaterialiv, {{2, material_param_count(pname) * sizeof(GLint)}}, face, pname, params)
 
     if (!params) return;
@@ -581,6 +603,7 @@ void glMaterialiv(GLenum face, GLenum pname, const GLint* params) {
 }
 
 void glTexEnvf(GLenum target, GLenum pname, GLfloat param) {
+    flushPendingImmediateDraws();
     LIST_RECORD(glTexEnvf, {}, target, pname, param)
 
     auto& env = current_texture_env();
@@ -604,6 +627,7 @@ void glTexEnvf(GLenum target, GLenum pname, GLfloat param) {
 }
 
 void glTexEnvi(GLenum target, GLenum pname, GLint param) {
+    flushPendingImmediateDraws();
     LIST_RECORD(glTexEnvi, {}, target, pname, param)
 
     if (target == GL_TEXTURE_FILTER_CONTROL && pname == GL_TEXTURE_LOD_BIAS) {
@@ -656,6 +680,7 @@ void glTexEnvi(GLenum target, GLenum pname, GLint param) {
 }
 
 void glTexEnvfv(GLenum target, GLenum pname, const GLfloat* params) {
+    flushPendingImmediateDraws();
     LIST_RECORD(glTexEnvfv, {{2, tex_env_param_count(pname) * sizeof(GLfloat)}}, target, pname, params)
 
     if (!params) return;
@@ -667,6 +692,7 @@ void glTexEnvfv(GLenum target, GLenum pname, const GLfloat* params) {
 }
 
 void glTexEnviv(GLenum target, GLenum pname, const GLint* params) {
+    flushPendingImmediateDraws();
     LIST_RECORD(glTexEnviv, {{2, tex_env_param_count(pname) * sizeof(GLint)}}, target, pname, params)
 
     if (!params) return;

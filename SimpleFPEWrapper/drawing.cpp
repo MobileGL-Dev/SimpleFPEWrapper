@@ -10,6 +10,7 @@
 
 #include "fpe/fpe.hpp"
 #include "fpe/list.h"
+#include "fpe/drawing1x.h"
 
 #include <algorithm>
 #include <array>
@@ -626,6 +627,7 @@ void drawArraysNow(GLenum mode, GLint first, GLsizei count, bool forceFixedFunct
 } // namespace
 
 void glDrawArrays(GLenum mode, GLint first, GLsizei count) {
+    flushPendingImmediateDraws();
     if (!disableRecording && DisplayListManager::shouldRecord()) {
         std::unique_ptr<GLCmd> command;
 

@@ -20,6 +20,7 @@ namespace {
 
 constexpr size_t kImmediateVboMinCapacity = 16u * 1024u * 1024u;
 constexpr size_t kImmediateVboAlignment = 256u;
+constexpr size_t kImmediateGlyphBatchLimit = 256u;
 
 GLintptr uploadImmediateVertexData(const void* data, size_t size) {
     auto& state = g_glstate.fpe_state;
@@ -106,10 +107,144 @@ struct immediate_client_state_guard_t {
     immediate_client_state_guard_t& operator=(const immediate_client_state_guard_t&) = delete;
 };
 
+struct immediate_draw_sizes_guard_t {
+    fixed_function_draw_size_t sizes = g_glstate.fpe_state.fpe_draw.current_data.sizes;
+
+    ~immediate_draw_sizes_guard_t() { g_glstate.fpe_state.fpe_draw.current_data.sizes = sizes; }
+
+    immediate_draw_sizes_guard_t() = default;
+    immediate_draw_sizes_guard_t(const immediate_draw_sizes_guard_t&) = delete;
+    immediate_draw_sizes_guard_t& operator=(const immediate_draw_sizes_guard_t&) = delete;
+};
+
+struct pending_glyph_batch_t {
+    bool active = false;
+    fixed_function_draw_size_t sizes{};
+    std::vector<GLfloat> vertices;
+    size_t vertexCount = 0;
+    size_t glyphCount = 0;
+};
+
+thread_local pending_glyph_batch_t pendingGlyphBatch;
+
+void drawImmediateVertices(GLenum primitive, const GLfloat* vertices, size_t floatCount,
+                           size_t vertexCount, const fixed_function_draw_size_t& sizes) {
+    if (vertices == nullptr || floatCount == 0 || vertexCount == 0 ||
+        vertexCount > static_cast<size_t>(std::numeric_limits<GLsizei>::max())) {
+        return;
+    }
+
+    fpe_backend_draw_state_guard_t backendState;
+    // glBegin/glEnd uses temporary interleaved data. Preserve the caller's
+    // client-array declarations so an immediate draw cannot invalidate the
+    // following glDrawArrays call.
+    immediate_client_state_guard_t clientState;
+    immediate_draw_sizes_guard_t drawSizes;
+
+    auto& state = g_glstate.fpe_state;
+    state.fpe_draw.current_data.sizes = sizes;
+
+    fixed_function_draw_state_t layoutState;
+    layoutState.current_data.sizes = sizes;
+    layoutState.compile_vertexattrib(state.vertexpointer_array);
+
+    auto& va = state.normalized_vpa;
+    va = state.vertexpointer_array.normalize();
+    // generate_compressed_index only reads the size array, but its legacy
+    // declaration is not const-correct.
+    auto mutableSizes = sizes;
+    va.generate_compressed_index(mutableSizes.data);
+
+    auto key = g_glstate.program_hash();
+    auto& program = g_glstate.get_or_generate_program(key);
+    const int programId = program.get_program();
+    if (programId <= 0) return;
+
+    g_glFuncs.glUseProgram(programId);
+    g_glFuncs.glBindVertexArray(state.fpe_vao);
+    g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, state.fpe_immediate_vbo);
+
+    const GLintptr vertexOffset =
+        uploadImmediateVertexData(vertices, floatCount * sizeof(GLfloat));
+    g_glstate.send_vertex_attributes(va, state.fpe_immediate_vbo, vertexOffset);
+    g_glstate.send_uniforms(program);
+
+    const GLsizei drawCount = static_cast<GLsizei>(vertexCount);
+    if (primitive == GL_QUADS) {
+        const GLsizei indexCount = (drawCount / 4) * 6;
+        const bool uploadIndices = prepare_quad_indices(drawCount, 0);
+        if (!state.fpe_ibo_bound) {
+            g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, state.fpe_ibo);
+            state.fpe_ibo_bound = true;
+        }
+        if (uploadIndices) {
+            g_glFuncs.glBufferData(GL_ELEMENT_ARRAY_BUFFER, quad_index_size_bytes(), quad_index_data(),
+                                   GL_DYNAMIC_DRAW);
+        }
+        g_glFuncs.glDrawElements(GL_TRIANGLES, indexCount, quad_index_type(), (void*)0);
+    } else {
+        g_glFuncs.glDrawArrays(primitive, 0, drawCount);
+    }
+}
+
+bool queueGlyphTriangleStrip(const fixed_function_draw_state_t& draw) {
+    if (DisplayListManager::isCalling() || draw.primitive != GL_TRIANGLE_STRIP ||
+        draw.vertex_count != 4 || draw.vb.empty() || draw.vb.size() % 4u != 0) {
+        return false;
+    }
+
+    auto& batch = pendingGlyphBatch;
+    const auto& sizes = draw.current_data.sizes;
+    if (batch.active && std::memcmp(&batch.sizes, &sizes, sizeof(sizes)) != 0) {
+        flushPendingImmediateDraws();
+    }
+    if (!batch.active) {
+        batch.active = true;
+        batch.sizes = sizes;
+        batch.vertices.clear();
+        batch.vertexCount = 0;
+        batch.glyphCount = 0;
+        batch.vertices.reserve(kImmediateGlyphBatchLimit * (draw.vb.size() / 4u) * 6u);
+    }
+
+    const size_t stride = draw.vb.size() / 4u;
+    const auto appendVertex = [&](size_t index) {
+        const auto begin = draw.vb.begin() + static_cast<ptrdiff_t>(index * stride);
+        batch.vertices.insert(batch.vertices.end(), begin, begin + static_cast<ptrdiff_t>(stride));
+    };
+    // Four vertices in a triangle strip form 0-1-2 and 2-1-3. Expand to
+    // independent triangles so adjacent glyphs can share one draw call.
+    appendVertex(0);
+    appendVertex(1);
+    appendVertex(2);
+    appendVertex(2);
+    appendVertex(1);
+    appendVertex(3);
+    batch.vertexCount += 6;
+    ++batch.glyphCount;
+
+    if (batch.glyphCount >= kImmediateGlyphBatchLimit) flushPendingImmediateDraws();
+    return true;
+}
+
 } // namespace
+
+void flushPendingImmediateDraws() {
+    auto& batch = pendingGlyphBatch;
+    if (!batch.active) return;
+
+    drawImmediateVertices(GL_TRIANGLES, batch.vertices.data(), batch.vertices.size(),
+                          batch.vertexCount, batch.sizes);
+    batch.active = false;
+    batch.vertices.clear();
+    batch.vertexCount = 0;
+    batch.glyphCount = 0;
+}
 
 void glBegin(GLenum mode) {
     LIST_RECORD(glBegin, {}, mode)
+
+    if (mode != GL_TRIANGLE_STRIP) flushPendingImmediateDraws();
 
     if (!fpe_inited) {
         if (init_fpe() != 0) return;
@@ -128,78 +263,18 @@ void glEnd() {
     LIST_RECORD(glEnd, {})
 
     auto& s = g_glstate.fpe_state.fpe_draw;
-    auto& raw_va = g_glstate.fpe_state.vertexpointer_array;
-    //    auto& vb = g_glstate.fpe_state.fpe_vb;
-    auto& vb = g_glstate.fpe_state.fpe_draw.vb;
-
     if (s.primitive == GL_NONE) {
         return;
     }
 
-    fpe_backend_draw_state_guard_t backend_state;
-    // glBegin/glEnd uses temporary interleaved data. Preserve the caller's
-    // client-array declarations so an immediate draw cannot invalidate the
-    // following glDrawArrays call.
-    immediate_client_state_guard_t client_state;
-
-    // actual assembly work, and draw!
-    {
-        // Vertex Pointer State Machine Update
-        g_glstate.fpe_state.fpe_draw.compile_vertexattrib(raw_va);
-
-        auto& va = g_glstate.fpe_state.normalized_vpa;
-        va = raw_va.normalize();
-        // Need to generate_compressed_index first (shadergen will use that)
-        va.generate_compressed_index(g_glstate.fpe_state.fpe_draw.current_data.sizes.data);
-
-        auto key = g_glstate.program_hash();
-
-        // Program
-        auto& prog = g_glstate.get_or_generate_program(key);
-
-        int prog_id = prog.get_program();
-        if (prog_id <= 0) {
-            s.reset();
-            return;
-        }
-        g_glFuncs.glUseProgram(prog_id);
-
-        // VAO, VB
-        g_glFuncs.glBindVertexArray(g_glstate.fpe_state.fpe_vao);
-
-        g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, g_glstate.fpe_state.fpe_immediate_vbo);
-
-        const GLintptr vertex_offset = uploadImmediateVertexData(vb.data(), vb.size() * sizeof(GLfloat));
-
-        // Vertex Pointer to ES
-        g_glstate.send_vertex_attributes(va, g_glstate.fpe_state.fpe_immediate_vbo, vertex_offset);
-
-        // Uniform
-        { g_glstate.send_uniforms(prog); }
-
-        // Draw
-        // LOG_D("glEnd: glDrawArrays(%s, %d, %d), vb = %d, vb size = %d", glEnumToString(s.primitive), 0,
-        // s.vertex_count,
-        //      g_glstate.fpe_state.fpe_vbo, vb.size() * sizeof(GLfloat))
-        if (s.primitive == GL_QUADS) {
-            const GLsizei vertex_count = static_cast<GLsizei>(s.vertex_count);
-            const GLsizei index_count = (vertex_count / 4) * 6;
-            const bool upload_indices = prepare_quad_indices(vertex_count, 0);
-            if (!g_glstate.fpe_state.fpe_ibo_bound) {
-                g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_glstate.fpe_state.fpe_ibo);
-                g_glstate.fpe_state.fpe_ibo_bound = true;
-            }
-            if (upload_indices) {
-                g_glFuncs.glBufferData(GL_ELEMENT_ARRAY_BUFFER, quad_index_size_bytes(), quad_index_data(),
-                                       GL_DYNAMIC_DRAW);
-            }
-            g_glFuncs.glDrawElements(GL_TRIANGLES, index_count, quad_index_type(), (void*)0);
-        } else {
-            g_glFuncs.glDrawArrays(s.primitive, 0, s.vertex_count);
-        }
+    if (queueGlyphTriangleStrip(s)) {
+        s.reset();
+        return;
     }
 
-    // resetting draw state
+    flushPendingImmediateDraws();
+    drawImmediateVertices(s.primitive, s.vb.data(), s.vb.size(), s.vertex_count,
+                          s.current_data.sizes);
     s.reset();
 }
 

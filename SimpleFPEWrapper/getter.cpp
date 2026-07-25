@@ -9,8 +9,10 @@
 #include "GL/gl.h"
 #include "init.h"
 #include <glm/gtc/type_ptr.hpp>
+#include <cstdint>
 #include <unordered_map>
 #include "fpe/fpe.hpp"
+#include "fpe/drawing1x.h"
 
 namespace {
 struct ProxyTexture2DLevel {
@@ -27,6 +29,58 @@ struct ProxyTexture2DCache {
 };
 
 thread_local ProxyTexture2DCache proxyTexture2DCache;
+
+struct LogicalTextureBindings {
+    EGLContext context = EGL_NO_CONTEXT;
+    GLenum activeTexture = GL_TEXTURE0;
+    bool activeTextureKnown = false;
+    std::unordered_map<uint64_t, GLuint> bindings;
+};
+
+thread_local LogicalTextureBindings logicalTextureBindings;
+
+LogicalTextureBindings& getLogicalTextureBindings() {
+    const EGLContext context =
+        g_eglFuncs.eglGetCurrentContext ? g_eglFuncs.eglGetCurrentContext() : EGL_NO_CONTEXT;
+    if (logicalTextureBindings.context != context) {
+        logicalTextureBindings = {};
+        logicalTextureBindings.context = context;
+    }
+    return logicalTextureBindings;
+}
+
+GLenum getLogicalActiveTexture(LogicalTextureBindings& state) {
+    if (!state.activeTextureKnown) {
+        GLint active = GL_TEXTURE0;
+        g_glFuncs.glGetIntegerv(GL_ACTIVE_TEXTURE, &active);
+        state.activeTexture = static_cast<GLenum>(active);
+        state.activeTextureKnown = true;
+    }
+    return state.activeTexture;
+}
+
+GLenum textureBindingQuery(GLenum target) {
+    switch (target) {
+    case GL_TEXTURE_2D:
+        return GL_TEXTURE_BINDING_2D;
+    case GL_TEXTURE_CUBE_MAP:
+        return GL_TEXTURE_BINDING_CUBE_MAP;
+#ifdef GL_TEXTURE_3D
+    case GL_TEXTURE_3D:
+        return GL_TEXTURE_BINDING_3D;
+#endif
+#ifdef GL_TEXTURE_2D_ARRAY
+    case GL_TEXTURE_2D_ARRAY:
+        return GL_TEXTURE_BINDING_2D_ARRAY;
+#endif
+    default:
+        return GL_NONE;
+    }
+}
+
+uint64_t textureBindingKey(GLenum activeTexture, GLenum target) {
+    return (static_cast<uint64_t>(activeTexture) << 32u) | static_cast<uint64_t>(target);
+}
 
 std::unordered_map<GLint, ProxyTexture2DLevel>& getProxyTexture2DLevels() {
     const EGLContext context =
@@ -287,8 +341,56 @@ void glGetFloatv(GLenum pname, GLfloat* params) {
     }
 }
 
+void glActiveTexture(GLenum texture) {
+    auto& state = getLogicalTextureBindings();
+    if (getLogicalActiveTexture(state) == texture) return;
+
+    flushPendingImmediateDraws();
+    g_glFuncs.glActiveTexture(texture);
+    state.activeTexture = texture;
+    state.activeTextureKnown = true;
+}
+
+void glBindTexture(GLenum target, GLuint texture) {
+    auto& state = getLogicalTextureBindings();
+    const GLenum activeTexture = getLogicalActiveTexture(state);
+    const GLenum query = textureBindingQuery(target);
+    const uint64_t key = textureBindingKey(activeTexture, target);
+
+    if (query != GL_NONE) {
+        auto binding = state.bindings.find(key);
+        if (binding == state.bindings.end()) {
+            GLint current = 0;
+            g_glFuncs.glGetIntegerv(query, &current);
+            binding = state.bindings.emplace(key, static_cast<GLuint>(current)).first;
+        }
+        if (binding->second == texture) return;
+    }
+
+    flushPendingImmediateDraws();
+    g_glFuncs.glBindTexture(target, texture);
+    if (query != GL_NONE) state.bindings[key] = texture;
+}
+
+void glDeleteTextures(GLsizei n, const GLuint* textures) {
+    flushPendingImmediateDraws();
+    g_glFuncs.glDeleteTextures(n, textures);
+    if (n <= 0 || textures == nullptr) return;
+
+    auto& bindings = getLogicalTextureBindings().bindings;
+    for (auto& [key, binding] : bindings) {
+        for (GLsizei i = 0; i < n; ++i) {
+            if (binding == textures[i]) {
+                binding = 0;
+                break;
+            }
+        }
+    }
+}
+
 void glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height, GLint border,
                   GLenum format, GLenum type, const GLvoid* pixels) {
+    flushPendingImmediateDraws();
     if (target != GL_PROXY_TEXTURE_2D) {
         g_glFuncs.glTexImage2D(target, level, internalformat, width, height, border, format, type, pixels);
         return;

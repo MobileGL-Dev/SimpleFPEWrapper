@@ -22,6 +22,38 @@ SFPEW_APIENTRY __eglMustCastToProperFunctionPointerType eglGetProcAddress(const 
     GETPROC(glGetStringi, name)
     GETPROC(glGetIntegerv, name)
     GETPROC(glDrawArrays, name)
+    GETPROC(glDrawElements, name)
+    GETPROC(glClear, name)
+    GETPROC(glReadPixels, name)
+    GETPROC(glFlush, name)
+    GETPROC(glFinish, name)
+    GETPROC(glBindFramebuffer, name)
+    if (std::strcmp("glBindFramebufferEXT", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glBindFramebuffer;
+    }
+    GETPROC(glUseProgram, name)
+    GETPROC(glBlendColor, name)
+    GETPROC(glBlendEquation, name)
+    GETPROC(glBlendEquationSeparate, name)
+    GETPROC(glBlendFunc, name)
+    GETPROC(glBlendFuncSeparate, name)
+    GETPROC(glDepthFunc, name)
+    GETPROC(glDepthMask, name)
+    GETPROC(glColorMask, name)
+    GETPROC(glCullFace, name)
+    GETPROC(glFrontFace, name)
+    GETPROC(glViewport, name)
+    GETPROC(glScissor, name)
+    GETPROC(glPolygonOffset, name)
+    GETPROC(glLineWidth, name)
+    GETPROC(glStencilFunc, name)
+    GETPROC(glStencilMask, name)
+    GETPROC(glStencilOp, name)
+    GETPROC(glTexParameterf, name)
+    GETPROC(glTexParameterfv, name)
+    GETPROC(glTexParameteri, name)
+    GETPROC(glTexParameteriv, name)
+    GETPROC(glTexSubImage2D, name)
     GETPROC(glBindBuffer, name)
     GETPROC(glDeleteBuffers, name)
     if (std::strcmp("glBindBufferARB", name) == 0) {
@@ -30,6 +62,9 @@ SFPEW_APIENTRY __eglMustCastToProperFunctionPointerType eglGetProcAddress(const 
     if (std::strcmp("glDeleteBuffersARB", name) == 0) {
         return (__eglMustCastToProperFunctionPointerType)glDeleteBuffers;
     }
+    GETPROC(glActiveTexture, name)
+    GETPROC(glBindTexture, name)
+    GETPROC(glDeleteTextures, name)
     GETPROC(glTexImage2D, name)
     GETPROC(glGetTexLevelParameteriv, name)
     GETPROC(glGetTexLevelParameterfv, name)
@@ -124,7 +159,7 @@ SFPEW_APIENTRY __eglMustCastToProperFunctionPointerType eglGetProcAddress(const 
         return (__eglMustCastToProperFunctionPointerType)glClientActiveTexture;
     }
     if (std::strcmp("glActiveTextureARB", name) == 0) {
-        return (__eglMustCastToProperFunctionPointerType)g_glFuncs.glActiveTexture;
+        return (__eglMustCastToProperFunctionPointerType)glActiveTexture;
     }
     GETPROC(glAlphaFunc, name)
     GETPROC(glFogf, name)

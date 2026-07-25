@@ -70,6 +70,10 @@ public:
         // and pending-draw checks for adjacent display-list transforms.
         flushPendingImmediateDraws();
         auto& matrix = current_matrix(g_glstate.fpe_uniform.transformation);
+        apply(matrix);
+    }
+
+    void apply(glm::mat4& matrix) const {
         for (size_t i = 0; i < operationCount; ++i) {
             const auto& operation = operations[i];
             if (operation.kind == matrix_transform_kind_t::translate)
@@ -93,6 +97,26 @@ private:
     size_t operationCount = 0;
 };
 
+class scoped_matrix_draw_cmd_t final : public GLCmd {
+public:
+    scoped_matrix_draw_cmd_t(std::unique_ptr<matrix_transform_cmd_t> transform,
+                             std::unique_ptr<GLCmd> draw)
+        : transform(std::move(transform)), draw(std::move(draw)) {}
+
+    void execute() const override {
+        flushPendingImmediateDraws();
+        auto& matrix = current_matrix(g_glstate.fpe_uniform.transformation);
+        const glm::mat4 saved = matrix;
+        transform->apply(matrix);
+        draw->execute();
+        matrix = saved;
+    }
+
+private:
+    std::unique_ptr<matrix_transform_cmd_t> transform;
+    std::unique_ptr<GLCmd> draw;
+};
+
 bool recordMatrixTransform(matrix_transform_kind_t kind, const glm::vec3& value) {
     if (disableRecording || !DisplayListManager::shouldRecord()) return false;
     displayListManager.recordCommand(std::make_unique<matrix_transform_cmd_t>(kind, value));
@@ -100,6 +124,29 @@ bool recordMatrixTransform(matrix_transform_kind_t kind, const glm::vec3& value)
 }
 
 } // namespace
+
+void optimizeDisplayListCommands(DisplayList& commands) {
+    if (commands.size() != 3 && commands.size() != 4) return;
+    if (dynamic_cast<GLFuncCmd<&glPushMatrix>*>(commands.front().get()) == nullptr ||
+        dynamic_cast<GLFuncCmd<&glPopMatrix>*>(commands.back().get()) == nullptr) {
+        return;
+    }
+
+    auto* transform = dynamic_cast<matrix_transform_cmd_t*>(commands[1].get());
+    if (transform == nullptr) return;
+    if (commands.size() == 3) {
+        commands.clear();
+        return;
+    }
+    if (!commands[2]->isCapturedDraw()) return;
+
+    auto ownedTransform = std::unique_ptr<matrix_transform_cmd_t>(
+        static_cast<matrix_transform_cmd_t*>(commands[1].release()));
+    auto draw = std::move(commands[2]);
+    commands.clear();
+    commands.emplace_back(std::make_unique<scoped_matrix_draw_cmd_t>(
+        std::move(ownedTransform), std::move(draw)));
+}
 
 int matrix_idx(GLenum matrix_mode) {
     switch (matrix_mode) {

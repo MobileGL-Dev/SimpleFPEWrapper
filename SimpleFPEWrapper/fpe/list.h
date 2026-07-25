@@ -33,11 +33,14 @@ public:
     GLCmd& operator=(GLCmd&&) = default;
     virtual void execute() const = 0;
     virtual bool tryMerge(const GLCmd&) { return false; }
+    virtual bool isCapturedDraw() const { return false; }
 
     GLCmd(const GLCmd&) = delete;
     GLCmd& operator=(const GLCmd&) = delete;
 };
 using DisplayList = std::vector<std::unique_ptr<GLCmd>>;
+
+void optimizeDisplayListCommands(DisplayList& commands);
 
 template <auto FuncPtr, typename... Args>
 class GLFuncCmd : public GLCmd {
@@ -93,6 +96,8 @@ public:
     }
 
     static void endRecord() {
+        auto it = lists.find(currentListID);
+        if (it != lists.end()) optimizeDisplayListCommands(it->second);
         currentListID = 0;
         listMode = GL_COMPILE;
     }

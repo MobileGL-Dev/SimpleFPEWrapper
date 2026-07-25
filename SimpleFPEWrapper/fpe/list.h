@@ -32,6 +32,7 @@ public:
     GLCmd(GLCmd&&) = default;
     GLCmd& operator=(GLCmd&&) = default;
     virtual void execute() const = 0;
+    virtual bool tryMerge(const GLCmd&) { return false; }
 
     GLCmd(const GLCmd&) = delete;
     GLCmd& operator=(const GLCmd&) = delete;
@@ -140,7 +141,12 @@ public:
     }
 
     void recordCommand(std::unique_ptr<GLCmd> command) {
-        if (command != nullptr) lists[currentListID].emplace_back(std::move(command));
+        if (command == nullptr) return;
+        auto& commands = lists[currentListID];
+        // A command may fold an immediately adjacent command only when it can
+        // prove that doing so preserves the display-list state boundary.
+        if (!commands.empty() && commands.back()->tryMerge(*command)) return;
+        commands.emplace_back(std::move(command));
     }
 
     static void callList(GLuint listID) {

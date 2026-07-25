@@ -355,6 +355,7 @@ public:
     }
 
     bool isValid() const { return valid; }
+    bool isCapturedDraw() const override { return true; }
     bool tryMerge(const GLCmd& nextCommand) override {
         // A GLFuncCmd between two captured draws prevents this path. With no
         // intervening command, identical array layouts can share one packed

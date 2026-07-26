@@ -733,6 +733,197 @@ void drawArraysNow(GLenum mode, GLint first, GLsizei count, bool forceFixedFunct
     }
 }
 
+size_t indexTypeSize(GLenum type) {
+    switch (type) {
+    case GL_UNSIGNED_BYTE:
+        return 1;
+    case GL_UNSIGNED_SHORT:
+        return 2;
+    case GL_UNSIGNED_INT:
+        return 4;
+    default:
+        return 0;
+    }
+}
+
+template <typename T>
+uint32_t maxIndexOf(const T* indices, size_t count) {
+    uint32_t result = 0;
+    for (size_t i = 0; i < count; ++i)
+        result = std::max(result, static_cast<uint32_t>(indices[i]));
+    return result;
+}
+
+template <typename T>
+void expandQuadIndices(const T* src, size_t quadCount, std::vector<uint32_t>& out) {
+    out.resize(quadCount * 6u);
+    for (size_t q = 0; q < quadCount; ++q) {
+        const uint32_t i0 = src[q * 4 + 0], i1 = src[q * 4 + 1];
+        const uint32_t i2 = src[q * 4 + 2], i3 = src[q * 4 + 3];
+        out[q * 6 + 0] = i0;
+        out[q * 6 + 1] = i1;
+        out[q * 6 + 2] = i2;
+        out[q * 6 + 3] = i2;
+        out[q * 6 + 4] = i3;
+        out[q * 6 + 5] = i0;
+    }
+}
+
+// FPE conversion for glDrawElements (plans/02 section B): mirrors the
+// glDrawArrays interception - only program 0 with an enabled legacy vertex
+// array is converted, everything else passes through untouched.
+void drawElementsNow(GLenum mode, GLsizei count, GLenum type, const GLvoid* indices) {
+    const GLint current_program = sfpewLogicalProgram();
+    const auto& vertex_array = g_glstate.fpe_state.vertexpointer_array;
+    const uint32_t vertex_array_mask = 1u << vp2idx(GL_VERTEX_ARRAY);
+
+    if (current_program != 0 || !(vertex_array.enabled_pointers & vertex_array_mask)) {
+        if (g_glFuncs.glDrawElements != nullptr) g_glFuncs.glDrawElements(mode, count, type, indices);
+        return;
+    }
+
+    const size_t index_size = indexTypeSize(type);
+    if (index_size == 0) {
+        g_glstate.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    if (count < 0) {
+        g_glstate.set_error(GL_INVALID_VALUE);
+        return;
+    }
+    if (count == 0) return;
+
+    if (!g_glstate.fpe_ready && init_fpe() != 0) {
+        if (g_glFuncs.glDrawElements != nullptr) g_glFuncs.glDrawElements(mode, count, type, indices);
+        return;
+    }
+
+    // The caller's element-array binding is VAO state; snapshot it before
+    // we switch to fpe_vao.
+    GLint element_buffer = 0;
+    g_glFuncs.glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &element_buffer);
+
+    // Legacy modes: GL_QUADS needs index rewriting; the strip/fan quads
+    // modes are vertex-order compatible with core modes.
+    GLenum draw_mode = mode;
+    const bool rewrite_quads = mode == GL_QUADS;
+    if (mode == GL_QUAD_STRIP)
+        draw_mode = GL_TRIANGLE_STRIP;
+    else if (mode == GL_POLYGON)
+        draw_mode = GL_TRIANGLE_FAN;
+
+    // Client-memory vertex arrays force an upload sized by the largest
+    // referenced index (same address-vs-offset heuristic as normalize()).
+    const void* vertex_pointer = vertex_array.attributes[vp2idx(GL_VERTEX_ARRAY)].pointer;
+    const bool client_vertices = reinterpret_cast<uintptr_t>(vertex_pointer) > (1u << 20);
+
+    // Pull the index data to the CPU when we must scan or rewrite it.
+    thread_local std::vector<uint8_t> index_scratch;
+    const uint8_t* cpu_indices = nullptr;
+    if (element_buffer == 0) {
+        if (indices == nullptr) {
+            g_glstate.set_error(GL_INVALID_VALUE);
+            return;
+        }
+        cpu_indices = static_cast<const uint8_t*>(indices);
+    } else if (client_vertices || rewrite_quads) {
+        if (g_glFuncs.glMapBufferRange == nullptr || g_glFuncs.glUnmapBuffer == nullptr) {
+            if (g_glFuncs.glDrawElements != nullptr) g_glFuncs.glDrawElements(mode, count, type, indices);
+            return;
+        }
+        const size_t byte_count = static_cast<size_t>(count) * index_size;
+        void* mapped = g_glFuncs.glMapBufferRange(GL_ELEMENT_ARRAY_BUFFER,
+                                                  (GLintptr)reinterpret_cast<uintptr_t>(indices),
+                                                  (GLsizeiptr)byte_count, GL_MAP_READ_BIT);
+        if (mapped == nullptr) {
+            if (g_glFuncs.glDrawElements != nullptr) g_glFuncs.glDrawElements(mode, count, type, indices);
+            return;
+        }
+        index_scratch.assign(static_cast<const uint8_t*>(mapped),
+                             static_cast<const uint8_t*>(mapped) + byte_count);
+        g_glFuncs.glUnmapBuffer(GL_ELEMENT_ARRAY_BUFFER);
+        cpu_indices = index_scratch.data();
+    }
+
+    uint32_t max_index = 0;
+    if (client_vertices && cpu_indices != nullptr) {
+        switch (type) {
+        case GL_UNSIGNED_BYTE:
+            max_index = maxIndexOf(cpu_indices, static_cast<size_t>(count));
+            break;
+        case GL_UNSIGNED_SHORT:
+            max_index = maxIndexOf(reinterpret_cast<const uint16_t*>(cpu_indices), static_cast<size_t>(count));
+            break;
+        default:
+            max_index = maxIndexOf(reinterpret_cast<const uint32_t*>(cpu_indices), static_cast<size_t>(count));
+            break;
+        }
+        if (max_index >= static_cast<uint32_t>(std::numeric_limits<GLsizei>::max())) {
+            g_glstate.set_error(GL_INVALID_VALUE);
+            return;
+        }
+    }
+
+    const GLint logical_array_buffer = static_cast<GLint>(sfpewLogicalArrayBufferBinding());
+    fpe_backend_draw_state_guard_t backend_state(current_program, logical_array_buffer);
+
+    // Reuse the arrays-path commit for program/uniform/attribute setup and
+    // the client-memory vertex upload. GL_TRIANGLES bypasses its
+    // QUADS-from-arrays conversion; first/count only size that upload.
+    GLenum commit_mode = GL_TRIANGLES;
+    GLint commit_first = 0;
+    GLsizei commit_count = client_vertices ? static_cast<GLsizei>(max_index + 1u) : count;
+    if (commit_fpe_state_on_draw(&commit_mode, &commit_first, &commit_count, logical_array_buffer) < 0) return;
+
+    thread_local std::vector<uint32_t> expanded_indices;
+    const void* draw_indices = indices;
+    GLenum draw_type = type;
+    GLsizei draw_count = count;
+
+    if (rewrite_quads) {
+        const size_t quad_count = static_cast<size_t>(count) / 4u; // partial quads are dropped per spec
+        switch (type) {
+        case GL_UNSIGNED_BYTE:
+            expandQuadIndices(cpu_indices, quad_count, expanded_indices);
+            break;
+        case GL_UNSIGNED_SHORT:
+            expandQuadIndices(reinterpret_cast<const uint16_t*>(cpu_indices), quad_count, expanded_indices);
+            break;
+        default:
+            expandQuadIndices(reinterpret_cast<const uint32_t*>(cpu_indices), quad_count, expanded_indices);
+            break;
+        }
+        draw_mode = GL_TRIANGLES;
+        draw_type = GL_UNSIGNED_INT;
+        draw_count = static_cast<GLsizei>(quad_count * 6u);
+        if (draw_count == 0) return;
+    }
+
+    auto& state = g_glstate.fpe_state;
+    if (rewrite_quads || element_buffer == 0) {
+        // CPU-side index data goes through the dedicated FPE element buffer.
+        if (state.fpe_element_ibo == 0) g_glFuncs.glGenBuffers(1, &state.fpe_element_ibo);
+        g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, state.fpe_element_ibo);
+        state.fpe_ibo_bound = false; // fpe_vao's element binding changed
+        if (rewrite_quads) {
+            g_glFuncs.glBufferData(GL_ELEMENT_ARRAY_BUFFER,
+                                   (GLsizeiptr)(expanded_indices.size() * sizeof(uint32_t)),
+                                   expanded_indices.data(), GL_DYNAMIC_DRAW);
+        } else {
+            g_glFuncs.glBufferData(GL_ELEMENT_ARRAY_BUFFER,
+                                   (GLsizeiptr)(static_cast<size_t>(count) * index_size), cpu_indices,
+                                   GL_DYNAMIC_DRAW);
+        }
+        draw_indices = nullptr; // offset 0 into the freshly uploaded buffer
+    } else {
+        // Indices stay in the caller's VBO; bind it inside fpe_vao.
+        g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLuint>(element_buffer));
+        state.fpe_ibo_bound = false;
+    }
+
+    g_glFuncs.glDrawElements(draw_mode, draw_count, draw_type, draw_indices);
+}
+
 } // namespace
 
 bool tryExecuteCapturedDisplayLists(const GLuint* listIds, size_t listCount) {
@@ -925,5 +1116,13 @@ void glDrawArrays(GLenum mode, GLint first, GLsizei count) {
     }
 
     drawArraysNow(mode, first, count, false);
+}
+
+void glDrawElements(GLenum mode, GLsizei count, GLenum type, const GLvoid* indices) {
+    if (!sfpewEnsureBackend()) return;
+    flushPendingImmediateDraws();
+    // Display-list capture of indexed draws lands with plans/06; while
+    // recording, execution matches the previous passthrough behavior.
+    drawElementsNow(mode, count, type, indices);
 }
 

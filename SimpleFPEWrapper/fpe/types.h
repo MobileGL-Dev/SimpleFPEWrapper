@@ -209,6 +209,11 @@ struct fixed_function_state_t {
 
     GLuint fpe_ibo = 0;
 
+    // Dedicated element buffer for FPE-converted glDrawElements calls
+    // (client-memory indices and rewritten GL_QUADS). fpe_ibo belongs to the
+    // QUADS-from-arrays cache and must not be stomped with foreign indices.
+    GLuint fpe_element_ibo = 0;
+
     std::vector<uint32_t> fpe_ib;
     std::vector<uint16_t> fpe_ib16;
     GLuint fpe_ib_first = 0;

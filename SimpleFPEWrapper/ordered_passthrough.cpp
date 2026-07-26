@@ -49,8 +49,7 @@ GLint sfpewLogicalProgram() {
     }
 
 ORDERED_PASSTHROUGH(glClear, (GLbitfield mask), (mask))
-ORDERED_PASSTHROUGH(glDrawElements, (GLenum mode, GLsizei count, GLenum type, const GLvoid* indices),
-                    (mode, count, type, indices))
+// glDrawElements lives in drawing.cpp: it is FPE-converted, not passthrough.
 ORDERED_PASSTHROUGH(glReadPixels,
                     (GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type,
                      GLvoid* pixels),

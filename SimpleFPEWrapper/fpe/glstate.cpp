@@ -286,6 +286,13 @@ program_key_t glstate_t::program_hash() {
                 matches = false;
                 break;
             }
+            // COMBINE bakes its combiner parameters into the generated
+            // source; the cache does not mirror them, so never take the
+            // fast path while a COMBINE unit is live.
+            if (bools.texture_2d_enable[i] && fpe_state.texture_env_mode[i] == GL_COMBINE) {
+                matches = false;
+                break;
+            }
         }
     }
     if (matches) return cache.hash;
@@ -338,6 +345,20 @@ program_key_t glstate_t::program_hash() {
 
     hash.add(&fpe_state.fpe_bools, sizeof(fpe_state.fpe_bools));
     hash.add(&fpe_state.texture_env_mode, sizeof(fpe_state.texture_env_mode));
+
+    for (int i = 0; i < MAX_TEX; ++i) {
+        if (!fpe_state.fpe_bools.texture_2d_enable[i] || fpe_state.texture_env_mode[i] != GL_COMBINE)
+            continue;
+        const auto& env = fpe_uniform.texture_env[i];
+        hash.add(&env.combine_rgb, sizeof(env.combine_rgb));
+        hash.add(&env.combine_alpha, sizeof(env.combine_alpha));
+        hash.add(&env.source_rgb, sizeof(env.source_rgb));
+        hash.add(&env.source_alpha, sizeof(env.source_alpha));
+        hash.add(&env.operand_rgb, sizeof(env.operand_rgb));
+        hash.add(&env.operand_alpha, sizeof(env.operand_alpha));
+        hash.add(&env.rgb_scale, sizeof(env.rgb_scale));
+        hash.add(&env.alpha_scale, sizeof(env.alpha_scale));
+    }
 
     cache.valid = true;
     cache.enabled_pointers = va.enabled_pointers;

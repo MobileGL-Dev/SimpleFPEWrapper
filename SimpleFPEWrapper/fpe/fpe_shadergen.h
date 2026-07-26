@@ -12,6 +12,7 @@
 #include "defines.h"
 
 struct scratch_t {
+    bool primary_color_saved = false;
     std::string last_stage_linkage;
     std::string vs_body;
 

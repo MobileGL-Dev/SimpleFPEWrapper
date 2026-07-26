@@ -1542,7 +1542,7 @@ void add_fs_uniforms(const fixed_function_state_t& state, [[maybe_unused]] scrat
     for (int i = 0; i < MAX_TEX; ++i) {
         if (state.fpe_bools.texture_2d_enable[i]) {
             fs += std::format("uniform sampler2D Sampler{};\n", i);
-            if (state.texture_env_mode[i] == GL_BLEND) {
+            if (state.texture_env_mode[i] == GL_BLEND || state.texture_env_mode[i] == GL_COMBINE) {
                 fs += std::format("uniform vec4 TexEnvColor{};\n", i);
             }
         }
@@ -1565,6 +1565,68 @@ void add_fs_inout(const fixed_function_state_t& state, scratch_t& scratch, std::
         fs += "in vec3 vViewPosition;\n";
     }
     fs += "out vec4 FragColor;\n";
+}
+
+// GL_COMBINE argument expression: source selection x operand mapping.
+// `unit` is the combiner's unit; texcolorN may only be referenced for units
+// already sampled (ascending order), otherwise the crossbar reads black.
+std::string combine_argument(const fixed_function_state_t& state, const texture_env_t& env, int unit,
+                             int arg, bool rgb_domain) {
+    const GLenum source = rgb_domain ? env.source_rgb[arg] : env.source_alpha[arg];
+    std::string src;
+    if (source == GL_TEXTURE) {
+        src = std::format("texcolor{}", unit);
+    } else if (source >= GL_TEXTURE0 && source < GL_TEXTURE0 + MAX_TEX) {
+        const int n = static_cast<int>(source - GL_TEXTURE0);
+        src = (n <= unit && state.fpe_bools.texture_2d_enable[n]) ? std::format("texcolor{}", n)
+                                                                  : std::string("vec4(0.0)");
+    } else if (source == GL_CONSTANT) {
+        src = std::format("TexEnvColor{}", unit);
+    } else if (source == GL_PRIMARY_COLOR) {
+        src = "primaryColor";
+    } else { // GL_PREVIOUS
+        src = "color";
+    }
+    const GLenum operand = rgb_domain ? env.operand_rgb[arg] : env.operand_alpha[arg];
+    if (rgb_domain) {
+        switch (operand) {
+        case GL_ONE_MINUS_SRC_COLOR:
+            return std::format("(vec3(1.0) - {}.rgb)", src);
+        case GL_SRC_ALPHA:
+            return std::format("vec3({}.a)", src);
+        case GL_ONE_MINUS_SRC_ALPHA:
+            return std::format("vec3(1.0 - {}.a)", src);
+        case GL_SRC_COLOR:
+        default:
+            return std::format("{}.rgb", src);
+        }
+    }
+    return operand == GL_ONE_MINUS_SRC_ALPHA ? std::format("(1.0 - {}.a)", src)
+                                             : std::format("{}.a", src);
+}
+
+std::string combine_expression(GLenum function, const std::string& a0, const std::string& a1,
+                               const std::string& a2, bool rgb_domain) {
+    switch (function) {
+    case GL_REPLACE:
+        return a0;
+    case GL_ADD:
+        return std::format("({} + {})", a0, a1);
+    case GL_ADD_SIGNED:
+        return std::format("({} + {} - {})", a0, a1, rgb_domain ? "vec3(0.5)" : "0.5");
+    case GL_INTERPOLATE:
+        return std::format("mix({1}, {0}, {2})", a0, a1, a2);
+    case GL_SUBTRACT:
+        return std::format("({} - {})", a0, a1);
+    case GL_DOT3_RGB:
+    case GL_DOT3_RGBA:
+        if (rgb_domain)
+            return std::format("vec3(4.0 * dot({} - vec3(0.5), {} - vec3(0.5)))", a0, a1);
+        return a0; // alpha handled by the caller for DOT3_RGBA
+    case GL_MODULATE:
+    default:
+        return std::format("({} * {})", a0, a1);
+    }
 }
 
 void add_fs_body(const fixed_function_state_t& state, scratch_t& scratch, std::string& fs) {
@@ -1598,6 +1660,12 @@ void add_fs_body(const fixed_function_state_t& state, scratch_t& scratch, std::s
     for (int i = 0; i < MAX_TEX; ++i) {
         if (!state.fpe_bools.texture_2d_enable[i]) continue;
 
+        if (!scratch.primary_color_saved) {
+            // COMBINE's GL_PRIMARY_COLOR must reference the pre-texturing
+            // color regardless of how many units already ran.
+            fs += "    vec4 primaryColor = color;\n";
+            scratch.primary_color_saved = true;
+        }
         const std::string coord =
             scratch.has_texcoord[i] ? std::format("texCoord{}.xy", i) : "vec2(0.0)";
         fs += std::format("\n"
@@ -1623,9 +1691,23 @@ void add_fs_body(const fixed_function_state_t& state, scratch_t& scratch, std::s
                               "    color.a *= texcolor{0}.a;\n",
                               i);
             break;
-        case GL_COMBINE:
-            // Minecraft's fixed-function lightmap config uses COMBINE with
-            // MODULATE for texture and previous color.
+        case GL_COMBINE: {
+            const auto& env = glstate_t::get_instance().fpe_uniform.texture_env[i];
+            const std::string r0 = combine_argument(state, env, i, 0, true);
+            const std::string r1 = combine_argument(state, env, i, 1, true);
+            const std::string r2 = combine_argument(state, env, i, 2, true);
+            const std::string a0 = combine_argument(state, env, i, 0, false);
+            const std::string a1 = combine_argument(state, env, i, 1, false);
+            const std::string a2 = combine_argument(state, env, i, 2, false);
+            const std::string rgb = combine_expression(env.combine_rgb, r0, r1, r2, true);
+            // DOT3_RGBA replicates the dot product into alpha as well.
+            const std::string alpha = env.combine_rgb == GL_DOT3_RGBA
+                                          ? std::format("4.0 * dot({} - vec3(0.5), {} - vec3(0.5))", r0, r1)
+                                          : combine_expression(env.combine_alpha, a0, a1, a2, false);
+            fs += std::format("    color = clamp(vec4(({}) * {:.1f}, ({}) * {:.1f}), 0.0, 1.0);\n",
+                              rgb, env.rgb_scale, alpha, env.alpha_scale);
+            break;
+        }
         case GL_MODULATE:
         default:
             fs += std::format("    color *= texcolor{};\n", i);

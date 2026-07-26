@@ -502,19 +502,23 @@ namespace SFPEW::Utils::BackendLoader {
             return false;
         }
 
-        auto* vendorName = glFuncs.glGetString(GL_VENDOR);
-        auto* gpuName = glFuncs.glGetString(GL_RENDERER);
-        glFuncs.glGetIntegerv(GL_MAJOR_VERSION, (GLint*)caps.Version[0]);
-        glFuncs.glGetIntegerv(GL_MINOR_VERSION, (GLint*)caps.Version[1]);
+        // glGetString returns null without a current context; never feed
+        // that into std::string.
+        auto safeString = [](const GLubyte* s) {
+            return s ? std::string(reinterpret_cast<const char*>(s)) : std::string{};
+        };
 
-        caps.VersionString = std::string((char*)glFuncs.glGetString(GL_VERSION));
-        caps.RendererString = std::string((char*)gpuName);
-        caps.VendorString = std::string((char*)vendorName);
-        caps.ShadingLanguageVersionString = std::string((char*)glFuncs.glGetString(GL_SHADING_LANGUAGE_VERSION));
+        glFuncs.glGetIntegerv(GL_MAJOR_VERSION, (GLint*)&caps.Version[0]);
+        glFuncs.glGetIntegerv(GL_MINOR_VERSION, (GLint*)&caps.Version[1]);
+
+        caps.VersionString = safeString(glFuncs.glGetString(GL_VERSION));
+        caps.RendererString = safeString(glFuncs.glGetString(GL_RENDERER));
+        caps.VendorString = safeString(glFuncs.glGetString(GL_VENDOR));
+        caps.ShadingLanguageVersionString = safeString(glFuncs.glGetString(GL_SHADING_LANGUAGE_VERSION));
 
         GLint extCount = 0;
         glFuncs.glGetIntegerv(GL_NUM_EXTENSIONS, &extCount);
-        for (GLint i = 0; i < extCount; ++i) {
+        for (GLint i = 0; glFuncs.glGetStringi && i < extCount; ++i) {
             const char* extension = (const char*)glFuncs.glGetStringi(GL_EXTENSIONS, i);
             if (extension) {
                 if (std::strcmp(extension, "GL_EXT_buffer_storage") == 0) {

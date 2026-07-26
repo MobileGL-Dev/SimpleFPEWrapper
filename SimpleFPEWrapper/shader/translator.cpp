@@ -518,6 +518,14 @@ const std::unordered_map<std::string, std::string>& legacyIdentifierReplacements
         {"mat4x2", "fpe_id_mat4x2"}, {"mat4x3", "fpe_id_mat4x3"}, {"mat4x4", "fpe_id_mat4x4"},
         {"lowp", "fpe_id_lowp"},     {"mediump", "fpe_id_mediump"},
         {"highp", "fpe_id_highp"},   {"precision", "fpe_id_precision"},
+        // In <= 1.20 these are NOT builtins, so any occurrence is a user
+        // identifier - and OptiFine shader packs universally declare
+        // `uniform sampler2D texture;`, which would otherwise shadow the
+        // modern sampling function that texture2D() rewrites into.
+        {"texture", "fpe_id_texture"},
+        {"textureProj", "fpe_id_textureProj"},
+        {"textureLod", "fpe_id_textureLod"},
+        {"textureProjLod", "fpe_id_textureProjLod"},
     };
     return map;
 }

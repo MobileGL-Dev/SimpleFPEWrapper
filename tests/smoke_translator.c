@@ -70,6 +70,36 @@ static const char* kFragmentData =
     "    gl_FragData[0] = vec4(gl_TexCoord[0].st, 0.0, 1.0);\n"
     "}\n";
 
+// OptiFine shader-pack shape: a sampler NAMED `texture` (legal in 1.20,
+// where `texture` is not a builtin) plus gl_FogFragCoord and gl_FragData.
+static const char* kVertexOptiFine =
+    "#version 120\n"
+    "varying vec2 texcoord;\n"
+    "varying vec2 lmcoord;\n"
+    "varying vec4 color;\n"
+    "void main() {\n"
+    "    gl_Position = ftransform();\n"
+    "    texcoord = (gl_TextureMatrix[0] * gl_MultiTexCoord0).xy;\n"
+    "    lmcoord = (gl_TextureMatrix[1] * gl_MultiTexCoord1).xy;\n"
+    "    color = gl_Color;\n"
+    "    gl_FogFragCoord = length((gl_ModelViewMatrix * gl_Vertex).xyz);\n"
+    "}\n";
+
+static const char* kFragmentOptiFine =
+    "#version 120\n"
+    "#extension GL_ARB_shader_texture_lod : enable\n"
+    "uniform sampler2D texture;\n"
+    "uniform sampler2D lightmap;\n"
+    "varying vec2 texcoord;\n"
+    "varying vec2 lmcoord;\n"
+    "varying vec4 color;\n"
+    "void main() {\n"
+    "    vec4 albedo = texture2D(texture, texcoord) * color;\n"
+    "    albedo *= texture2D(lightmap, lmcoord);\n"
+    "/* DRAWBUFFERS:0 */\n"
+    "    gl_FragData[0] = albedo;\n"
+    "}\n";
+
 static char out_buf[1 << 16];
 
 static int translate_and_check(translate_fn translate, unsigned int stage, const char* src,
@@ -125,11 +155,13 @@ int main(void) {
         {GLV, kVertex120, "vs120"},
         {GLV, kVertex120NonSquare, "vs120-mat4x3"},
         {GLF, kFragmentData, "fs120-fragdata"},
+        {GLV, kVertexOptiFine, "vs120-optifine"},
+        {GLF, kFragmentOptiFine, "fs120-optifine-texture-sampler"},
     };
     for (unsigned i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
         if (!translate_and_check(translate, cases[i].stage, cases[i].src, cases[i].tag)) return 1;
     }
-    printf("OK: 3 shaders translated to ESSL 300\n");
+    printf("OK: %u shaders translated to ESSL 300\n", (unsigned)(sizeof(cases) / sizeof(cases[0])));
 
     // Phase 2: compile the translations on a real GLES3 device if one exists.
     EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);

@@ -507,31 +507,41 @@ void glGetAttachedShaders(GLuint program, GLsizei maxCount, GLsizei* count, GLui
     g_glFuncs.glGetAttachedShaders(program, maxCount, count, shaders);
 }
 
-// SPIRV-Cross prefixes identifiers that collide with target-language
-// keywords or builtins with '_' (a GLSL 1.20 shader may legally name a
-// uniform "step"). The app still asks for the original name; retry with
-// the prefixed spelling before reporting a miss.
+// Two renaming layers can separate the app's spelling from the linked
+// program: SPIRV-Cross prefixes keyword/builtin collisions with '_'
+// ("step" -> "_step", members too), and the translator renames legacy
+// identifiers that became builtins ("texture" -> "fpe_id_texture" for
+// OptiFine's `uniform sampler2D texture;`). The app still asks with the
+// original name; probe the alternate spellings before reporting a miss.
 GLint glGetUniformLocation(GLuint program, const GLchar* name) {
     if (!sfpewEnsureBackend() || g_glFuncs.glGetUniformLocation == nullptr) return -1;
     const GLint loc = g_glFuncs.glGetUniformLocation(program, name);
     if (loc >= 0 || name == nullptr || name[0] == '\0') return loc;
     const std::string original(name);
-    const std::string prefixed = "_" + original;
-    const GLint ploc = g_glFuncs.glGetUniformLocation(program, prefixed.c_str());
-    if (ploc >= 0) return ploc;
-    // Struct MEMBERS get the same treatment ("tex.mix" -> "tex._mix").
-    const size_t dot = original.rfind('.');
-    if (dot == std::string::npos) return -1;
-    const std::string member = original.substr(0, dot + 1) + "_" + original.substr(dot + 1);
-    return g_glFuncs.glGetUniformLocation(program, member.c_str());
+    for (const char* prefix : {"_", "fpe_id_"}) {
+        const GLint ploc =
+            g_glFuncs.glGetUniformLocation(program, (prefix + original).c_str());
+        if (ploc >= 0) return ploc;
+        const size_t dot = original.rfind('.');
+        if (dot == std::string::npos) continue;
+        const std::string member =
+            original.substr(0, dot + 1) + prefix + original.substr(dot + 1);
+        const GLint mloc = g_glFuncs.glGetUniformLocation(program, member.c_str());
+        if (mloc >= 0) return mloc;
+    }
+    return -1;
 }
 
 GLint glGetAttribLocation(GLuint program, const GLchar* name) {
     if (!sfpewEnsureBackend() || g_glFuncs.glGetAttribLocation == nullptr) return -1;
     const GLint loc = g_glFuncs.glGetAttribLocation(program, name);
     if (loc >= 0 || name == nullptr || name[0] == '\0') return loc;
-    const std::string prefixed = "_" + std::string(name);
-    return g_glFuncs.glGetAttribLocation(program, prefixed.c_str());
+    for (const char* prefix : {"_", "fpe_id_"}) {
+        const GLint ploc =
+            g_glFuncs.glGetAttribLocation(program, (prefix + std::string(name)).c_str());
+        if (ploc >= 0) return ploc;
+    }
+    return -1;
 }
 
 void glGetProgramInfoLog(GLuint program, GLsizei bufSize, GLsizei* length, GLchar* infoLog) {

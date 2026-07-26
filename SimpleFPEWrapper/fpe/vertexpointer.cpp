@@ -400,3 +400,17 @@ void glArrayElement(GLint i) {
         }
     }
 }
+
+bool sfpewUnpackPboBound() {
+    if (!sfpewEnsureBackend() || g_glFuncs.glGetIntegerv == nullptr) return false;
+    GLint binding = 0;
+    g_glFuncs.glGetIntegerv(0x88EF /* GL_PIXEL_UNPACK_BUFFER_BINDING */, &binding);
+    return binding != 0;
+}
+
+bool sfpewPackPboBound() {
+    if (!sfpewEnsureBackend() || g_glFuncs.glGetIntegerv == nullptr) return false;
+    GLint binding = 0;
+    g_glFuncs.glGetIntegerv(0x88ED /* GL_PIXEL_PACK_BUFFER_BINDING */, &binding);
+    return binding != 0;
+}

@@ -988,7 +988,7 @@ void glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei widt
     flushPendingImmediateDraws();
     if (target != GL_PROXY_TEXTURE_2D) {
         thread_local std::vector<uint8_t> bgraScratch;
-        if (format == GL_BGRA) {
+        if (format == GL_BGRA && !sfpewUnpackPboBound()) {
             const void* swapped = swapBgraPixels(width, height, type, pixels, bgraScratch);
             if (swapped != nullptr || pixels == nullptr) {
                 pixels = swapped;
@@ -1002,6 +1002,8 @@ void glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei widt
 
         legacy_format_mapping_t mapping{};
         if (mapLegacyInternalFormat(internalformat, mapping)) {
+            // PBO uploads keep their data GPU-side; format rewriting is safe
+            // (no dereference) but the BGRA swap above already bailed out.
             // Rewrite the caller's legacy format pair too: GL_ALPHA/
             // GL_LUMINANCE* client data is single/dual channel and GLES3
             // only accepts it through RED/RG uploads.

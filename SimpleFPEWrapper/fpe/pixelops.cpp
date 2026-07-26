@@ -251,6 +251,10 @@ void glDrawPixels(GLsizei width, GLsizei height, GLenum format, GLenum type, con
         pixels == nullptr || !sfpewEnsureBackend() || g_glFuncs.glTexImage2D == nullptr) {
         return;
     }
+    if (sfpewUnpackPboBound()) {
+        SFPEW_LOGW("glDrawPixels from a pixel unpack buffer is not implemented; call skipped");
+        return;
+    }
 
     // Convert to RGBA8 applying the transfer scale/bias (identity skips the
     // per-channel math). Tightly packed rows assumed, as elsewhere.

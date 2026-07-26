@@ -25,6 +25,10 @@ GLenum sfpewLogicalActiveTexture();
 GLuint sfpewLogicalTextureBinding(GLenum target);
 GLint sfpewLogicalProgram();
 GLuint sfpewLogicalArrayBufferBinding();
+// True when a pixel pack/unpack buffer is bound: CPU pixel conversions
+// must pass through untouched then (plans/10 10.1).
+bool sfpewUnpackPboBound();
+bool sfpewPackPboBound();
 
 SFPEW_APIENTRY GLenum glGetError();
 SFPEW_APIENTRY GLuint glCreateShader(GLenum type);

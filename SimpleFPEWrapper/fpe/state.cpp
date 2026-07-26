@@ -473,6 +473,7 @@ void glLightModelf(GLenum pname, GLfloat param) {
     case GL_LIGHT_MODEL_COLOR_CONTROL:
     case GL_LIGHT_MODEL_TWO_SIDE:
         SELF_CALL(glLightModeli, pname, (GLint)param)
+        break; // previously fell through into the (then-empty) default
     default:
         g_glstate.set_error(GL_INVALID_ENUM);
         break;

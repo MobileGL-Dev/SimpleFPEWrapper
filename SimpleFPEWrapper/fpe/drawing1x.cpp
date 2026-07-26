@@ -209,6 +209,47 @@ void drawImmediateVertices(GLenum primitive, const GLfloat* vertices, size_t flo
     auto mutableSizes = sizes;
     va.generate_compressed_index(mutableSizes.data);
 
+    // GL 2.1: a bound USER program consumes immediate-mode vertices too
+    // (OptiFine composite/final passes draw their fullscreen quad through
+    // glBegin/glEnd with the pack's shader bound - substituting the FPE
+    // program here silently blitted instead of compositing).
+    const GLint user_program = sfpewLogicalProgram();
+    GLint user_locations[VERTEX_POINTER_COUNT];
+    if (user_program > 0 &&
+        sfpewUserProgramAttribLocations((GLuint)user_program, user_locations)) {
+        if (state.fpe_user_vao == 0 && g_glFuncs.glGenVertexArrays != nullptr) {
+            g_glFuncs.glGenVertexArrays(1, &state.fpe_user_vao);
+            state.fpe_user_vao_enabled = 0;
+        }
+        if (state.fpe_user_vao != 0) {
+            g_glFuncs.glBindVertexArray(state.fpe_user_vao);
+            g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, state.fpe_immediate_vbo);
+            const GLintptr userVertexOffset =
+                uploadImmediateVertexData(vertices, floatCount * sizeof(GLfloat));
+            sfpewSendUserProgramAttributes(user_locations, va, userVertexOffset);
+            sfpewFeedUserProgramUniforms((GLuint)user_program);
+
+            const GLsizei userDrawCount = static_cast<GLsizei>(vertexCount);
+            if (primitive == GL_QUADS) {
+                const GLsizei indexCount = (userDrawCount / 4) * 6;
+                const bool uploadIndices = prepare_quad_indices(userDrawCount, 0);
+                // fpe_ibo_bound tracks fpe_vao's element binding, not ours.
+                g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, state.fpe_ibo);
+                if (uploadIndices) {
+                    g_glFuncs.glBufferData(GL_ELEMENT_ARRAY_BUFFER, quad_index_size_bytes(),
+                                           quad_index_data(), GL_DYNAMIC_DRAW);
+                }
+                g_glFuncs.glDrawElements(GL_TRIANGLES, indexCount, quad_index_type(), (void*)0);
+            } else {
+                GLenum draw_mode = primitive;
+                if (primitive == GL_QUAD_STRIP) draw_mode = GL_TRIANGLE_STRIP;
+                else if (primitive == GL_POLYGON) draw_mode = GL_TRIANGLE_FAN;
+                g_glFuncs.glDrawArrays(draw_mode, 0, userDrawCount);
+            }
+            return;
+        }
+    }
+
     auto key = g_glstate.program_hash();
     auto& program = g_glstate.get_or_generate_program(key);
     const int programId = program.get_program();

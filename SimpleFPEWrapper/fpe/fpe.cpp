@@ -224,12 +224,11 @@ int init_fpe() {
     return 0;
 }
 
-namespace {
-
 // Multiple INDEPENDENT client-memory arrays (classic GL 1.1: separate
 // glVertexPointer/glColorPointer allocations) cannot be expressed by
 // normalize()'s single interleave stride. Gather them into one interleaved
 // stream instead; correctness first, the copy is bounded by the draw size.
+// External linkage: the user-program draw paths share it (fpe.hpp).
 bool gather_client_arrays(const vertex_pointer_array_t& raw, GLint first, GLsizei count,
                           vertex_pointer_array_t* out) {
     if (count <= 0 || first < 0) return false;
@@ -273,7 +272,6 @@ bool gather_client_arrays(const vertex_pointer_array_t& raw, GLint first, GLsize
     return true;
 }
 
-} // namespace
 
 int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint previous_array_buffer) {
     // LOG()
@@ -467,4 +465,92 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint p
     //    vpa.starting_pointer = 0;
     //    vpa.stride = 0;
     return ret;
+}
+
+// plans/09 S9 mixed pipeline: GL 2.1 semantics feed the fixed-function
+// vertex arrays into whatever program is bound. Uses a LOCAL
+// normalization and the dedicated fpe_user_vao so the FPE path's
+// normalized_vpa / attribute caches (which describe fpe_vao and
+// FPE-generated attribute slots) stay untouched.
+bool sfpewUserProgramFixedFunctionDrawArrays(GLuint program, GLenum mode, GLint first,
+                                             GLsizei count) {
+    if (count <= 0 || first < 0) return false;
+    GLint locations[VERTEX_POINTER_COUNT];
+    if (!sfpewUserProgramAttribLocations(program, locations)) return false;
+    if (!g_glstate.fpe_ready && init_fpe() != 0) return false;
+
+    auto& st = g_glstate.fpe_state;
+    if (st.fpe_user_vao == 0) {
+        if (g_glFuncs.glGenVertexArrays == nullptr) return false;
+        g_glFuncs.glGenVertexArrays(1, &st.fpe_user_vao);
+        st.fpe_user_vao_enabled = 0;
+        if (st.fpe_user_vao == 0) return false;
+    }
+
+    const GLint logical_array_buffer = (GLint)sfpewLogicalArrayBufferBinding();
+    fpe_backend_draw_state_guard_t backend_state((GLint)program, logical_array_buffer);
+
+    const auto& raw_vpa = st.vertexpointer_array;
+    vertex_pointer_array_t vpa;
+    if (gather_client_arrays(raw_vpa, first, count, &vpa)) {
+        first = 0; // the gather already applied the base offset
+    } else {
+        // normalize() is non-const only for legacy reasons; the copy keeps
+        // the shared raw state and the FPE path's caches untouched.
+        vertex_pointer_array_t raw_copy = raw_vpa;
+        vpa = raw_copy.normalize();
+    }
+
+    g_glFuncs.glBindVertexArray(st.fpe_user_vao);
+
+    const bool client_memory_draw =
+        reinterpret_cast<uintptr_t>(vpa.starting_pointer) > static_cast<uintptr_t>(vpa.stride);
+    const GLuint attribute_buffer = (logical_array_buffer == 0 || client_memory_draw)
+                                        ? st.fpe_vbo
+                                        : (GLuint)logical_array_buffer;
+    g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, attribute_buffer);
+    if (client_memory_draw) {
+        const int64_t upload_size = (int64_t)count * (int64_t)vpa.stride;
+        const int64_t skip = (int64_t)first * (int64_t)vpa.stride;
+        if (upload_size <= 0 || upload_size > (int64_t)std::numeric_limits<GLsizei>::max() ||
+            skip < 0) {
+            g_glstate.set_error(GL_INVALID_VALUE);
+            return true; // handled: the draw is dropped, not passed through
+        }
+        const auto* draw_start = static_cast<const uint8_t*>(vpa.starting_pointer) + skip;
+        g_glFuncs.glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)upload_size, draw_start,
+                               GL_DYNAMIC_DRAW);
+        first = 0;
+    }
+
+    sfpewSendUserProgramAttributes(locations, vpa, 0);
+    sfpewFeedUserProgramUniforms(program);
+
+    if (mode == GL_QUADS) {
+        const GLsizei index_count = (count / 4) * 6;
+        const GLuint index_first =
+            first != 0 && g_glFuncs.glDrawElementsBaseVertex != nullptr ? 0u
+                                                                        : (uint32_t)first;
+        const bool upload_indices = prepare_quad_indices(count, index_first);
+        // fpe_ibo_bound tracks fpe_vao's element binding; this VAO has its
+        // own, so bind unconditionally.
+        g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, st.fpe_ibo);
+        if (upload_indices) {
+            g_glFuncs.glBufferData(GL_ELEMENT_ARRAY_BUFFER, quad_index_size_bytes(),
+                                   quad_index_data(), GL_DYNAMIC_DRAW);
+        }
+        if (first != 0 && g_glFuncs.glDrawElementsBaseVertex != nullptr) {
+            g_glFuncs.glDrawElementsBaseVertex(GL_TRIANGLES, index_count, quad_index_type(),
+                                               (void*)0, first);
+        } else {
+            g_glFuncs.glDrawElements(GL_TRIANGLES, index_count, quad_index_type(), (void*)0);
+        }
+        return true;
+    }
+
+    GLenum draw_mode = mode;
+    if (mode == GL_QUAD_STRIP) draw_mode = GL_TRIANGLE_STRIP;
+    else if (mode == GL_POLYGON) draw_mode = GL_TRIANGLE_FAN;
+    g_glFuncs.glDrawArrays(draw_mode, first, count);
+    return true;
 }

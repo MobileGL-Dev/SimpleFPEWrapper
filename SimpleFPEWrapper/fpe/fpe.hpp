@@ -26,6 +26,22 @@ int init_fpe();
 
 // User-program compatibility uniforms (shader/userprogram.cpp, plans/09 9.3).
 void sfpewFeedUserProgramUniforms(GLuint program);
+
+// plans/09 S9 mixed pipeline: a bound USER program still consumes the
+// fixed-function vertex arrays / immediate-mode vertices in GL 2.1. These
+// resolve the program's fpe_* attribute locations (slot-indexed like
+// vertex_pointer_array_t; false when the program has no fpe_Vertex) and
+// submit the current arrays onto those locations inside fpe_user_vao.
+bool sfpewUserProgramAttribLocations(GLuint program, GLint out_locations[VERTEX_POINTER_COUNT]);
+bool gather_client_arrays(const vertex_pointer_array_t& raw, GLint first, GLsizei count,
+                          vertex_pointer_array_t* out);
+void sfpewSendUserProgramAttributes(const GLint locations[VERTEX_POINTER_COUNT],
+                                    const vertex_pointer_array_t& va, GLintptr binding_offset);
+// Full fixed-function-arrays draw through a user program. Returns true
+// when the draw was submitted (or dropped on error); false = caller must
+// fall back to the plain passthrough.
+bool sfpewUserProgramFixedFunctionDrawArrays(GLuint program, GLenum mode, GLint first,
+                                             GLsizei count);
 void sfpewForgetUserProgram(GLuint program);
 
 // Evaluator enables (fpe/evaluators.cpp, plans/10 10.2).

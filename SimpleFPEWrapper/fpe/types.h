@@ -220,6 +220,14 @@ struct fixed_function_state_t {
     // programmable pipeline.
     GLuint fpe_vao = 0;
 
+    // Separate VAO for feeding fixed-function vertex data into USER
+    // programs (plans/09 S9 mixed pipeline): their attribute locations are
+    // linker-assigned per program, so the fpe_vao attribute cache (indexed
+    // by compressed FPE slots) cannot be shared. The mask tracks which
+    // attribute locations are currently enabled inside this VAO.
+    GLuint fpe_user_vao = 0;
+    uint64_t fpe_user_vao_enabled = 0;
+
     GLuint fpe_vbo = 0;
 
     GLuint fpe_immediate_vbo = 0;

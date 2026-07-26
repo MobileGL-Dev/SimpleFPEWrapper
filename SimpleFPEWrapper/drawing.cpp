@@ -712,7 +712,16 @@ void drawArraysNow(GLenum mode, GLint first, GLsizei count, bool forceFixedFunct
     const uint32_t vertex_array_mask = 1u << vp2idx(GL_VERTEX_ARRAY);
     if ((!forceFixedFunction && current_program != 0) || first < 0 || count < 0 ||
         !(vertex_array.enabled_pointers & vertex_array_mask)) {
-        if (current_program != 0) sfpewFeedUserProgramUniforms((GLuint)current_program);
+        if (current_program != 0) {
+            // GL 2.1: a bound user program still consumes the fixed-function
+            // vertex arrays (shader packs draw terrain via glVertexPointer).
+            if ((vertex_array.enabled_pointers & vertex_array_mask) && first >= 0 && count > 0 &&
+                sfpewUserProgramFixedFunctionDrawArrays((GLuint)current_program, mode, first,
+                                                        count)) {
+                return;
+            }
+            sfpewFeedUserProgramUniforms((GLuint)current_program);
+        }
         g_glFuncs.glDrawArrays(mode, first, count);
         return;
     }
@@ -796,13 +805,131 @@ void expandQuadIndices(const T* src, size_t quadCount, std::vector<uint32_t>& ou
 // FPE conversion for glDrawElements (plans/02 section B): mirrors the
 // glDrawArrays interception - only program 0 with an enabled legacy vertex
 // array is converted, everything else passes through untouched.
+// User program + fixed-function arrays + glDrawElements (plans/09 S9).
+// Everything goes through the CPU-simplest correct path: indices land in
+// fpe_element_ibo (expanded for GL_QUADS), client vertices upload sized by
+// the largest referenced index. Returns false to fall back to passthrough.
+bool userProgramDrawElements(GLuint program, GLenum mode, GLsizei count, GLenum type,
+                             const GLvoid* indices) {
+    GLint locations[VERTEX_POINTER_COUNT];
+    if (count <= 0 || !sfpewUserProgramAttribLocations(program, locations)) return false;
+    const size_t index_size = indexTypeSize(type);
+    if (index_size == 0) return false;
+    if (!g_glstate.fpe_ready && init_fpe() != 0) return false;
+
+    auto& st = g_glstate.fpe_state;
+    if (st.fpe_user_vao == 0) {
+        if (g_glFuncs.glGenVertexArrays == nullptr) return false;
+        g_glFuncs.glGenVertexArrays(1, &st.fpe_user_vao);
+        st.fpe_user_vao_enabled = 0;
+        if (st.fpe_user_vao == 0) return false;
+    }
+
+    // Pull the indices to the CPU (client memory or mapped buffer).
+    GLint element_buffer = 0;
+    g_glFuncs.glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &element_buffer);
+    thread_local std::vector<uint8_t> scratch;
+    const uint8_t* cpu_indices = nullptr;
+    if (element_buffer == 0) {
+        if (indices == nullptr) return false;
+        cpu_indices = static_cast<const uint8_t*>(indices);
+    } else {
+        if (g_glFuncs.glMapBufferRange == nullptr || g_glFuncs.glUnmapBuffer == nullptr)
+            return false;
+        const size_t bytes = (size_t)count * index_size;
+        void* mapped = g_glFuncs.glMapBufferRange(
+            GL_ELEMENT_ARRAY_BUFFER, (GLintptr)(uintptr_t)indices, (GLsizeiptr)bytes,
+            GL_MAP_READ_BIT);
+        if (mapped == nullptr) return false;
+        scratch.assign((const uint8_t*)mapped, (const uint8_t*)mapped + bytes);
+        g_glFuncs.glUnmapBuffer(GL_ELEMENT_ARRAY_BUFFER);
+        cpu_indices = scratch.data();
+    }
+    uint32_t max_index = 0;
+    switch (index_size) {
+    case 1: max_index = maxIndexOf((const uint8_t*)cpu_indices, (size_t)count); break;
+    case 2: max_index = maxIndexOf((const uint16_t*)cpu_indices, (size_t)count); break;
+    default: max_index = maxIndexOf((const uint32_t*)cpu_indices, (size_t)count); break;
+    }
+
+    const GLint logical_array_buffer = (GLint)sfpewLogicalArrayBufferBinding();
+    fpe_backend_draw_state_guard_t backend_state((GLint)program, logical_array_buffer);
+
+    const auto& raw_vpa = g_glstate.fpe_state.vertexpointer_array;
+    vertex_pointer_array_t vpa;
+    const GLsizei vertex_count = (GLsizei)max_index + 1;
+    if (gather_client_arrays(raw_vpa, 0, vertex_count, &vpa)) {
+        // gathered layout starts at vertex 0
+    } else {
+        vertex_pointer_array_t raw_copy = raw_vpa;
+        vpa = raw_copy.normalize();
+    }
+
+    g_glFuncs.glBindVertexArray(st.fpe_user_vao);
+    const bool client_memory_draw =
+        reinterpret_cast<uintptr_t>(vpa.starting_pointer) > static_cast<uintptr_t>(vpa.stride);
+    const GLuint attribute_buffer = (logical_array_buffer == 0 || client_memory_draw)
+                                        ? st.fpe_vbo
+                                        : (GLuint)logical_array_buffer;
+    g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, attribute_buffer);
+    if (client_memory_draw) {
+        const int64_t upload_size = (int64_t)vertex_count * (int64_t)vpa.stride;
+        if (upload_size <= 0 || upload_size > (int64_t)std::numeric_limits<GLsizei>::max()) {
+            g_glstate.set_error(GL_INVALID_VALUE);
+            return true;
+        }
+        g_glFuncs.glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)upload_size, vpa.starting_pointer,
+                               GL_DYNAMIC_DRAW);
+    }
+
+    sfpewSendUserProgramAttributes(locations, vpa, 0);
+    sfpewFeedUserProgramUniforms(program);
+
+    GLenum draw_mode = mode;
+    GLsizei draw_count = count;
+    GLenum draw_type = type;
+    const void* draw_offset = nullptr;
+    thread_local std::vector<uint32_t> expanded;
+    if (mode == GL_QUADS) {
+        const size_t quads = (size_t)count / 4u;
+        switch (index_size) {
+        case 1: expandQuadIndices((const uint8_t*)cpu_indices, quads, expanded); break;
+        case 2: expandQuadIndices((const uint16_t*)cpu_indices, quads, expanded); break;
+        default: expandQuadIndices((const uint32_t*)cpu_indices, quads, expanded); break;
+        }
+        if (st.fpe_element_ibo == 0) g_glFuncs.glGenBuffers(1, &st.fpe_element_ibo);
+        g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, st.fpe_element_ibo);
+        g_glFuncs.glBufferData(GL_ELEMENT_ARRAY_BUFFER,
+                               (GLsizeiptr)(expanded.size() * sizeof(uint32_t)), expanded.data(),
+                               GL_DYNAMIC_DRAW);
+        draw_mode = GL_TRIANGLES;
+        draw_count = (GLsizei)expanded.size();
+        draw_type = GL_UNSIGNED_INT;
+    } else {
+        if (mode == GL_QUAD_STRIP) draw_mode = GL_TRIANGLE_STRIP;
+        else if (mode == GL_POLYGON) draw_mode = GL_TRIANGLE_FAN;
+        if (st.fpe_element_ibo == 0) g_glFuncs.glGenBuffers(1, &st.fpe_element_ibo);
+        g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, st.fpe_element_ibo);
+        g_glFuncs.glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)((size_t)count * index_size),
+                               cpu_indices, GL_DYNAMIC_DRAW);
+    }
+    g_glFuncs.glDrawElements(draw_mode, draw_count, draw_type, draw_offset);
+    return true;
+}
+
 void drawElementsNow(GLenum mode, GLsizei count, GLenum type, const GLvoid* indices) {
     const GLint current_program = sfpewLogicalProgram();
     const auto& vertex_array = g_glstate.fpe_state.vertexpointer_array;
     const uint32_t vertex_array_mask = 1u << vp2idx(GL_VERTEX_ARRAY);
 
     if (current_program != 0 || !(vertex_array.enabled_pointers & vertex_array_mask)) {
-        if (current_program != 0) sfpewFeedUserProgramUniforms((GLuint)current_program);
+        if (current_program != 0) {
+            if ((vertex_array.enabled_pointers & vertex_array_mask) &&
+                userProgramDrawElements((GLuint)current_program, mode, count, type, indices)) {
+                return;
+            }
+            sfpewFeedUserProgramUniforms((GLuint)current_program);
+        }
         if (g_glFuncs.glDrawElements != nullptr) g_glFuncs.glDrawElements(mode, count, type, indices);
         return;
     }

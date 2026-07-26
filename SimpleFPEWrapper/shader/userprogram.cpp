@@ -42,6 +42,10 @@ struct user_program_uniforms_t {
         light_spot_exponent[MAX_LIGHTS], light_spot_cutoff[MAX_LIGHTS],
         light_spot_cos_cutoff[MAX_LIGHTS], light_const_atten[MAX_LIGHTS],
         light_linear_atten[MAX_LIGHTS], light_quadratic_atten[MAX_LIGHTS];
+    // fpe_* attribute locations, slot-indexed like vertex_pointer_array_t
+    // (plans/09 S9: fixed-function arrays feed the user program's inputs).
+    bool attrs_resolved = false;
+    GLint attr_locations[VERTEX_POINTER_COUNT];
     // change-detection mirrors
     glm::mat4 last_mv{0.0f}, last_proj{0.0f};
 };
@@ -111,6 +115,90 @@ void resolve(GLuint program, user_program_uniforms_t& u) {
 void sfpewForgetUserProgram(GLuint program) {
     std::lock_guard<std::mutex> lock(g_user_program_mutex);
     userPrograms().erase(program);
+}
+
+// Slot layout mirrors vp2idx(): 0 vertex, 1 normal, 2 color, 3 index,
+// 4 edge flag, 5 fog coord, 6 secondary color, 7+u texcoord unit u.
+bool sfpewUserProgramAttribLocations(GLuint program, GLint out_locations[VERTEX_POINTER_COUNT]) {
+    if (program == 0 || g_glFuncs.glGetAttribLocation == nullptr) return false;
+    std::lock_guard<std::mutex> lock(g_user_program_mutex);
+    auto& u = userPrograms()[program];
+    if (!u.attrs_resolved) {
+        for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) u.attr_locations[i] = -1;
+        u.attr_locations[0] = g_glFuncs.glGetAttribLocation(program, "fpe_Vertex");
+        u.attr_locations[1] = g_glFuncs.glGetAttribLocation(program, "fpe_Normal");
+        u.attr_locations[2] = g_glFuncs.glGetAttribLocation(program, "fpe_Color");
+        u.attr_locations[5] = g_glFuncs.glGetAttribLocation(program, "fpe_FogCoord");
+        u.attr_locations[6] = g_glFuncs.glGetAttribLocation(program, "fpe_SecondaryColor");
+        char name[32];
+        for (int unit = 0; unit + 7 < VERTEX_POINTER_COUNT; ++unit) {
+            std::snprintf(name, sizeof(name), "fpe_MultiTexCoord%d", unit);
+            u.attr_locations[7 + unit] = g_glFuncs.glGetAttribLocation(program, name);
+        }
+        u.attrs_resolved = true;
+    }
+    std::memcpy(out_locations, u.attr_locations, sizeof(u.attr_locations));
+    // Without a position input the program does not consume fixed-function
+    // vertex data at all (e.g. piglit-style tests feeding attribs directly).
+    return u.attr_locations[0] >= 0;
+}
+
+// Submits the normalized array layout onto the user program's attribute
+// locations. Caller has fpe_user_vao + the source buffer bound; the mask
+// in fpe_state tracks which locations stay enabled between draws.
+void sfpewSendUserProgramAttributes(const GLint locations[VERTEX_POINTER_COUNT],
+                                    const vertex_pointer_array_t& va, GLintptr binding_offset) {
+    auto& st = g_glstate.fpe_state;
+    const auto& cur = st.fpe_draw.current_data;
+    uint64_t enabled_now = 0;
+#ifdef SFPEW_DEBUG_USERATTRIBS
+    fprintf(stderr, "[userattribs] enabled_pointers=0x%x stride=%d prev_mask=0x%llx\n",
+            va.enabled_pointers, va.stride, (unsigned long long)st.fpe_user_vao_enabled);
+#endif
+    for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
+        const GLint loc = locations[i];
+        if (loc < 0 || loc >= 64) continue;
+        const bool array_on = ((va.enabled_pointers >> i) & 1u) != 0;
+        if (array_on) {
+            const auto& vp = va.attributes[i];
+            const void* pointer = reinterpret_cast<const void*>(
+                reinterpret_cast<uintptr_t>(vp.pointer) + static_cast<uintptr_t>(binding_offset));
+            g_glFuncs.glVertexAttribPointer((GLuint)loc, vp.size, vp.type,
+                                            (GLboolean)(vp.normalized != 0), va.stride, pointer);
+            g_glFuncs.glEnableVertexAttribArray((GLuint)loc);
+#ifdef SFPEW_DEBUG_USERATTRIBS
+            fprintf(stderr, "[userattribs] slot %d -> loc %d size=%d type=0x%x stride=%d ptr=%p\n",
+                    i, loc, vp.size, vp.type, va.stride, pointer);
+#endif
+            enabled_now |= 1ull << loc;
+            continue;
+        }
+        // Array disabled but the program reads the input: legacy current-
+        // value semantics (glColor4f/glNormal3f/glTexCoord2f between draws).
+        if ((st.fpe_user_vao_enabled >> loc) & 1ull)
+            g_glFuncs.glDisableVertexAttribArray((GLuint)loc);
+        switch (i) {
+        case 1:
+            g_glFuncs.glVertexAttrib4f((GLuint)loc, cur.normal.x, cur.normal.y, cur.normal.z, 0.0f);
+            break;
+        case 2:
+            g_glFuncs.glVertexAttrib4fv((GLuint)loc, glm::value_ptr(cur.color));
+            break;
+        default:
+            if (i >= 7) {
+                g_glFuncs.glVertexAttrib4fv((GLuint)loc, glm::value_ptr(cur.texcoord[i - 7]));
+            } else {
+                g_glFuncs.glVertexAttrib4f((GLuint)loc, 0.0f, 0.0f, 0.0f, 1.0f);
+            }
+            break;
+        }
+    }
+    // Disable locations left over from a previous layout in this VAO.
+    uint64_t stale = st.fpe_user_vao_enabled & ~enabled_now;
+    for (int loc = 0; loc < 64; ++loc) {
+        if ((stale >> loc) & 1ull) g_glFuncs.glDisableVertexAttribArray((GLuint)loc);
+    }
+    st.fpe_user_vao_enabled = enabled_now;
 }
 
 // Called before passthrough draws while a user program is current.

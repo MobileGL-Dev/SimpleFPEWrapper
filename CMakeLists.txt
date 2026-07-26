@@ -53,6 +53,7 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         SimpleFPEWrapper/fpe/transformation.cpp
         SimpleFPEWrapper/fpe/vertexpointer.cpp
         SimpleFPEWrapper/fpe/list.cpp
+        SimpleFPEWrapper/fpe/attribstack.cpp
         SimpleFPEWrapper/fpe/pointer_utils.cpp
         SimpleFPEWrapper/fpe/drawing1x.cpp
         SimpleFPEWrapper/fpe/vertexpointer_utils.cpp

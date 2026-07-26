@@ -1,6 +1,6 @@
 {
  "source": "lookup.cpp",
- "count": 314,
+ "count": 318,
  "entries": {
   "glActiveTexture": {
    "status": "resolvable",
@@ -850,9 +850,25 @@
    "status": "resolvable",
    "target": "glPolygonOffset"
   },
+  "glPopAttrib": {
+   "status": "resolvable",
+   "target": "glPopAttrib"
+  },
+  "glPopClientAttrib": {
+   "status": "resolvable",
+   "target": "glPopClientAttrib"
+  },
   "glPopMatrix": {
    "status": "resolvable",
    "target": "glPopMatrix"
+  },
+  "glPushAttrib": {
+   "status": "resolvable",
+   "target": "glPushAttrib"
+  },
+  "glPushClientAttrib": {
+   "status": "resolvable",
+   "target": "glPushClientAttrib"
   },
   "glPushMatrix": {
    "status": "resolvable",

@@ -28,6 +28,12 @@ int init_fpe();
 void sfpewFeedUserProgramUniforms(GLuint program);
 void sfpewForgetUserProgram(GLuint program);
 
+// Evaluator enables (fpe/evaluators.cpp, plans/10 10.2).
+bool sfpewEvaluatorEnable(GLenum cap, bool enable);
+
+// Evaluator enables (fpe/evaluators.cpp, plans/10 10.2).
+bool sfpewEvaluatorEnable(GLenum cap, bool enable);
+
 // Selection/feedback CPU pipeline (fpe/selection.cpp, plans/10 10.3).
 void sfpewFlushSelectionHit();
 void sfpewSelectionProcessVertices(GLenum mode, const GLfloat* positions, size_t stride_floats,

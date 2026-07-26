@@ -1,6 +1,6 @@
 {
  "source": "lookup.cpp",
- "count": 393,
+ "count": 413,
  "entries": {
   "glActiveTexture": {
    "status": "resolvable",
@@ -342,6 +342,54 @@
    "status": "resolvable",
    "target": "glEndList"
   },
+  "glEvalCoord1d": {
+   "status": "resolvable",
+   "target": "glEvalCoord1d"
+  },
+  "glEvalCoord1dv": {
+   "status": "resolvable",
+   "target": "glEvalCoord1dv"
+  },
+  "glEvalCoord1f": {
+   "status": "resolvable",
+   "target": "glEvalCoord1f"
+  },
+  "glEvalCoord1fv": {
+   "status": "resolvable",
+   "target": "glEvalCoord1fv"
+  },
+  "glEvalCoord2d": {
+   "status": "resolvable",
+   "target": "glEvalCoord2d"
+  },
+  "glEvalCoord2dv": {
+   "status": "resolvable",
+   "target": "glEvalCoord2dv"
+  },
+  "glEvalCoord2f": {
+   "status": "resolvable",
+   "target": "glEvalCoord2f"
+  },
+  "glEvalCoord2fv": {
+   "status": "resolvable",
+   "target": "glEvalCoord2fv"
+  },
+  "glEvalMesh1": {
+   "status": "resolvable",
+   "target": "glEvalMesh1"
+  },
+  "glEvalMesh2": {
+   "status": "resolvable",
+   "target": "glEvalMesh2"
+  },
+  "glEvalPoint1": {
+   "status": "resolvable",
+   "target": "glEvalPoint1"
+  },
+  "glEvalPoint2": {
+   "status": "resolvable",
+   "target": "glEvalPoint2"
+  },
   "glFeedbackBuffer": {
    "status": "resolvable",
    "target": "glFeedbackBuffer"
@@ -581,6 +629,38 @@
   "glLoadName": {
    "status": "resolvable",
    "target": "glLoadName"
+  },
+  "glMap1d": {
+   "status": "resolvable",
+   "target": "glMap1d"
+  },
+  "glMap1f": {
+   "status": "resolvable",
+   "target": "glMap1f"
+  },
+  "glMap2d": {
+   "status": "resolvable",
+   "target": "glMap2d"
+  },
+  "glMap2f": {
+   "status": "resolvable",
+   "target": "glMap2f"
+  },
+  "glMapGrid1d": {
+   "status": "resolvable",
+   "target": "glMapGrid1d"
+  },
+  "glMapGrid1f": {
+   "status": "resolvable",
+   "target": "glMapGrid1f"
+  },
+  "glMapGrid2d": {
+   "status": "resolvable",
+   "target": "glMapGrid2d"
+  },
+  "glMapGrid2f": {
+   "status": "resolvable",
+   "target": "glMapGrid2f"
   },
   "glMaterialf": {
    "status": "resolvable",

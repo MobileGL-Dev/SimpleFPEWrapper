@@ -29,13 +29,18 @@ else()
         endif()
 endif()
 
-# ThinLTO is Clang-specific; GCC only understands full LTO.
-if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -flto=thin")
-        set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -flto=thin")
-else()
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -flto")
-        set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -flto")
+# LTO is for release/shipping builds; iterative test builds link the
+# 18MB+ glslang-included library far faster without it (-DSFPEW_LTO=OFF).
+option(SFPEW_LTO "Enable link-time optimization" ON)
+if(SFPEW_LTO)
+        # ThinLTO is Clang-specific; GCC only understands full LTO.
+        if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+                set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -flto=thin")
+                set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -flto=thin")
+        else()
+                set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -flto")
+                set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -flto")
+        endif()
 endif()
 
 # GLSL 1.10/1.20 -> ESSL 3.00 translation toolchain (plans/09):
@@ -75,6 +80,8 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         SimpleFPEWrapper/fpe/attribstack.cpp
         SimpleFPEWrapper/fpe/pixelops.cpp
         SimpleFPEWrapper/fpe/selection.cpp
+        SimpleFPEWrapper/fpe/evaluators.cpp
+        SimpleFPEWrapper/fpe/evaluators.cpp
         SimpleFPEWrapper/shader/translator.cpp
         SimpleFPEWrapper/shader/shaderobjects.cpp
         SimpleFPEWrapper/shader/userprogram.cpp

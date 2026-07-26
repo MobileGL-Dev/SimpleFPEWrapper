@@ -142,7 +142,7 @@ bool hijack_fpe_states(GLenum cap, bool enable, fixed_function_bool_t* bools) {
     default:
         break;
     }
-    return false;
+    return sfpewEvaluatorEnable(cap, enable);
 }
 
 void glEnable(GLenum cap) {

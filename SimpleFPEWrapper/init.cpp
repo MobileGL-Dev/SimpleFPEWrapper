@@ -9,32 +9,49 @@
 #include "init.h"
 #include "fpe/fpe.hpp"
 
+#include <cstdio>
+#include <cstdlib>
+
 SFPEW::External::EGLFunctionsTable g_eglFuncs;
 SFPEW::External::BackendGLFunctionsTable g_glFuncs;
 
-void Init() {
-    std::string eglLibName;
-    const char* envEglLib = std::getenv("SFPEW_EGL");
-    if (envEglLib) {
-        eglLibName = envEglLib;
-    } else {
-        eglLibName = "libEGL.so";
+namespace {
+
+// Loading the backend at dlopen time ran inside a static constructor; a
+// missing libEGL threw from it and terminated the host process before it
+// could even report an error. Resolve the tables on first use instead and
+// keep every failure inside the library boundary.
+bool InitBackend() noexcept {
+    try {
+        std::string eglLibName;
+        const char* envEglLib = std::getenv("SFPEW_EGL");
+        eglLibName = envEglLib ? envEglLib : "libEGL.so";
+
+        if (!SFPEW::Utils::BackendLoader::AcquireEGLFunctions(g_eglFuncs, eglLibName) ||
+            g_eglFuncs.eglGetProcAddress == nullptr) {
+            std::fprintf(stderr, "SFPEW: failed to acquire EGL functions from '%s'\n", eglLibName.c_str());
+            return false;
+        }
+
+        if (!SFPEW::Utils::BackendLoader::AcquireBackendGLFunctions(g_glFuncs, g_eglFuncs.eglGetProcAddress) ||
+            g_glFuncs.glGetString == nullptr) {
+            std::fprintf(stderr, "SFPEW: failed to acquire backend GL functions\n");
+            return false;
+        } // FIXME: actually we should acquire gl functions after egl initialization
+
+        return true;
+    } catch (...) {
+        // Never let an exception cross the extern "C" surface above us.
+        std::fprintf(stderr, "SFPEW: backend initialization threw; wrapper disabled\n");
+        return false;
     }
-
-    if (!SFPEW::Utils::BackendLoader::AcquireEGLFunctions(g_eglFuncs, eglLibName) ||
-        g_eglFuncs.eglGetProcAddress == nullptr) {
-        throw std::runtime_error("Failed to acquire EGL functions");
-    }
-
-    if (!SFPEW::Utils::BackendLoader::AcquireBackendGLFunctions(g_glFuncs, g_eglFuncs.eglGetProcAddress) ||
-        g_glFuncs.glGetString == nullptr) {
-        throw std::runtime_error("Failed to acquire BackendGL functions");
-    } // FIXME: actually we should acquire gl functions after egl initialization
-
 }
 
-struct InitClass {
-    InitClass() { Init(); }
-};
+} // namespace
 
-static InitClass staticInitObject;
+bool sfpewEnsureBackend() noexcept {
+    // Magic-static: thread-safe, runs once; a failed attempt stays failed
+    // and every caller degrades to a no-op instead of terminating.
+    static const bool ok = InitBackend();
+    return ok;
+}

@@ -52,6 +52,7 @@ void rememberClientArrayBufferBinding(int index) {
 } // namespace
 
 void glBindBuffer(GLenum target, GLuint buffer) {
+    if (!sfpewEnsureBackend() || g_glFuncs.glBindBuffer == nullptr) return;
     flushPendingImmediateDraws();
     g_glFuncs.glBindBuffer(target, buffer);
     if (target == GL_ARRAY_BUFFER) {
@@ -62,6 +63,7 @@ void glBindBuffer(GLenum target, GLuint buffer) {
 }
 
 void glDeleteBuffers(GLsizei n, const GLuint* buffers) {
+    if (!sfpewEnsureBackend() || g_glFuncs.glDeleteBuffers == nullptr) return;
     flushPendingImmediateDraws();
     g_glFuncs.glDeleteBuffers(n, buffers);
     if (n <= 0 || buffers == nullptr) return;

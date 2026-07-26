@@ -30,7 +30,8 @@ namespace {
 
 int active_texture_index() {
     GLint active = GL_TEXTURE0;
-    g_glFuncs.glGetIntegerv(GL_ACTIVE_TEXTURE, &active);
+    if (sfpewEnsureBackend() && g_glFuncs.glGetIntegerv != nullptr)
+        g_glFuncs.glGetIntegerv(GL_ACTIVE_TEXTURE, &active);
     return std::clamp(active - (GLint)GL_TEXTURE0, 0, MAX_TEX - 1);
 }
 

@@ -211,6 +211,9 @@ SFPEW_APIENTRY __eglMustCastToProperFunctionPointerType eglGetProcAddress(const 
     GETPROC(glDisableClientState, name)
     GETPROC(glGetFloatv, name)
 
+    if (!sfpewEnsureBackend() || g_eglFuncs.eglGetProcAddress == nullptr) {
+        return nullptr;
+    }
     __eglMustCastToProperFunctionPointerType ptr = g_eglFuncs.eglGetProcAddress(name);
     if (!ptr) {
         printf("eglGetProcAddress: eglGetProcAddress also failed to find '%s'\n", name);

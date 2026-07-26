@@ -34,6 +34,7 @@ logical_program_state_t& getLogicalProgramState() {
 GLint sfpewLogicalProgram() {
     auto& state = getLogicalProgramState();
     if (!state.known) {
+        if (!sfpewEnsureBackend() || g_glFuncs.glGetIntegerv == nullptr) return 0;
         g_glFuncs.glGetIntegerv(GL_CURRENT_PROGRAM, &state.program);
         state.known = true;
     }
@@ -42,6 +43,7 @@ GLint sfpewLogicalProgram() {
 
 #define ORDERED_PASSTHROUGH(name, declaration, arguments)                                                             \
     void name declaration {                                                                                           \
+        if (!sfpewEnsureBackend()) return;                                                                            \
         flushPendingImmediateDraws();                                                                                 \
         if (g_glFuncs.name != nullptr) g_glFuncs.name arguments;                                                      \
     }
@@ -58,6 +60,7 @@ ORDERED_PASSTHROUGH(glFinish, (), ())
 
 ORDERED_PASSTHROUGH(glBindFramebuffer, (GLenum target, GLuint framebuffer), (target, framebuffer))
 void glUseProgram(GLuint program) {
+    if (!sfpewEnsureBackend()) return;
     flushPendingImmediateDraws();
     if (g_glFuncs.glUseProgram == nullptr) return;
     g_glFuncs.glUseProgram(program);

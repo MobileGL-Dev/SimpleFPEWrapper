@@ -900,6 +900,7 @@ bool tryExecuteCapturedDisplayLists(const GLuint* listIds, size_t listCount) {
 }
 
 void glDrawArrays(GLenum mode, GLint first, GLsizei count) {
+    if (!sfpewEnsureBackend()) return;
     flushPendingImmediateDraws();
     if (!disableRecording && DisplayListManager::shouldRecord()) {
         std::unique_ptr<GLCmd> command;

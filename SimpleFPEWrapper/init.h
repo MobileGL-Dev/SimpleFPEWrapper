@@ -16,6 +16,11 @@
 extern SFPEW::External::EGLFunctionsTable g_eglFuncs;
 extern SFPEW::External::BackendGLFunctionsTable g_glFuncs;
 
+// Lazily resolves the EGL/GL backend tables on first use. Returns false if
+// the backend is unavailable; callers must degrade to a no-op then. Never
+// throws and never issues GL calls by itself.
+bool sfpewEnsureBackend() noexcept;
+
 GLenum sfpewLogicalActiveTexture();
 GLuint sfpewLogicalTextureBinding(GLenum target);
 GLint sfpewLogicalProgram();

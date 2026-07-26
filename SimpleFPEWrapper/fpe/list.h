@@ -9,6 +9,7 @@
 #pragma once
 
 #include <GL/gl.h>
+#include "../log.h"
 #include <glm/mat4x4.hpp>
 #include <glm/vec3.hpp>
 #include <array>
@@ -180,9 +181,20 @@ public:
         commands.emplace_back(std::move(command));
     }
 
+    // GL 2.1 guarantees at least 64 nesting levels; recorded glCallList
+    // commands re-enter callList, so an unbounded (or self-referential)
+    // chain would otherwise overflow the native stack.
+    static constexpr GLuint kMaxListNesting = 64;
+
     static void callList(GLuint listID) {
         auto it = lists.find(listID);
         if (it == lists.end()) return;
+
+        if (callingDepth >= kMaxListNesting) {
+            SFPEW_LOGW("glCallList(%u): list nesting exceeds %u levels; call skipped", listID,
+                       kMaxListNesting);
+            return;
+        }
 
         ++callingDepth;
         for (auto& cmd : it->second) {

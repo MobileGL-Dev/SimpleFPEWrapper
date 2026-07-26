@@ -101,6 +101,31 @@ void glCallLists(GLsizei n, GLenum type, const GLvoid* lists) {
     // LOG()
     // LOG_D("glCallLists(%i, %s, %p)", n, glEnumToString(type), lists)
 
+    // Validate before the record path: n * type_to_bytes(type) feeds a
+    // size_t deep-copy, so a negative n underflows to a huge memcpy and an
+    // unknown type yields a zero-size copy replayed against garbage.
+    if (n < 0) {
+        g_glstate.set_error(GL_INVALID_VALUE);
+        return;
+    }
+    switch (type) {
+    case GL_BYTE:
+    case GL_UNSIGNED_BYTE:
+    case GL_SHORT:
+    case GL_UNSIGNED_SHORT:
+    case GL_INT:
+    case GL_UNSIGNED_INT:
+    case GL_FLOAT:
+    case GL_2_BYTES:
+    case GL_3_BYTES:
+    case GL_4_BYTES:
+        break;
+    default:
+        g_glstate.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    if (n == 0 || lists == nullptr) return;
+
     if (DisplayListManager::shouldRecord()) {
         displayListManager.record<glCallLists>({{2, n * PointerUtils::type_to_bytes(type)}}, n, type, lists);
         if (DisplayListManager::shouldFinish()) return;

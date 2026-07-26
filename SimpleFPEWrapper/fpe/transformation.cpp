@@ -42,6 +42,20 @@ glm::mat4& current_matrix(transformation_t& transformation) {
     return transformation.matrices[matrix_idx(transformation.matrix_mode)];
 }
 
+size_t max_stack_depth(GLenum matrix_mode) {
+    switch (matrix_mode) {
+    case GL_PROJECTION:
+        return MAX_PROJECTION_STACK_DEPTH;
+    case GL_TEXTURE:
+        return MAX_TEXTURE_STACK_DEPTH;
+    case GL_COLOR:
+        return MAX_COLOR_STACK_DEPTH;
+    case GL_MODELVIEW:
+    default:
+        return MAX_MODELVIEW_STACK_DEPTH;
+    }
+}
+
 std::vector<glm::mat4>& current_matrix_stack(transformation_t& transformation) {
     if (transformation.matrix_mode == GL_TEXTURE) {
         return transformation.texture_matrices_stack[active_texture_index()];
@@ -251,7 +265,9 @@ void glMatrixMode(GLenum mode) {
     case GL_TEXTURE:
     case GL_COLOR:
         transformation.matrix_mode = mode;
+        break;
     default:
+        g_glstate.set_error(GL_INVALID_ENUM);
         break;
     }
 }
@@ -450,7 +466,12 @@ void glPushMatrix(void) {
     auto& transformation = g_glstate.fpe_uniform.transformation;
 
     auto& mat = current_matrix(transformation);
-    current_matrix_stack(transformation).push_back(mat);
+    auto& stack = current_matrix_stack(transformation);
+    if (stack.size() >= max_stack_depth(transformation.matrix_mode)) {
+        g_glstate.set_error(GL_STACK_OVERFLOW);
+        return;
+    }
+    stack.push_back(mat);
 
     // LOG_D("Matrix %s:", glEnumToString(transformation.matrix_mode))
     print_matrix(mat);
@@ -467,7 +488,10 @@ void glPopMatrix(void) {
 
     auto& mat = current_matrix(transformation);
     auto& stack = current_matrix_stack(transformation);
-    if (stack.empty()) return;
+    if (stack.empty()) {
+        g_glstate.set_error(GL_STACK_UNDERFLOW);
+        return;
+    }
     mat = stack.back();
     stack.pop_back();
 

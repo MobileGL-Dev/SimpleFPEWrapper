@@ -692,7 +692,9 @@ void drawArraysNow(GLenum mode, GLint first, GLsizei count, bool forceFixedFunct
         const int doDrawElement =
             commit_fpe_state_on_draw(&mode, &first, &count, arrayBufferOverride);
         if (doDrawElement < 0) return;
-        if (doDrawElement > 0) {
+        if (doDrawElement == 2) {
+            g_glFuncs.glDrawElements(mode, count, GL_UNSIGNED_INT, (void*)0);
+        } else if (doDrawElement > 0) {
             if (first != 0 && g_glFuncs.glDrawElementsBaseVertex != nullptr)
                 g_glFuncs.glDrawElementsBaseVertex(mode, count, quad_index_type(), (void*)0, first);
             else
@@ -723,6 +725,8 @@ void drawArraysNow(GLenum mode, GLint first, GLsizei count, bool forceFixedFunct
     int do_draw_element = commit_fpe_state_on_draw(&mode, &first, &count, attributeArrayBuffer);
     if (do_draw_element < 0) {
         return;
+    } else if (do_draw_element == 2) {
+        g_glFuncs.glDrawElements(mode, count, GL_UNSIGNED_INT, (void*)0);
     } else if (do_draw_element > 0) {
         if (first != 0 && g_glFuncs.glDrawElementsBaseVertex != nullptr)
             g_glFuncs.glDrawElementsBaseVertex(mode, count, quad_index_type(), (void*)0, first);

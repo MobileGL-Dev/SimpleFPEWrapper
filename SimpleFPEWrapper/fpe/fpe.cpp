@@ -320,6 +320,59 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint p
         // LOG_D("Using already bound VB")
     }
 
+    // plans/08 8.3: GL_LINE/GL_POINT polygon modes (uniform across faces -
+    // per-face split needs CPU facing tests and stays a documented gap).
+    const GLenum polygon_mode = g_glstate.fpe_uniform.polygon_mode_front;
+    const bool filled_primitive = *mode == GL_TRIANGLES || *mode == GL_TRIANGLE_STRIP ||
+                                  *mode == GL_TRIANGLE_FAN || *mode == GL_QUADS ||
+                                  *mode == GL_QUAD_STRIP || *mode == GL_POLYGON;
+    if (filled_primitive && polygon_mode == g_glstate.fpe_uniform.polygon_mode_back &&
+        polygon_mode == GL_POINT) {
+        // Vertices repeat across shared corners; visually identical to spec.
+        *mode = GL_POINTS;
+        g_glstate.send_uniforms(prog);
+        vpa.reset();
+        return 0;
+    }
+    if (filled_primitive && polygon_mode == g_glstate.fpe_uniform.polygon_mode_back &&
+        polygon_mode == GL_LINE) {
+        // Expand every triangle (or quad) into its outline edges. Shared
+        // edges draw twice, which matches the visual result of wireframe.
+        thread_local std::vector<uint32_t> wire;
+        wire.clear();
+        const uint32_t base = (uint32_t)*first;
+        const uint32_t n = (uint32_t)*count;
+        const auto edge = [&](uint32_t a, uint32_t b) {
+            wire.push_back(base + a);
+            wire.push_back(base + b);
+        };
+        if (*mode == GL_TRIANGLES) {
+            for (uint32_t i = 0; i + 2 < n; i += 3) { edge(i, i + 1); edge(i + 1, i + 2); edge(i + 2, i); }
+        } else if (*mode == GL_QUADS) {
+            for (uint32_t i = 0; i + 3 < n; i += 4) {
+                edge(i, i + 1); edge(i + 1, i + 2); edge(i + 2, i + 3); edge(i + 3, i);
+            }
+        } else if (*mode == GL_TRIANGLE_STRIP || *mode == GL_QUAD_STRIP) {
+            for (uint32_t i = 0; i + 2 < n; ++i) { edge(i, i + 1); edge(i + 1, i + 2); edge(i + 2, i); }
+        } else { // FAN / POLYGON
+            for (uint32_t i = 1; i + 1 < n; ++i) { edge(0, i); edge(i, i + 1); edge(i + 1, 0); }
+        }
+        if (!wire.empty()) {
+            auto& st = g_glstate.fpe_state;
+            if (st.fpe_element_ibo == 0) g_glFuncs.glGenBuffers(1, &st.fpe_element_ibo);
+            g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, st.fpe_element_ibo);
+            st.fpe_ibo_bound = false; // fpe_vao's element binding changed
+            g_glFuncs.glBufferData(GL_ELEMENT_ARRAY_BUFFER,
+                                   (GLsizeiptr)(wire.size() * sizeof(uint32_t)), wire.data(),
+                                   GL_DYNAMIC_DRAW);
+            *mode = GL_LINES;
+            *count = (GLsizei)wire.size();
+            g_glstate.send_uniforms(prog);
+            vpa.reset();
+            return 2; // wireframe: GL_UNSIGNED_INT indices at offset 0
+        }
+    }
+
     if (*mode == GL_QUADS) {
         const GLsizei index_count = (*count / 4) * 6;
         // A base-vertex draw lets display lists share one large immutable VBO

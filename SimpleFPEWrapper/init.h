@@ -27,6 +27,22 @@ GLint sfpewLogicalProgram();
 GLuint sfpewLogicalArrayBufferBinding();
 
 SFPEW_APIENTRY GLenum glGetError();
+SFPEW_APIENTRY GLuint glCreateShader(GLenum type);
+SFPEW_APIENTRY void glDeleteShader(GLuint shader);
+SFPEW_APIENTRY void glShaderSource(GLuint shader, GLsizei count, const GLchar* const* string, const GLint* length);
+SFPEW_APIENTRY void glCompileShader(GLuint shader);
+SFPEW_APIENTRY void glGetShaderSource(GLuint shader, GLsizei bufSize, GLsizei* length, GLchar* source);
+SFPEW_APIENTRY void glGetShaderInfoLog(GLuint shader, GLsizei bufSize, GLsizei* length, GLchar* infoLog);
+extern "C" {
+GLuint sfpewCreateShaderObjectARB(GLenum type);
+GLuint sfpewCreateProgramObjectARB(void);
+void sfpewDeleteObjectARB(GLuint object);
+void sfpewAttachObjectARB(GLuint program, GLuint shader);
+void sfpewDetachObjectARB(GLuint program, GLuint shader);
+void sfpewGetObjectParameterivARB(GLuint object, GLenum pname, GLint* params);
+void sfpewGetInfoLogARB(GLuint object, GLsizei maxLength, GLsizei* length, GLchar* infoLog);
+GLuint sfpewGetHandleARB(GLenum pname);
+}
 SFPEW_APIENTRY void glWindowPos2d(GLdouble x, GLdouble y);
 SFPEW_APIENTRY void glWindowPos2f(GLfloat x, GLfloat y);
 SFPEW_APIENTRY void glWindowPos2i(GLint x, GLint y);

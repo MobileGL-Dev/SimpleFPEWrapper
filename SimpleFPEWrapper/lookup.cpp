@@ -46,6 +46,49 @@ SFPEW_APIENTRY __eglMustCastToProperFunctionPointerType eglGetProcAddress(const 
         return (__eglMustCastToProperFunctionPointerType)glBindFramebuffer;
     }
     GETPROC(glUseProgram, name)
+    GETPROC(glCreateShader, name)
+    GETPROC(glDeleteShader, name)
+    GETPROC(glShaderSource, name)
+    GETPROC(glCompileShader, name)
+    GETPROC(glGetShaderSource, name)
+    GETPROC(glGetShaderInfoLog, name)
+    if (std::strcmp("glShaderSourceARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glShaderSource;
+    }
+    if (std::strcmp("glCompileShaderARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glCompileShader;
+    }
+    if (std::strcmp("glGetShaderSourceARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glGetShaderSource;
+    }
+    if (std::strcmp("glCreateShaderObjectARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)sfpewCreateShaderObjectARB;
+    }
+    if (std::strcmp("glCreateProgramObjectARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)sfpewCreateProgramObjectARB;
+    }
+    if (std::strcmp("glDeleteObjectARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)sfpewDeleteObjectARB;
+    }
+    if (std::strcmp("glAttachObjectARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)sfpewAttachObjectARB;
+    }
+    if (std::strcmp("glDetachObjectARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)sfpewDetachObjectARB;
+    }
+    if (std::strcmp("glGetObjectParameterivARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)sfpewGetObjectParameterivARB;
+    }
+    if (std::strcmp("glGetInfoLogARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)sfpewGetInfoLogARB;
+    }
+    if (std::strcmp("glGetHandleARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)sfpewGetHandleARB;
+    }
+    if (std::strcmp("glUseProgramObjectARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glUseProgram;
+    }
+
     GETPROC(glBlendColor, name)
     GETPROC(glBlendEquation, name)
     GETPROC(glBlendEquationSeparate, name)

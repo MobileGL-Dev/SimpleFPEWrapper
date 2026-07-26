@@ -1,6 +1,6 @@
 {
  "source": "lookup.cpp",
- "count": 367,
+ "count": 385,
  "entries": {
   "glActiveTexture": {
    "status": "resolvable",
@@ -17,6 +17,10 @@
   "glArrayElement": {
    "status": "resolvable",
    "target": "glArrayElement"
+  },
+  "glAttachObjectARB": {
+   "status": "alias",
+   "target": "sfpewAttachObjectARB"
   },
   "glBegin": {
    "status": "resolvable",
@@ -230,9 +234,29 @@
    "status": "resolvable",
    "target": "glColorPointer"
   },
+  "glCompileShader": {
+   "status": "resolvable",
+   "target": "glCompileShader"
+  },
+  "glCompileShaderARB": {
+   "status": "alias",
+   "target": "glCompileShader"
+  },
   "glCopyPixels": {
    "status": "resolvable",
    "target": "glCopyPixels"
+  },
+  "glCreateProgramObjectARB": {
+   "status": "alias",
+   "target": "sfpewCreateProgramObjectARB"
+  },
+  "glCreateShader": {
+   "status": "resolvable",
+   "target": "glCreateShader"
+  },
+  "glCreateShaderObjectARB": {
+   "status": "alias",
+   "target": "sfpewCreateShaderObjectARB"
   },
   "glCullFace": {
    "status": "resolvable",
@@ -250,6 +274,14 @@
    "status": "resolvable",
    "target": "glDeleteLists"
   },
+  "glDeleteObjectARB": {
+   "status": "alias",
+   "target": "sfpewDeleteObjectARB"
+  },
+  "glDeleteShader": {
+   "status": "resolvable",
+   "target": "glDeleteShader"
+  },
   "glDeleteTextures": {
    "status": "resolvable",
    "target": "glDeleteTextures"
@@ -265,6 +297,10 @@
   "glDepthRange": {
    "status": "resolvable",
    "target": "glDepthRange"
+  },
+  "glDetachObjectARB": {
+   "status": "alias",
+   "target": "sfpewDetachObjectARB"
   },
   "glDisable": {
    "status": "resolvable",
@@ -374,6 +410,14 @@
    "status": "resolvable",
    "target": "glGetFloatv"
   },
+  "glGetHandleARB": {
+   "status": "alias",
+   "target": "sfpewGetHandleARB"
+  },
+  "glGetInfoLogARB": {
+   "status": "alias",
+   "target": "sfpewGetInfoLogARB"
+  },
   "glGetIntegerv": {
    "status": "resolvable",
    "target": "glGetIntegerv"
@@ -394,9 +438,25 @@
    "status": "resolvable",
    "target": "glGetMaterialiv"
   },
+  "glGetObjectParameterivARB": {
+   "status": "alias",
+   "target": "sfpewGetObjectParameterivARB"
+  },
   "glGetPolygonStipple": {
    "status": "resolvable",
    "target": "glGetPolygonStipple"
+  },
+  "glGetShaderInfoLog": {
+   "status": "resolvable",
+   "target": "glGetShaderInfoLog"
+  },
+  "glGetShaderSource": {
+   "status": "resolvable",
+   "target": "glGetShaderSource"
+  },
+  "glGetShaderSourceARB": {
+   "status": "alias",
+   "target": "glGetShaderSource"
   },
   "glGetString": {
    "status": "resolvable",
@@ -1074,6 +1134,14 @@
    "status": "resolvable",
    "target": "glShadeModel"
   },
+  "glShaderSource": {
+   "status": "resolvable",
+   "target": "glShaderSource"
+  },
+  "glShaderSourceARB": {
+   "status": "alias",
+   "target": "glShaderSource"
+  },
   "glStencilFunc": {
    "status": "resolvable",
    "target": "glStencilFunc"
@@ -1300,6 +1368,10 @@
   },
   "glUseProgram": {
    "status": "resolvable",
+   "target": "glUseProgram"
+  },
+  "glUseProgramObjectARB": {
+   "status": "alias",
    "target": "glUseProgram"
   },
   "glVertex2d": {

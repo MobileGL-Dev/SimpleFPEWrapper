@@ -82,3 +82,16 @@ target_include_directories(${CMAKE_PROJECT_NAME} SYSTEM PUBLIC
 if(ANDROID)
         target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE log)
 endif()
+
+# Host-side tests (not applicable to Android cross builds).
+if(NOT ANDROID)
+        include(CTest)
+        if(BUILD_TESTING)
+                add_executable(smoke_dlopen tests/smoke_dlopen.c)
+                target_compile_definitions(smoke_dlopen PRIVATE
+                        WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
+                target_link_libraries(smoke_dlopen PRIVATE dl)
+                add_dependencies(smoke_dlopen ${CMAKE_PROJECT_NAME})
+                add_test(NAME smoke_dlopen COMMAND smoke_dlopen)
+        endif()
+endif()

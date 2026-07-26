@@ -16,6 +16,15 @@
         return (__eglMustCastToProperFunctionPointerType)name;                                                         \
     }
 
+// Desktop-only EXT/ARB spellings that are exactly the backend's core GLES
+// function: the backend's own eglGetProcAddress would return NULL for
+// these names, so they resolve against the loaded function table instead.
+#define GETPROC_BACKEND_ALIAS(alias, core)                                                                             \
+    if (std::strcmp(#alias, name) == 0) {                                                                              \
+        if (!sfpewEnsureBackend() || g_glFuncs.core == nullptr) return nullptr;                                         \
+        return (__eglMustCastToProperFunctionPointerType)g_glFuncs.core;                                                \
+    }
+
 SFPEW_APIENTRY __eglMustCastToProperFunctionPointerType eglGetProcAddress(const char* name) {
     if (!name) return nullptr;
 
@@ -71,6 +80,96 @@ SFPEW_APIENTRY __eglMustCastToProperFunctionPointerType eglGetProcAddress(const 
     GETPROC(glGetProgramInfoLog, name)
     GETPROC(glGetUniformLocation, name)
     GETPROC(glGetAttribLocation, name)
+
+    // --- Desktop FBO surface (GL_EXT_framebuffer_object + ARB core) ------
+    // LWJGL only flips its FBO capability bit when EVERY function of the
+    // extension resolves; keep this family complete.
+    GETPROC(glRenderbufferStorage, name)
+    GETPROC(glRenderbufferStorageMultisample, name)
+    GETPROC(glFramebufferTexture1D, name)
+    GETPROC(glFramebufferTexture3D, name)
+    if (std::strcmp("glRenderbufferStorageEXT", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glRenderbufferStorage;
+    }
+    if (std::strcmp("glRenderbufferStorageMultisampleEXT", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glRenderbufferStorageMultisample;
+    }
+    if (std::strcmp("glFramebufferTexture1DEXT", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glFramebufferTexture1D;
+    }
+    if (std::strcmp("glFramebufferTexture3DEXT", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glFramebufferTexture3D;
+    }
+    GETPROC_BACKEND_ALIAS(glGenFramebuffersEXT, glGenFramebuffers)
+    GETPROC_BACKEND_ALIAS(glDeleteFramebuffersEXT, glDeleteFramebuffers)
+    GETPROC_BACKEND_ALIAS(glIsFramebufferEXT, glIsFramebuffer)
+    GETPROC_BACKEND_ALIAS(glCheckFramebufferStatusEXT, glCheckFramebufferStatus)
+    GETPROC_BACKEND_ALIAS(glFramebufferTexture2DEXT, glFramebufferTexture2D)
+    GETPROC_BACKEND_ALIAS(glFramebufferRenderbufferEXT, glFramebufferRenderbuffer)
+    GETPROC_BACKEND_ALIAS(glGetFramebufferAttachmentParameterivEXT, glGetFramebufferAttachmentParameteriv)
+    GETPROC_BACKEND_ALIAS(glGenRenderbuffersEXT, glGenRenderbuffers)
+    GETPROC_BACKEND_ALIAS(glDeleteRenderbuffersEXT, glDeleteRenderbuffers)
+    GETPROC_BACKEND_ALIAS(glIsRenderbufferEXT, glIsRenderbuffer)
+    GETPROC_BACKEND_ALIAS(glBindRenderbufferEXT, glBindRenderbuffer)
+    GETPROC_BACKEND_ALIAS(glGetRenderbufferParameterivEXT, glGetRenderbufferParameteriv)
+    GETPROC_BACKEND_ALIAS(glGenerateMipmapEXT, glGenerateMipmap)
+    GETPROC_BACKEND_ALIAS(glBlitFramebufferEXT, glBlitFramebuffer)
+    GETPROC_BACKEND_ALIAS(glDrawBuffersARB, glDrawBuffers)
+    GETPROC_BACKEND_ALIAS(glDrawBuffersATI, glDrawBuffers)
+
+    // --- ARB_shader_objects / ARB_vertex_shader value setters ------------
+    GETPROC_BACKEND_ALIAS(glUniform1fARB, glUniform1f)
+    GETPROC_BACKEND_ALIAS(glUniform2fARB, glUniform2f)
+    GETPROC_BACKEND_ALIAS(glUniform3fARB, glUniform3f)
+    GETPROC_BACKEND_ALIAS(glUniform4fARB, glUniform4f)
+    GETPROC_BACKEND_ALIAS(glUniform1iARB, glUniform1i)
+    GETPROC_BACKEND_ALIAS(glUniform2iARB, glUniform2i)
+    GETPROC_BACKEND_ALIAS(glUniform3iARB, glUniform3i)
+    GETPROC_BACKEND_ALIAS(glUniform4iARB, glUniform4i)
+    GETPROC_BACKEND_ALIAS(glUniform1fvARB, glUniform1fv)
+    GETPROC_BACKEND_ALIAS(glUniform2fvARB, glUniform2fv)
+    GETPROC_BACKEND_ALIAS(glUniform3fvARB, glUniform3fv)
+    GETPROC_BACKEND_ALIAS(glUniform4fvARB, glUniform4fv)
+    GETPROC_BACKEND_ALIAS(glUniform1ivARB, glUniform1iv)
+    GETPROC_BACKEND_ALIAS(glUniform2ivARB, glUniform2iv)
+    GETPROC_BACKEND_ALIAS(glUniform3ivARB, glUniform3iv)
+    GETPROC_BACKEND_ALIAS(glUniform4ivARB, glUniform4iv)
+    GETPROC_BACKEND_ALIAS(glUniformMatrix2fvARB, glUniformMatrix2fv)
+    GETPROC_BACKEND_ALIAS(glUniformMatrix3fvARB, glUniformMatrix3fv)
+    GETPROC_BACKEND_ALIAS(glUniformMatrix4fvARB, glUniformMatrix4fv)
+    GETPROC_BACKEND_ALIAS(glValidateProgramARB, glValidateProgram)
+    GETPROC_BACKEND_ALIAS(glBindAttribLocationARB, glBindAttribLocation)
+    GETPROC_BACKEND_ALIAS(glGetActiveUniformARB, glGetActiveUniform)
+    GETPROC_BACKEND_ALIAS(glGetActiveAttribARB, glGetActiveAttrib)
+    GETPROC_BACKEND_ALIAS(glGetUniformfvARB, glGetUniformfv)
+    GETPROC_BACKEND_ALIAS(glGetUniformivARB, glGetUniformiv)
+    GETPROC_BACKEND_ALIAS(glVertexAttribPointerARB, glVertexAttribPointer)
+    GETPROC_BACKEND_ALIAS(glEnableVertexAttribArrayARB, glEnableVertexAttribArray)
+    GETPROC_BACKEND_ALIAS(glDisableVertexAttribArrayARB, glDisableVertexAttribArray)
+    GETPROC_BACKEND_ALIAS(glVertexAttrib1fARB, glVertexAttrib1f)
+    GETPROC_BACKEND_ALIAS(glVertexAttrib2fARB, glVertexAttrib2f)
+    GETPROC_BACKEND_ALIAS(glVertexAttrib3fARB, glVertexAttrib3f)
+    GETPROC_BACKEND_ALIAS(glVertexAttrib4fARB, glVertexAttrib4f)
+    GETPROC_BACKEND_ALIAS(glVertexAttrib1fvARB, glVertexAttrib1fv)
+    GETPROC_BACKEND_ALIAS(glVertexAttrib2fvARB, glVertexAttrib2fv)
+    GETPROC_BACKEND_ALIAS(glVertexAttrib3fvARB, glVertexAttrib3fv)
+    GETPROC_BACKEND_ALIAS(glVertexAttrib4fvARB, glVertexAttrib4fv)
+
+    // --- ARB_vertex_buffer_object / GL15 buffer surface -------------------
+    GETPROC(glMapBuffer, name)
+    GETPROC(glGetBufferSubData, name)
+    if (std::strcmp("glMapBufferARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glMapBuffer;
+    }
+    if (std::strcmp("glGetBufferSubDataARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glGetBufferSubData;
+    }
+    GETPROC_BACKEND_ALIAS(glGenBuffersARB, glGenBuffers)
+    GETPROC_BACKEND_ALIAS(glBufferDataARB, glBufferData)
+    GETPROC_BACKEND_ALIAS(glBufferSubDataARB, glBufferSubData)
+    GETPROC_BACKEND_ALIAS(glIsBufferARB, glIsBuffer)
+    GETPROC_BACKEND_ALIAS(glGetBufferParameterivARB, glGetBufferParameteriv)
+    GETPROC_BACKEND_ALIAS(glUnmapBufferARB, glUnmapBuffer)
     if (std::strcmp("glGetUniformLocationARB", name) == 0) {
         return (__eglMustCastToProperFunctionPointerType)glGetUniformLocation;
     }

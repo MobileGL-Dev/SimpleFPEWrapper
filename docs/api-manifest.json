@@ -1,6 +1,6 @@
 {
  "source": "lookup.cpp",
- "count": 429,
+ "count": 441,
  "entries": {
   "glAccum": {
    "status": "resolvable",
@@ -446,6 +446,22 @@
    "status": "resolvable",
    "target": "glFogiv"
   },
+  "glFramebufferTexture1D": {
+   "status": "resolvable",
+   "target": "glFramebufferTexture1D"
+  },
+  "glFramebufferTexture1DEXT": {
+   "status": "alias",
+   "target": "glFramebufferTexture1D"
+  },
+  "glFramebufferTexture3D": {
+   "status": "resolvable",
+   "target": "glFramebufferTexture3D"
+  },
+  "glFramebufferTexture3DEXT": {
+   "status": "alias",
+   "target": "glFramebufferTexture3D"
+  },
   "glFrontFace": {
    "status": "resolvable",
    "target": "glFrontFace"
@@ -477,6 +493,14 @@
   "glGetBooleanv": {
    "status": "resolvable",
    "target": "glGetBooleanv"
+  },
+  "glGetBufferSubData": {
+   "status": "resolvable",
+   "target": "glGetBufferSubData"
+  },
+  "glGetBufferSubDataARB": {
+   "status": "alias",
+   "target": "glGetBufferSubData"
   },
   "glGetClipPlane": {
    "status": "resolvable",
@@ -709,6 +733,14 @@
   "glMap2f": {
    "status": "resolvable",
    "target": "glMap2f"
+  },
+  "glMapBuffer": {
+   "status": "resolvable",
+   "target": "glMapBuffer"
+  },
+  "glMapBufferARB": {
+   "status": "alias",
+   "target": "glMapBuffer"
   },
   "glMapGrid1d": {
    "status": "resolvable",
@@ -1273,6 +1305,22 @@
   "glRenderMode": {
    "status": "resolvable",
    "target": "glRenderMode"
+  },
+  "glRenderbufferStorage": {
+   "status": "resolvable",
+   "target": "glRenderbufferStorage"
+  },
+  "glRenderbufferStorageEXT": {
+   "status": "alias",
+   "target": "glRenderbufferStorage"
+  },
+  "glRenderbufferStorageMultisample": {
+   "status": "resolvable",
+   "target": "glRenderbufferStorageMultisample"
+  },
+  "glRenderbufferStorageMultisampleEXT": {
+   "status": "alias",
+   "target": "glRenderbufferStorageMultisample"
   },
   "glRotated": {
    "status": "resolvable",

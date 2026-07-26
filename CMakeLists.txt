@@ -66,6 +66,7 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         SimpleFPEWrapper/init.cpp
         SimpleFPEWrapper/drawing.cpp
         SimpleFPEWrapper/getter.cpp
+        SimpleFPEWrapper/fbo.cpp
         SimpleFPEWrapper/lookup.cpp
         SimpleFPEWrapper/ordered_passthrough.cpp
 
@@ -139,6 +140,14 @@ if(NOT ANDROID)
                 find_library(SFPEW_TEST_EGL EGL)
                 find_library(SFPEW_TEST_GLES GLESv2)
                 if(SFPEW_TEST_EGL AND SFPEW_TEST_GLES)
+                        add_executable(smoke_lwjgl_surface tests/smoke_lwjgl_surface.c)
+                        target_compile_definitions(smoke_lwjgl_surface PRIVATE
+                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
+                        target_link_libraries(smoke_lwjgl_surface PRIVATE dl ${SFPEW_TEST_EGL})
+                        add_dependencies(smoke_lwjgl_surface ${CMAKE_PROJECT_NAME})
+                        add_test(NAME smoke_lwjgl_surface COMMAND smoke_lwjgl_surface)
+                        set_tests_properties(smoke_lwjgl_surface PROPERTIES SKIP_RETURN_CODE 77)
+
                         add_executable(smoke_translator tests/smoke_translator.c)
                         target_compile_definitions(smoke_translator PRIVATE
                                 WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")

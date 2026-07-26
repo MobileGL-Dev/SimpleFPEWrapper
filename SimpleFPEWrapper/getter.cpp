@@ -299,6 +299,57 @@ inline bool containsMobileGLDev(const std::string& str) {
     return str.find("MobileGL-Dev") != std::string::npos;
 }
 
+// The DESKTOP extension surface the wrapper implements. LWJGL-era engines
+// parse this list (not the backend's GL_OES_* one) to switch on their
+// FBO/shader/VBO paths, and resolve the corresponding EXT/ARB entry
+// points through {egl,glX}GetProcAddress (lookup.cpp aliases them).
+const char* const kDesktopExtensions[] = {
+    "GL_ARB_compatibility",
+    // FCL-ecosystem probe tokens (pre-dating this list; keep for launchers
+    // that detect the wrapper's desktop-GL level by these).
+    "OpenGL11",
+    "OpenGL12",
+    "OpenGL13",
+    "OpenGL14",
+    "OpenGL15",
+    "OpenGL20",
+    "OpenGL21",
+    "GL_ARB_multitexture",
+    "GL_ARB_texture_env_add",
+    "GL_ARB_texture_env_combine",
+    "GL_ARB_texture_env_dot3",
+    "GL_ARB_texture_cube_map",
+    "GL_ARB_texture_non_power_of_two",
+    "GL_ARB_texture_mirrored_repeat",
+    "GL_ARB_depth_texture",
+    "GL_ARB_shadow",
+    "GL_ARB_vertex_buffer_object",
+    "GL_ARB_pixel_buffer_object",
+    "GL_ARB_shader_objects",
+    "GL_ARB_vertex_shader",
+    "GL_ARB_fragment_shader",
+    "GL_ARB_shading_language_100",
+    "GL_ARB_draw_buffers",
+    "GL_ARB_point_parameters",
+    "GL_ARB_point_sprite",
+    "GL_ARB_framebuffer_object",
+    "GL_ARB_texture_float",
+    "GL_ARB_half_float_pixel",
+    "GL_EXT_framebuffer_object",
+    "GL_EXT_framebuffer_blit",
+    "GL_EXT_packed_depth_stencil",
+    "GL_EXT_blend_func_separate",
+    "GL_EXT_blend_minmax",
+    "GL_EXT_blend_subtract",
+    "GL_EXT_blend_color",
+    "GL_EXT_fog_coord",
+    "GL_EXT_secondary_color",
+    "GL_EXT_texture_lod_bias",
+    "GL_SGIS_generate_mipmap",
+};
+constexpr GLint kDesktopExtensionCount =
+    (GLint)(sizeof(kDesktopExtensions) / sizeof(kDesktopExtensions[0]));
+
 namespace {
 
 // pnames the wrapper answers itself through glGetIntegerv (scalar integers).
@@ -672,6 +723,24 @@ const GLubyte* glGetString(GLenum name) {
         }
         return (const GLubyte*)cachedVersionString.c_str();
     }
+    case GL_EXTENSIONS: {
+        // ADDITIVE surface: everything the backend really exposes, plus the
+        // desktop extensions the wrapper implements on top. The backend's
+        // own capability set (full ES 3.2 / GL 4.6) must stay visible.
+        static std::string cachedExtensionString;
+        if (cachedExtensionString.empty()) {
+            const GLubyte* backend = g_glFuncs.glGetString(GL_EXTENSIONS);
+            if (!backend) return nullptr;
+            std::string joined((const char*)backend);
+            for (GLint i = 0; i < kDesktopExtensionCount; ++i) {
+                if (joined.find(kDesktopExtensions[i]) != std::string::npos) continue;
+                joined += ' ';
+                joined += kDesktopExtensions[i];
+            }
+            cachedExtensionString = std::move(joined);
+        }
+        return (const GLubyte*)cachedExtensionString.c_str();
+    }
     case GL_RENDERER: {
         static std::string cachedRendererString;
         if (cachedRendererString.empty()) {
@@ -704,27 +773,11 @@ const GLubyte* glGetStringi(GLenum name, GLuint index) {
     if (name != GL_EXTENSIONS) {
         return g_glFuncs.glGetStringi(name, index);
     }
-
-    switch (index) {
-    case 0:
-        return (const GLubyte*)"GL_ARB_compatibility";
-    case 1:
-        return (const GLubyte*)"OpenGL21";
-    case 2:
-        return (const GLubyte*)"OpenGL11";
-    case 3:
-        return (const GLubyte*)"OpenGL12";
-    case 4:
-        return (const GLubyte*)"OpenGL13";
-    case 5:
-        return (const GLubyte*)"OpenGL14";
-    case 6:
-        return (const GLubyte*)"OpenGL15";
-    case 7:
-        return (const GLubyte*)"OpenGL20";
-    default:
-        return g_glFuncs.glGetStringi(name, index - 8);
-    }
+    // Additive like glGetString(GL_EXTENSIONS): the wrapper's desktop
+    // extensions first, then everything the backend exposes.
+    if (index < (GLuint)kDesktopExtensionCount)
+        return (const GLubyte*)kDesktopExtensions[index];
+    return g_glFuncs.glGetStringi(name, index - (GLuint)kDesktopExtensionCount);
 }
 
 void glGetIntegerv(GLenum pname, GLint* params) {
@@ -752,7 +805,7 @@ void glGetIntegerv(GLenum pname, GLint* params) {
                 *params = 0;
                 return;
             }
-            cachedNumExtensions = backendCount + 8;
+            cachedNumExtensions = backendCount + kDesktopExtensionCount;
         }
         *params = cachedNumExtensions;
         break;

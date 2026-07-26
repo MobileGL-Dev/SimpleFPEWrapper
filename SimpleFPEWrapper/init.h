@@ -25,6 +25,8 @@ GLenum sfpewLogicalActiveTexture();
 GLuint sfpewLogicalTextureBinding(GLenum target);
 GLint sfpewLogicalProgram();
 GLuint sfpewLogicalArrayBufferBinding();
+GLuint sfpewLogicalElementArrayBufferBinding();
+GLuint sfpewLogicalVAOBinding();
 // True when a pixel pack/unpack buffer is bound: CPU pixel conversions
 // must pass through untouched then (plans/10 10.1).
 bool sfpewUnpackPboBound();
@@ -52,6 +54,15 @@ SFPEW_APIENTRY void glGetAttachedShaders(GLuint program, GLsizei maxCount, GLsiz
 SFPEW_APIENTRY void glGetProgramInfoLog(GLuint program, GLsizei bufSize, GLsizei* length, GLchar* infoLog);
 SFPEW_APIENTRY GLint glGetUniformLocation(GLuint program, const GLchar* name);
 SFPEW_APIENTRY GLint glGetAttribLocation(GLuint program, const GLchar* name);
+SFPEW_APIENTRY void glRenderbufferStorage(GLenum target, GLenum internalformat, GLsizei width, GLsizei height);
+SFPEW_APIENTRY void glRenderbufferStorageMultisample(GLenum target, GLsizei samples, GLenum internalformat,
+                                                     GLsizei width, GLsizei height);
+SFPEW_APIENTRY void glFramebufferTexture1D(GLenum target, GLenum attachment, GLenum textarget, GLuint texture,
+                                           GLint level);
+SFPEW_APIENTRY void glFramebufferTexture3D(GLenum target, GLenum attachment, GLenum textarget, GLuint texture,
+                                           GLint level, GLint zoffset);
+SFPEW_APIENTRY void* glMapBuffer(GLenum target, GLenum access);
+SFPEW_APIENTRY void glGetBufferSubData(GLenum target, GLintptr offset, GLsizeiptr size, void* data);
 void sfpewForgetUserProgram(GLuint program);
 extern "C" {
 GLuint sfpewCreateShaderObjectARB(GLenum type);

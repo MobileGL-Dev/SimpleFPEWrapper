@@ -319,6 +319,165 @@ int floatPnameComponentCount(GLenum pname) {
 
 } // namespace
 
+void glGetLightfv(GLenum light, GLenum pname, GLfloat* params) {
+    if (!params) return;
+    if (light < GL_LIGHT0 || light >= GL_LIGHT0 + MAX_LIGHTS) {
+        g_glstate.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    const auto& l = g_glstate.fpe_uniform.lights[light - GL_LIGHT0];
+    switch (pname) {
+    case GL_AMBIENT:
+        memcpy(params, glm::value_ptr(l.ambient), 4 * sizeof(GLfloat));
+        break;
+    case GL_DIFFUSE:
+        memcpy(params, glm::value_ptr(l.diffuse), 4 * sizeof(GLfloat));
+        break;
+    case GL_SPECULAR:
+        memcpy(params, glm::value_ptr(l.specular), 4 * sizeof(GLfloat));
+        break;
+    case GL_POSITION:
+        // Stored in eye coordinates (transformed at call time), which is
+        // exactly what GetLight returns per spec.
+        memcpy(params, glm::value_ptr(l.position), 4 * sizeof(GLfloat));
+        break;
+    case GL_SPOT_DIRECTION:
+        memcpy(params, glm::value_ptr(l.spot_direction), 3 * sizeof(GLfloat));
+        break;
+    case GL_SPOT_EXPONENT:
+        params[0] = l.spot_exp;
+        break;
+    case GL_SPOT_CUTOFF:
+        params[0] = l.spot_cutoff;
+        break;
+    case GL_CONSTANT_ATTENUATION:
+        params[0] = l.constant_attenuation;
+        break;
+    case GL_LINEAR_ATTENUATION:
+        params[0] = l.linear_attenuation;
+        break;
+    case GL_QUADRATIC_ATTENUATION:
+        params[0] = l.quadratic_attenuation;
+        break;
+    default:
+        g_glstate.set_error(GL_INVALID_ENUM);
+        break;
+    }
+}
+
+void glGetLightiv(GLenum light, GLenum pname, GLint* params) {
+    if (!params) return;
+    GLfloat staging[4] = {};
+    glGetLightfv(light, pname, staging);
+    const int count = (pname == GL_AMBIENT || pname == GL_DIFFUSE || pname == GL_SPECULAR ||
+                       pname == GL_POSITION)
+                          ? 4
+                          : (pname == GL_SPOT_DIRECTION ? 3 : 1);
+    for (int i = 0; i < count; ++i) params[i] = static_cast<GLint>(staging[i]);
+}
+
+void glGetMaterialfv(GLenum face, GLenum pname, GLfloat* params) {
+    if (!params) return;
+    // GL_FRONT_AND_BACK is valid for setting but not for querying.
+    if (face != GL_FRONT && face != GL_BACK) {
+        g_glstate.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    const auto& material = g_glstate.fpe_uniform.materials[face == GL_FRONT ? 0 : 1];
+    switch (pname) {
+    case GL_AMBIENT:
+        memcpy(params, glm::value_ptr(material.ambient), 4 * sizeof(GLfloat));
+        break;
+    case GL_DIFFUSE:
+        memcpy(params, glm::value_ptr(material.diffuse), 4 * sizeof(GLfloat));
+        break;
+    case GL_SPECULAR:
+        memcpy(params, glm::value_ptr(material.specular), 4 * sizeof(GLfloat));
+        break;
+    case GL_EMISSION:
+        memcpy(params, glm::value_ptr(material.emission), 4 * sizeof(GLfloat));
+        break;
+    case GL_SHININESS:
+        params[0] = material.shininess;
+        break;
+    case GL_COLOR_INDEXES:
+        memcpy(params, glm::value_ptr(material.color_indexes), 3 * sizeof(GLfloat));
+        break;
+    default:
+        g_glstate.set_error(GL_INVALID_ENUM);
+        break;
+    }
+}
+
+void glGetMaterialiv(GLenum face, GLenum pname, GLint* params) {
+    if (!params) return;
+    GLfloat staging[4] = {};
+    glGetMaterialfv(face, pname, staging);
+    const int count = pname == GL_SHININESS ? 1 : (pname == GL_COLOR_INDEXES ? 3 : 4);
+    for (int i = 0; i < count; ++i) params[i] = static_cast<GLint>(staging[i]);
+}
+
+void glGetTexEnvfv(GLenum target, GLenum pname, GLfloat* params) {
+    if (!params) return;
+    if (target != GL_TEXTURE_ENV) {
+        g_glstate.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    const int unit = std::clamp(static_cast<int>(sfpewLogicalActiveTexture() - GL_TEXTURE0), 0, MAX_TEX - 1);
+    const auto& env = g_glstate.fpe_uniform.texture_env[unit];
+    switch (pname) {
+    case GL_TEXTURE_ENV_MODE:
+        params[0] = static_cast<GLfloat>(env.mode);
+        break;
+    case GL_TEXTURE_ENV_COLOR:
+        memcpy(params, glm::value_ptr(env.color), 4 * sizeof(GLfloat));
+        break;
+    case GL_COMBINE_RGB:
+        params[0] = static_cast<GLfloat>(env.combine_rgb);
+        break;
+    case GL_COMBINE_ALPHA:
+        params[0] = static_cast<GLfloat>(env.combine_alpha);
+        break;
+    case GL_SRC0_RGB:
+    case GL_SRC1_RGB:
+    case GL_SRC2_RGB:
+        params[0] = static_cast<GLfloat>(env.source_rgb[pname - GL_SRC0_RGB]);
+        break;
+    case GL_SRC0_ALPHA:
+    case GL_SRC1_ALPHA:
+    case GL_SRC2_ALPHA:
+        params[0] = static_cast<GLfloat>(env.source_alpha[pname - GL_SRC0_ALPHA]);
+        break;
+    case GL_OPERAND0_RGB:
+    case GL_OPERAND1_RGB:
+    case GL_OPERAND2_RGB:
+        params[0] = static_cast<GLfloat>(env.operand_rgb[pname - GL_OPERAND0_RGB]);
+        break;
+    case GL_OPERAND0_ALPHA:
+    case GL_OPERAND1_ALPHA:
+    case GL_OPERAND2_ALPHA:
+        params[0] = static_cast<GLfloat>(env.operand_alpha[pname - GL_OPERAND0_ALPHA]);
+        break;
+    case GL_RGB_SCALE:
+        params[0] = env.rgb_scale;
+        break;
+    case GL_ALPHA_SCALE:
+        params[0] = env.alpha_scale;
+        break;
+    default:
+        g_glstate.set_error(GL_INVALID_ENUM);
+        break;
+    }
+}
+
+void glGetTexEnviv(GLenum target, GLenum pname, GLint* params) {
+    if (!params) return;
+    GLfloat staging[4] = {};
+    glGetTexEnvfv(target, pname, staging);
+    const int count = pname == GL_TEXTURE_ENV_COLOR ? 4 : 1;
+    for (int i = 0; i < count; ++i) params[i] = static_cast<GLint>(staging[i]);
+}
+
 GLboolean glIsEnabled(GLenum cap) {
     const auto& bools = g_glstate.fpe_state.fpe_bools;
     switch (cap) {

@@ -658,6 +658,27 @@ private:
     friend bool ::tryExecuteCapturedDisplayLists(const std::vector<GLuint>& listIds);
 };
 
+constexpr size_t kCapturedDisplayListBatchCacheSize = 4;
+
+struct captured_display_list_batch_t {
+    bool valid = false;
+    const captured_draw_arrays_cmd_t* prototype = nullptr;
+    glm::mat4 commonLinear{1.0f};
+    GLuint commonBuffer = 0;
+    GLsizei maxVertexCount = 0;
+    std::vector<GLuint> listIds;
+    std::vector<GLint> firsts;
+    std::vector<GLsizei> vertexCounts;
+    std::vector<GLsizei> elementCounts;
+    std::vector<const void*> indexPointers;
+};
+
+struct captured_display_list_batch_cache_t {
+    uint64_t generation = 0;
+    size_t nextReplacement = 0;
+    std::array<captured_display_list_batch_t, kCapturedDisplayListBatchCacheSize> entries;
+};
+
 void drawArraysNow(GLenum mode, GLint first, GLsizei count, bool forceFixedFunction,
                    GLint arrayBufferOverride) {
 
@@ -720,17 +741,13 @@ bool tryExecuteCapturedDisplayLists(const std::vector<GLuint>& listIds) {
         return false;
     }
 
-    const captured_draw_arrays_cmd_t* prototype = nullptr;
-    glm::mat4 commonLinear(1.0f);
-    GLuint commonBuffer = 0;
-
-    thread_local std::vector<GLint> firsts;
-    thread_local std::vector<GLsizei> counts;
-    thread_local std::vector<const void*> indexPointers;
-    firsts.clear();
-    counts.clear();
-    firsts.reserve(listIds.size());
-    counts.reserve(listIds.size());
+    thread_local captured_display_list_batch_cache_t cache;
+    const uint64_t listGeneration = DisplayListManager::generation();
+    if (cache.generation != listGeneration) {
+        cache.generation = listGeneration;
+        cache.nextReplacement = 0;
+        for (auto& entry : cache.entries) entry.valid = false;
+    }
 
     const auto compatible = [](const captured_draw_arrays_cmd_t& left,
                                const captured_draw_arrays_cmd_t& right) {
@@ -754,44 +771,95 @@ bool tryExecuteCapturedDisplayLists(const std::vector<GLuint>& listIds) {
         return true;
     };
 
-    for (const GLuint listId : listIds) {
-        const DisplayList* list = DisplayListManager::findList(listId);
-        if (list == nullptr || list->size() != 1) return false;
-
-        glm::mat4 linear(1.0f);
-        const GLCmd* batchCommand = list->front()->capturedDrawForBatch(&linear);
-        const auto* draw = dynamic_cast<const captured_draw_arrays_cmd_t*>(batchCommand);
-        if (draw == nullptr) return false;
-
-        if (prototype == nullptr) {
-            prototype = draw;
-            commonLinear = linear;
-        } else if (std::memcmp(&commonLinear, &linear, sizeof(commonLinear)) != 0 ||
-                   !compatible(*prototype, *draw)) {
-            return false;
+    captured_display_list_batch_t* batch = nullptr;
+    for (auto& entry : cache.entries) {
+        if (!entry.valid || entry.listIds.size() != listIds.size() ||
+            std::memcmp(entry.listIds.data(), listIds.data(),
+                        listIds.size() * sizeof(GLuint)) != 0) {
+            continue;
         }
 
-        GLuint buffer = 0;
-        GLint first = 0;
-        if (!draw->bindStaticVertexBuffer(&buffer, &first) || buffer == 0) return false;
-        if (commonBuffer == 0)
-            commonBuffer = buffer;
-        else if (commonBuffer != buffer)
-            return false;
-
-        firsts.push_back(first);
-        counts.push_back(draw->count);
+        // Every compatible draw comes from the same arena buffer and arena
+        // generation. One surviving allocation therefore proves that all
+        // cached offsets remain valid; display-list mutation separately
+        // invalidates the command pointers above.
+        if (entry.prototype == nullptr || entry.commonBuffer == 0 ||
+            !displayListVertexArena.isCurrent(entry.prototype->arenaAllocation) ||
+            entry.prototype->arenaAllocation.buffer != entry.commonBuffer) {
+            entry.valid = false;
+            continue;
+        }
+        batch = &entry;
+        break;
     }
 
-    if (prototype == nullptr || commonBuffer == 0) return false;
-    if (prototype->mode == GL_QUADS && g_glFuncs.glMultiDrawElementsBaseVertex == nullptr) {
-        return false;
+    if (batch == nullptr) {
+        auto& candidate = cache.entries[cache.nextReplacement];
+        cache.nextReplacement = (cache.nextReplacement + 1) % cache.entries.size();
+        candidate.valid = false;
+        candidate.prototype = nullptr;
+        candidate.commonLinear = glm::mat4(1.0f);
+        candidate.commonBuffer = 0;
+        candidate.maxVertexCount = 0;
+        candidate.listIds = listIds;
+        candidate.firsts.clear();
+        candidate.vertexCounts.clear();
+        candidate.elementCounts.clear();
+        candidate.indexPointers.clear();
+        candidate.firsts.reserve(listIds.size());
+        candidate.vertexCounts.reserve(listIds.size());
+
+        for (const GLuint listId : listIds) {
+            const DisplayList* list = DisplayListManager::findList(listId);
+            if (list == nullptr || list->size() != 1) return false;
+
+            glm::mat4 linear(1.0f);
+            const GLCmd* batchCommand = list->front()->capturedDrawForBatch(&linear);
+            const auto* draw = dynamic_cast<const captured_draw_arrays_cmd_t*>(batchCommand);
+            if (draw == nullptr) return false;
+
+            if (candidate.prototype == nullptr) {
+                candidate.prototype = draw;
+                candidate.commonLinear = linear;
+            } else if (std::memcmp(&candidate.commonLinear, &linear,
+                                   sizeof(candidate.commonLinear)) != 0 ||
+                       !compatible(*candidate.prototype, *draw)) {
+                return false;
+            }
+
+            GLuint buffer = 0;
+            GLint first = 0;
+            if (!draw->bindStaticVertexBuffer(&buffer, &first) || buffer == 0) return false;
+            if (candidate.commonBuffer == 0)
+                candidate.commonBuffer = buffer;
+            else if (candidate.commonBuffer != buffer)
+                return false;
+
+            candidate.firsts.push_back(first);
+            candidate.vertexCounts.push_back(draw->count);
+            candidate.maxVertexCount = std::max(candidate.maxVertexCount, draw->count);
+        }
+
+        if (candidate.prototype == nullptr || candidate.commonBuffer == 0) return false;
+        if (candidate.prototype->mode == GL_QUADS) {
+            if (g_glFuncs.glMultiDrawElementsBaseVertex == nullptr) return false;
+            candidate.elementCounts.reserve(candidate.vertexCounts.size());
+            for (const GLsizei count : candidate.vertexCounts) {
+                candidate.elementCounts.push_back((count / 4) * 6);
+            }
+            candidate.indexPointers.assign(candidate.vertexCounts.size(), nullptr);
+        }
+        candidate.valid = true;
+        batch = &candidate;
     }
+
+    const auto* prototype = batch->prototype;
+    const GLuint commonBuffer = batch->commonBuffer;
 
     wrapper_client_state_guard_t wrapperState;
     auto& modelView = g_glstate.fpe_uniform.transformation.matrices[matrix_idx(GL_MODELVIEW)];
     const glm::mat4 savedModelView = modelView;
-    modelView *= commonLinear;
+    modelView *= batch->commonLinear;
 
     auto replayState = prototype->layout;
     replayState.starting_pointer = nullptr;
@@ -808,24 +876,21 @@ bool tryExecuteCapturedDisplayLists(const std::vector<GLuint>& listIds) {
 
     g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, commonBuffer);
     GLenum mode = prototype->mode;
-    GLint firstForCommit = firsts.front();
-    const GLsizei maxVertexCount = *std::max_element(counts.begin(), counts.end());
-    GLsizei countForCommit = maxVertexCount;
+    GLint firstForCommit = batch->firsts.front();
+    GLsizei countForCommit = batch->maxVertexCount;
     const int drawElements =
         commit_fpe_state_on_draw(&mode, &firstForCommit, &countForCommit,
                                  static_cast<GLint>(commonBuffer));
 
     bool executed = false;
     if (drawElements == 0 && prototype->mode != GL_QUADS) {
-        g_glFuncs.glMultiDrawArrays(mode, firsts.data(), counts.data(),
-                                    static_cast<GLsizei>(counts.size()));
+        g_glFuncs.glMultiDrawArrays(mode, batch->firsts.data(), batch->vertexCounts.data(),
+                                    static_cast<GLsizei>(batch->vertexCounts.size()));
         executed = true;
     } else if (drawElements > 0 && prototype->mode == GL_QUADS) {
-        for (auto& count : counts) count = (count / 4) * 6;
-        indexPointers.assign(counts.size(), nullptr);
         g_glFuncs.glMultiDrawElementsBaseVertex(
-            mode, counts.data(), quad_index_type(), indexPointers.data(),
-            static_cast<GLsizei>(counts.size()), firsts.data());
+            mode, batch->elementCounts.data(), quad_index_type(), batch->indexPointers.data(),
+            static_cast<GLsizei>(batch->elementCounts.size()), batch->firsts.data());
         executed = true;
     }
 

@@ -12,7 +12,7 @@
 #include <stdexcept>
 #include "backend/loader.h"
 
-#define SFPEW_APIENTRY __attribute__((visibility("default"))) extern "C"
+#define SFPEW_APIENTRY extern "C" __attribute__((visibility("default")))
 extern SFPEW::External::EGLFunctionsTable g_eglFuncs;
 extern SFPEW::External::BackendGLFunctionsTable g_glFuncs;
 

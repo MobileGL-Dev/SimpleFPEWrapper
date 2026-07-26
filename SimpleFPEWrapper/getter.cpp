@@ -492,6 +492,28 @@ int texgenCoordIndex(GLenum coord) {
 }
 } // namespace
 
+// GL_TEXTURE_1D does not exist on GLES: 1D textures are stored as Nx1 2D
+// textures. Any wrap mode samples row 0 of an Nx1 texture, so generated
+// shaders need no coordinate rewrite. (plans/05, 5.4)
+void glTexImage1D(GLenum target, GLint level, GLint internalformat, GLsizei width, GLint border,
+                  GLenum format, GLenum type, const GLvoid* pixels) {
+    if (target != GL_TEXTURE_1D && target != GL_PROXY_TEXTURE_1D) {
+        g_glstate.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    if (target == GL_PROXY_TEXTURE_1D) return; // no proxy bookkeeping for 1D
+    glTexImage2D(GL_TEXTURE_2D, level, internalformat, width, 1, border, format, type, pixels);
+}
+
+void glTexSubImage1D(GLenum target, GLint level, GLint xoffset, GLsizei width, GLenum format,
+                     GLenum type, const GLvoid* pixels) {
+    if (target != GL_TEXTURE_1D) {
+        g_glstate.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    glTexSubImage2D(GL_TEXTURE_2D, level, xoffset, 0, width, 1, format, type, pixels);
+}
+
 void glGetTexGenfv(GLenum coord, GLenum pname, GLfloat* params) {
     if (!params) return;
     const int c = texgenCoordIndex(coord);
@@ -797,6 +819,7 @@ void glActiveTexture(GLenum texture) {
 
 void glBindTexture(GLenum target, GLuint texture) {
     if (!sfpewEnsureBackend() || g_glFuncs.glBindTexture == nullptr) return;
+    if (target == GL_TEXTURE_1D) target = GL_TEXTURE_2D; // Nx1 emulation
     auto& state = getLogicalTextureBindings();
     const GLenum activeTexture = getLogicalActiveTexture(state);
     const GLenum query = textureBindingQuery(target);

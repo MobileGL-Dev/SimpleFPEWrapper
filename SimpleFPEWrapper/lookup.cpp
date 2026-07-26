@@ -80,6 +80,8 @@ SFPEW_APIENTRY __eglMustCastToProperFunctionPointerType eglGetProcAddress(const 
     GETPROC(glBindTexture, name)
     GETPROC(glDeleteTextures, name)
     GETPROC(glTexImage2D, name)
+    GETPROC(glTexImage1D, name)
+    GETPROC(glTexSubImage1D, name)
     GETPROC(glGetTexLevelParameteriv, name)
     GETPROC(glGetTexLevelParameterfv, name)
 

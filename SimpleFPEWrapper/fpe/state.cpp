@@ -108,6 +108,7 @@ bool hijack_fpe_states(GLenum cap, bool enable, fixed_function_bool_t* bools) {
     case GL_LIGHT7:
         bools->light_enable[cap - GL_LIGHT0] = enable;
         return true;
+    case GL_TEXTURE_1D: // Nx1 2D emulation shares the unit enable
     case GL_TEXTURE_2D:
         bools->texture_2d_enable[active_texture_index()] = enable;
         return true;

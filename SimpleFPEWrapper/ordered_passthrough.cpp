@@ -10,6 +10,7 @@
 #include "fpe/drawing1x.h"
 #include "fpe/list.h"
 #include <vector>
+#include <algorithm>
 #include <cstdint>
 #include "fpe/fpe.hpp"
 
@@ -72,10 +73,21 @@ GLint sfpewLogicalProgram() {
 
 RECORDED_PASSTHROUGH(glClear, (GLbitfield mask), (mask))
 // glDrawElements lives in drawing.cpp: it is FPE-converted, not passthrough.
-ORDERED_PASSTHROUGH(glReadPixels,
-                    (GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type,
-                     GLvoid* pixels),
-                    (x, y, width, height, format, type, pixels))
+void glReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type,
+                  GLvoid* pixels) {
+    if (!sfpewEnsureBackend() || g_glFuncs.glReadPixels == nullptr) return;
+    flushPendingImmediateDraws();
+    // Desktop apps read GL_BGRA, which GLES3 core does not offer: read RGBA
+    // and swap in place (tight rows, the common screenshot/AWT case).
+    if (format == GL_BGRA && type == GL_UNSIGNED_BYTE && pixels != nullptr && width > 0 && height > 0) {
+        g_glFuncs.glReadPixels(x, y, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+        auto* bytes = static_cast<uint8_t*>(pixels);
+        const size_t count = (size_t)width * (size_t)height * 4u;
+        for (size_t px = 0; px < count; px += 4) std::swap(bytes[px + 0], bytes[px + 2]);
+        return;
+    }
+    g_glFuncs.glReadPixels(x, y, width, height, format, type, pixels);
+}
 ORDERED_PASSTHROUGH(glFlush, (), ())
 ORDERED_PASSTHROUGH(glFinish, (), ())
 

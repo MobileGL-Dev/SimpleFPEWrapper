@@ -40,7 +40,8 @@ vertex_pointer_array_t vertex_pointer_array_t::normalize() {
     if (stride == 0) that.stride = attributes[first_va_idx].stride;
 
     // if not valid starting pointer
-    if (!(that.stride != 0 && that.starting_pointer != 0 && that.starting_pointer > (void*)that.stride)) {
+    if (!(that.stride != 0 && that.starting_pointer != 0 &&
+          (uintptr_t)that.starting_pointer > (uintptr_t)that.stride)) {
         that.starting_pointer = attributes[first_va_idx].pointer;
     }
 
@@ -58,7 +59,7 @@ vertex_pointer_array_t vertex_pointer_array_t::normalize() {
 
         // check if pointer is a pointer rather than an offset
         if (that.stride > 0 && (uint64_t)vp.pointer > (uint64_t)that.stride)
-            vp.pointer = (const void*)((const uint64_t)vp.pointer - (const uint64_t)that.starting_pointer);
+            vp.pointer = (const void*)((uintptr_t)vp.pointer - (uintptr_t)that.starting_pointer);
 
         if (do_calc_stride)
             that.stride = std::max((uint64_t)stride, (uint64_t)vp.pointer + vp.size * type_size(vp.type));

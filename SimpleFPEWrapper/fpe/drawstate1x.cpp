@@ -68,7 +68,7 @@ void fixed_function_draw_state_t::compile_vertexattrib(vertex_pointer_array_t& v
     va.buffer_based = false;
 
     const auto& sizes = current_data.sizes;
-    GLsizei offset = 0;
+    uintptr_t offset = 0;
 
     // vertex
     if (sizes.vertex_size > 0) {
@@ -135,5 +135,5 @@ void fixed_function_draw_state_t::compile_vertexattrib(vertex_pointer_array_t& v
         }
     }
 
-    va.stride = offset;
+    va.stride = (GLsizei)offset;
 }

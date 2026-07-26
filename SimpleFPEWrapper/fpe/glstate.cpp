@@ -44,6 +44,7 @@ void program_uniform_locations_t::initialize(GLuint program) {
     fog_end = location("FogEnd");
     alpha_ref = location("alpharef");
     point_size = location("PointSize");
+    for (int i = 0; i < 6; ++i) clip_planes[i] = location(std::format("ClipPlane{}", i));
 
     for (int i = 0; i < MAX_LIGHTS; ++i) {
         light_ambient[i] = location(std::format("Light{}Ambient", i));
@@ -230,6 +231,15 @@ void glstate_t::send_uniforms(program_t& program) {
         (first_upload || fpe_uniform.alpha_ref != values.alpha_ref)) {
         if (locations.alpha_ref >= 0) g_glFuncs.glUniform1f(locations.alpha_ref, fpe_uniform.alpha_ref);
         values.alpha_ref = fpe_uniform.alpha_ref;
+    }
+
+    for (int i = 0; i < 6; ++i) {
+        if (!fpe_state.fpe_bools.clip_plane_enable[i] || locations.clip_planes[i] < 0) continue;
+        const glm::vec4 plane(fpe_uniform.clip_planes[i]);
+        if (first_upload || std::memcmp(&plane, &values.clip_planes[i], sizeof(plane)) != 0) {
+            g_glFuncs.glUniform4fv(locations.clip_planes[i], 1, glm::value_ptr(plane));
+            values.clip_planes[i] = plane;
+        }
     }
 
     if ((first_upload || fpe_uniform.point_size != values.point_size) && locations.point_size >= 0) {

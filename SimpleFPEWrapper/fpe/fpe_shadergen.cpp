@@ -1289,6 +1289,12 @@ bool unit_uses_texgen(const fixed_function_state_t& state, int unit) {
     return false;
 }
 
+bool any_clip_plane(const fixed_function_state_t& state) {
+    for (int i = 0; i < 6; ++i)
+        if (state.fpe_bools.clip_plane_enable[i]) return true;
+    return false;
+}
+
 bool any_texgen(const fixed_function_state_t& state) {
     for (int i = 0; i < MAX_TEX; ++i)
         if (unit_uses_texgen(state, i)) return true;
@@ -1425,14 +1431,23 @@ void add_vs_inout(const fixed_function_state_t& state, scratch_t& scratch, std::
     if (state.fpe_bools.fog_enable) {
         vs += "out vec3 vViewPosition;\n";
     }
+    for (int i = 0; i < 6; ++i) {
+        if (!state.fpe_bools.clip_plane_enable[i]) continue;
+        vs += std::format("out float vClipDistance{};\n", i);
+        scratch.last_stage_linkage += std::format("in float vClipDistance{};\n", i);
+    }
 }
 
 void add_vs_uniforms(const fixed_function_state_t& state, scratch_t& scratch, std::string& vs) {
     // Transformation matrix
     vs += "uniform mat4 ModelViewProjMat;\n";
     vs += "uniform float PointSize;\n"; // GLES has no glPointSize state
-    if (state.fpe_bools.fog_enable || state.fpe_bools.lighting_enable || texgen_needs_eye(state)) {
+    if (state.fpe_bools.fog_enable || state.fpe_bools.lighting_enable || texgen_needs_eye(state) ||
+        any_clip_plane(state)) {
         vs += "uniform mat4 ModelViewMat;\n"; // eye-space position source
+    }
+    for (int i = 0; i < 6; ++i) {
+        if (state.fpe_bools.clip_plane_enable[i]) vs += std::format("uniform vec4 ClipPlane{};\n", i);
     }
     if (!state.fpe_bools.lighting_enable && texgen_needs_normal(state)) {
         vs += "uniform mat3 NormalMat;\n"; // sphere/normal/reflection maps
@@ -1560,8 +1575,13 @@ void add_vs_body(const fixed_function_state_t& state, scratch_t& scratch, std::s
           //            "   gl_Position = ProjMat * ModelViewMat * vec4(Position, 1.0);\n";
           "    gl_Position = ModelViewProjMat * Position;\n"
           "    gl_PointSize = PointSize;\n";
-    if (state.fpe_bools.fog_enable || state.fpe_bools.lighting_enable || texgen_needs_eye(state)) {
+    if (state.fpe_bools.fog_enable || state.fpe_bools.lighting_enable || texgen_needs_eye(state) ||
+        any_clip_plane(state)) {
         vs += "    vec4 eyePosition = ModelViewMat * Position;\n";
+    }
+    for (int i = 0; i < 6; ++i) {
+        if (state.fpe_bools.clip_plane_enable[i])
+            vs += std::format("    vClipDistance{0} = dot(ClipPlane{0}, eyePosition);\n", i);
     }
     if (state.fpe_bools.fog_enable) {
         vs += "    vViewPosition = eyePosition.xyz;\n";
@@ -1768,6 +1788,10 @@ void add_fs_body(const fixed_function_state_t& state, scratch_t& scratch, std::s
 
     // TODO: Replace this hardcode with something better...
     fs += "void main() {\n";
+    for (int i = 0; i < 6; ++i) {
+        if (state.fpe_bools.clip_plane_enable[i])
+            fs += std::format("    if (vClipDistance{} < 0.0) discard;\n", i);
+    }
 
     if (scratch.has_back_vertex_color)
         fs += "    vec4 color = gl_FrontFacing ? vertexColor : vertexBackColor;\n";

@@ -324,6 +324,7 @@ struct program_uniform_locations_t {
     GLint texture_env_color[MAX_TEX] = {};
     GLint texgen_obj_planes[MAX_TEX] = {};
     GLint texgen_eye_planes[MAX_TEX] = {};
+    GLint clip_planes[6] = {};
     GLint fog_color = -1;
     GLint fog_density = -1;
     GLint fog_start = -1;
@@ -355,6 +356,7 @@ struct program_uniform_values_t {
     glm::vec4 texture_env_color[MAX_TEX]{};
     glm::vec4 texgen_obj_planes[MAX_TEX][4]{};
     glm::vec4 texgen_eye_planes[MAX_TEX][4]{};
+    glm::vec4 clip_planes[6]{};
     glm::vec4 fog_color{};
     GLfloat fog_density = 0.0f;
     GLfloat fog_start = 0.0f;

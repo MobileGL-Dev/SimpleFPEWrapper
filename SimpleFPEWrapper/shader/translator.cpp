@@ -24,6 +24,7 @@
 
 #include <cctype>
 #include <mutex>
+#include <map>
 #include <unordered_map>
 #include <vector>
 #include <cstring>
@@ -113,6 +114,247 @@ private:
         }
     }
 };
+
+// Strict backends (NVIDIA C1068) refuse to compile provably out-of-bounds
+// array/vector/matrix indices, while desktop GL treats them as undefined
+// values - and legacy shaders rely on that. Clamp every index used in an
+// OpAccessChain into range (Mesa's robustness strategy): in-bounds
+// accesses are unchanged, out-of-bounds ones read/write the last element.
+// Struct member indices are compile-time constants by construction and
+// are never touched.
+void clampAccessChainIndices(std::vector<unsigned int>& spirv) {
+    if (spirv.size() <= 5) return;
+    enum : uint32_t {
+        OpExtInstImport = 11,
+        OpExtInst = 12,
+        OpTypeInt = 21,
+        OpTypeVector = 23,
+        OpTypeMatrix = 24,
+        OpTypeArray = 28,
+        OpTypeStruct = 30,
+        OpTypePointer = 32,
+        OpConstant = 43,
+        OpFunction = 54,
+        OpFunctionParameter = 55,
+        OpVariable = 59,
+        OpAccessChain = 65,
+        OpInBoundsAccessChain = 66,
+        GLSLstd450UClamp = 44,
+        GLSLstd450SClamp = 45,
+    };
+    // Instructions that may produce an integer index; all use the standard
+    // (result type, result id) word layout. Anything not listed simply
+    // never gets clamped - in-bounds behavior is unaffected either way.
+    const auto produces_value = [](uint32_t opcode) {
+        switch (opcode) {
+        case 12 /*ExtInst*/: case 57 /*FunctionCall*/: case 61 /*Load*/:
+        case 77 /*VectorExtractDynamic*/: case 81 /*CompositeExtract*/:
+        case 124 /*Bitcast*/: case 126 /*SNegate*/: case 128 /*IAdd*/:
+        case 130 /*ISub*/: case 132 /*IMul*/: case 134 /*UDiv*/:
+        case 135 /*SDiv*/: case 137 /*UMod*/: case 138 /*SRem*/:
+        case 139 /*SMod*/: case 169 /*Select*/: case 194: case 195:
+        case 196 /*shifts*/: case 197: case 198: case 199 /*bitwise*/:
+        case 245 /*Phi*/:
+            return true;
+        default:
+            return false;
+        }
+    };
+    struct type_info_t {
+        uint32_t opcode = 0;
+        uint32_t inner = 0;   // element/component/column/pointee type
+        uint32_t count = 0;   // vector size / matrix columns / array length id
+        bool int_signed = false;
+        std::vector<uint32_t> members; // struct member types
+    };
+    std::unordered_map<uint32_t, type_info_t> types;
+    std::unordered_map<uint32_t, std::pair<uint32_t, uint32_t>> constants; // id -> (type, word)
+    std::unordered_map<uint32_t, uint32_t> value_types; // variable/chain id -> type id
+    uint32_t glsl_set = 0;
+
+    const auto instr_at = [&](size_t off) { return spirv[off]; };
+    size_t off = 5;
+    std::vector<std::pair<size_t, uint32_t>> chains; // (offset, base type id)
+    size_t first_function = 0;
+    while (off < spirv.size()) {
+        const uint32_t opcode = instr_at(off) & 0xffffu;
+        const uint32_t len = instr_at(off) >> 16;
+        if (len == 0 || off + len > spirv.size()) return; // malformed: leave as-is
+        switch (opcode) {
+        case OpExtInstImport: {
+            // Operand is a string literal; glslang emits "GLSL.std.450".
+            const char* name = (const char*)&spirv[off + 2];
+            if (std::strncmp(name, "GLSL.std.450", 12) == 0) glsl_set = spirv[off + 1];
+            break;
+        }
+        case OpTypeInt:
+            types[spirv[off + 1]] = {opcode, 0, 0, spirv[off + 3] != 0, {}};
+            break;
+        case OpTypeVector:
+            types[spirv[off + 1]] = {opcode, spirv[off + 2], spirv[off + 3], false, {}};
+            break;
+        case OpTypeMatrix:
+            types[spirv[off + 1]] = {opcode, spirv[off + 2], spirv[off + 3], false, {}};
+            break;
+        case OpTypeArray:
+            types[spirv[off + 1]] = {opcode, spirv[off + 2], spirv[off + 3], false, {}};
+            break;
+        case OpTypeStruct: {
+            type_info_t info;
+            info.opcode = opcode;
+            for (uint32_t w = 2; w < len; ++w) info.members.push_back(spirv[off + w]);
+            types[spirv[off + 1]] = std::move(info);
+            break;
+        }
+        case OpTypePointer:
+            types[spirv[off + 1]] = {opcode, spirv[off + 3], 0, false, {}};
+            break;
+        case OpConstant:
+            constants[spirv[off + 2]] = {spirv[off + 1], spirv[off + 3]};
+            break;
+        case OpVariable:
+        case OpFunctionParameter:
+            value_types[spirv[off + 2]] = spirv[off + 1];
+            break;
+        case OpFunction:
+            if (first_function == 0) first_function = off;
+            value_types[spirv[off + 2]] = spirv[off + 1];
+            break;
+        case OpAccessChain:
+        case OpInBoundsAccessChain: {
+            value_types[spirv[off + 2]] = spirv[off + 1];
+            auto base_type = value_types.find(spirv[off + 3]);
+            if (base_type != value_types.end()) {
+                auto ptr = types.find(base_type->second);
+                if (ptr != types.end() && ptr->second.opcode == OpTypePointer)
+                    chains.emplace_back(off, ptr->second.inner);
+            }
+            break;
+        }
+        default:
+            if (produces_value(opcode) && len >= 3) value_types[spirv[off + 2]] = spirv[off + 1];
+            break;
+        }
+        off += len;
+    }
+    if (glsl_set == 0 || chains.empty() || first_function == 0) return;
+
+    // Work out which chain indices need a clamp.
+    struct clamp_t {
+        size_t instr_off;
+        uint32_t word;      // operand slot within the instruction
+        uint32_t index_id;
+        uint32_t int_type;
+        bool int_signed;
+        uint32_t max_value;
+        uint32_t result_id = 0;
+    };
+    std::vector<clamp_t> clamps;
+    for (const auto& [chain_off, base] : chains) {
+        uint32_t current = base;
+        const uint32_t len = instr_at(chain_off) >> 16;
+        for (uint32_t w = 4; w < len; ++w) {
+            auto tit = types.find(current);
+            if (tit == types.end()) break;
+            const auto& t = tit->second;
+            uint32_t size = 0;
+            if (t.opcode == OpTypeStruct) {
+                auto cit = constants.find(spirv[chain_off + w]);
+                if (cit == constants.end() || cit->second.second >= t.members.size()) break;
+                current = t.members[cit->second.second];
+                continue;
+            } else if (t.opcode == OpTypeVector || t.opcode == OpTypeMatrix) {
+                size = t.count;
+                current = t.inner;
+            } else if (t.opcode == OpTypeArray) {
+                auto cit = constants.find(t.count);
+                if (cit == constants.end()) break;
+                size = cit->second.second;
+                current = t.inner;
+            } else {
+                break;
+            }
+            if (size == 0) break;
+            const uint32_t index_id = spirv[chain_off + w];
+            uint32_t int_type = 0;
+            bool is_signed = false;
+            auto cit = constants.find(index_id);
+            if (cit != constants.end()) {
+                auto it_type = types.find(cit->second.first);
+                if (it_type == types.end() || it_type->second.opcode != OpTypeInt) continue;
+                is_signed = it_type->second.int_signed;
+                const uint32_t v = cit->second.second;
+                const bool oob = is_signed ? ((int32_t)v < 0 || v >= size) : v >= size;
+                if (!oob) continue; // in-range constant: leave untouched
+                int_type = cit->second.first;
+            } else {
+                auto vt = value_types.find(index_id);
+                if (vt == value_types.end()) continue;
+                auto it_type = types.find(vt->second);
+                if (it_type == types.end() || it_type->second.opcode != OpTypeInt) continue;
+                is_signed = it_type->second.int_signed;
+                int_type = vt->second;
+            }
+            clamps.push_back({chain_off, w, index_id, int_type, is_signed, size - 1});
+        }
+    }
+    if (clamps.empty()) return;
+
+    // Allocate ids: one constant per (type, value), one result per clamp.
+    uint32_t bound = spirv[3];
+    std::map<std::pair<uint32_t, uint32_t>, uint32_t> const_ids; // (type, value) -> id
+    for (auto& c : clamps) {
+        for (uint32_t v : {0u, c.max_value}) {
+            if (const_ids.find({c.int_type, v}) == const_ids.end())
+                const_ids[{c.int_type, v}] = bound++;
+        }
+        c.result_id = bound++;
+    }
+
+    std::vector<unsigned int> out;
+    out.reserve(spirv.size() + clamps.size() * 8 + const_ids.size() * 4);
+    out.insert(out.end(), spirv.begin(), spirv.begin() + 5);
+    out[3] = bound;
+    off = 5;
+    while (off < spirv.size()) {
+        const uint32_t len = instr_at(off) >> 16;
+        if (off == first_function) {
+            // All types are declared by now: emit the clamp-bound constants.
+            for (const auto& [key, id] : const_ids) {
+                out.push_back((4u << 16) | OpConstant);
+                out.push_back(key.first);
+                out.push_back(id);
+                out.push_back(key.second);
+            }
+        }
+        bool patched = false;
+        for (const auto& c : clamps) {
+            if (c.instr_off != off) continue;
+            if (!patched) {
+                // Clamp instructions go right before the access chain.
+                for (const auto& c2 : clamps) {
+                    if (c2.instr_off != off) continue;
+                    out.push_back((8u << 16) | OpExtInst);
+                    out.push_back(c2.int_type);
+                    out.push_back(c2.result_id);
+                    out.push_back(glsl_set);
+                    out.push_back(c2.int_signed ? GLSLstd450SClamp : GLSLstd450UClamp);
+                    out.push_back(c2.index_id);
+                    out.push_back(const_ids[{c2.int_type, 0u}]);
+                    out.push_back(const_ids[{c2.int_type, c2.max_value}]);
+                }
+                patched = true;
+            }
+        }
+        const size_t instr_start = out.size();
+        out.insert(out.end(), spirv.begin() + off, spirv.begin() + off + len);
+        for (const auto& c : clamps) {
+            if (c.instr_off == off) out[instr_start + c.word] = c.result_id;
+        }
+        off += len;
+    }
+    spirv.swap(out);
+}
 
 // Identifier replacements shared by both stages. Struct-typed builtins
 // (gl_LightSource, gl_Fog, materials) map onto identically-shaped fpe_*
@@ -421,6 +663,7 @@ translation_result_t translate(GLenum stage, const std::vector<std::string>& sou
         result.log = "glslang produced no SPIR-V";
         return result;
     }
+    clampAccessChainIndices(spirv);
 
     try {
         EsslCompiler compiler(std::move(spirv));
@@ -429,6 +672,10 @@ translation_result_t translate(GLenum stage, const std::vector<std::string>& sou
         opts.es = target.es;
         opts.vulkan_semantics = false;
         opts.enable_420pack_extension = false;
+        // Desktop GLSL 1.20 computes at (at least) single precision;
+        // mediump would visibly degrade transcendentals (tan, exp2, ...).
+        opts.fragment.default_float_precision =
+            spirv_cross::CompilerGLSL::Options::Precision::Highp;
         compiler.set_common_options(opts);
         // The wrapper links everything by NAME (glGetUniformLocation /
         // glGetAttribLocation / varying name matching): the auto-mapped

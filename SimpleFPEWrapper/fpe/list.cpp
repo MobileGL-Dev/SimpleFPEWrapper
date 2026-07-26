@@ -40,6 +40,10 @@ void decodePackedListIds(GLsizei n, size_t width, const GLvoid* lists,
 GLuint glGenLists(GLsizei range) {
     // LOG()
     // LOG_D("glGenLists(%i)", range)
+    if (range < 0) {
+        g_glstate.set_error(GL_INVALID_VALUE);
+        return 0;
+    }
     GLuint first = DisplayListManager::genDisplayList(range);
     // LOG_D("-> ", first)
     return first;
@@ -48,6 +52,10 @@ GLuint glGenLists(GLsizei range) {
 void glDeleteLists(GLuint list, GLsizei range) {
     // LOG()
     // LOG_D("glDeleteLists(%d, %i)", list, range)
+    if (range < 0) {
+        g_glstate.set_error(GL_INVALID_VALUE);
+        return;
+    }
     DisplayListManager::deleteDisplayList(list, range);
 }
 

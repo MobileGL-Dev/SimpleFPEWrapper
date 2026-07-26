@@ -19,6 +19,7 @@
 SFPEW_APIENTRY __eglMustCastToProperFunctionPointerType eglGetProcAddress(const char* name) {
     if (!name) return nullptr;
 
+    GETPROC(glGetError, name)
     GETPROC(glGetString, name)
     GETPROC(glGetStringi, name)
     GETPROC(glGetIntegerv, name)

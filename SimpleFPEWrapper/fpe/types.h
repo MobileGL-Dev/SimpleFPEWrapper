@@ -364,6 +364,14 @@ struct glstate_t {
     // context (previously the file-scope global fpe_inited).
     bool fpe_ready = false;
 
+    // Wrapper-side GL error slot. GL semantics: only the first error since
+    // the last glGetError() is kept; later ones are discarded until read.
+    GLenum first_error = GL_NO_ERROR;
+
+    void set_error(GLenum error) {
+        if (first_error == GL_NO_ERROR) first_error = error;
+    }
+
     // States that can led to layout change / shader recompile
     struct fixed_function_state_t fpe_state;
     struct fixed_function_uniform_t fpe_uniform;

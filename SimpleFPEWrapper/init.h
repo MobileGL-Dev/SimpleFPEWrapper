@@ -26,6 +26,7 @@ GLuint sfpewLogicalTextureBinding(GLenum target);
 GLint sfpewLogicalProgram();
 GLuint sfpewLogicalArrayBufferBinding();
 
+SFPEW_APIENTRY GLenum glGetError();
 SFPEW_APIENTRY const GLubyte* glGetString(GLenum name);
 SFPEW_APIENTRY const GLubyte* glGetStringi(GLenum name, GLuint index);
 SFPEW_APIENTRY void glGetIntegerv(GLenum pname, GLint* params);

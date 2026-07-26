@@ -261,6 +261,19 @@ inline bool containsMobileGLDev(const std::string& str) {
     return str.find("MobileGL-Dev") != std::string::npos;
 }
 
+GLenum glGetError() {
+    // Wrapper-detected errors take priority over backend errors: legacy
+    // paths validate before any backend call, so ours happened first.
+    auto& state = g_glstate;
+    if (state.first_error != GL_NO_ERROR) {
+        const GLenum error = state.first_error;
+        state.first_error = GL_NO_ERROR;
+        return error;
+    }
+    if (!sfpewEnsureBackend() || g_glFuncs.glGetError == nullptr) return GL_NO_ERROR;
+    return g_glFuncs.glGetError();
+}
+
 const GLubyte* glGetString(GLenum name) {
     if (!sfpewEnsureBackend() || g_glFuncs.glGetString == nullptr) return nullptr;
 

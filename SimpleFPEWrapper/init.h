@@ -43,6 +43,14 @@ SFPEW_APIENTRY void glCompileShader(GLuint shader);
 SFPEW_APIENTRY void glGetShaderSource(GLuint shader, GLsizei bufSize, GLsizei* length, GLchar* source);
 SFPEW_APIENTRY void glGetShaderInfoLog(GLuint shader, GLsizei bufSize, GLsizei* length, GLchar* infoLog);
 SFPEW_APIENTRY void glLinkProgram(GLuint program);
+SFPEW_APIENTRY void glAttachShader(GLuint program, GLuint shader);
+SFPEW_APIENTRY void glDetachShader(GLuint program, GLuint shader);
+SFPEW_APIENTRY void glDeleteProgram(GLuint program);
+SFPEW_APIENTRY void glGetShaderiv(GLuint shader, GLenum pname, GLint* params);
+SFPEW_APIENTRY void glGetProgramiv(GLuint program, GLenum pname, GLint* params);
+SFPEW_APIENTRY void glGetAttachedShaders(GLuint program, GLsizei maxCount, GLsizei* count, GLuint* shaders);
+SFPEW_APIENTRY void glGetProgramInfoLog(GLuint program, GLsizei bufSize, GLsizei* length, GLchar* infoLog);
+void sfpewForgetUserProgram(GLuint program);
 extern "C" {
 GLuint sfpewCreateShaderObjectARB(GLenum type);
 GLuint sfpewCreateProgramObjectARB(void);

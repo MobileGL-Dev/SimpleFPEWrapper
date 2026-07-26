@@ -36,15 +36,42 @@ struct shader_record_t {
     std::string original;
     std::string translate_log;
     bool translated = false;
+    // Standalone glslang link failed but the TU parses: unresolved
+    // cross-TU symbols. GL 2.1 resolves those at glLinkProgram, so
+    // COMPILE_STATUS reports success and translation reruns at link with
+    // every TU of the stage (GLES has no notion of this).
+    bool deferred = false;
     // GLSL 1.20 uniform initializers scraped by the translator; applied
     // with glUniform* after every successful link of a containing program.
     std::vector<SFPEW::Shader::uniform_initializer_t> uniform_inits;
 };
 
-std::mutex g_shader_mutex;
+// Logical program state: the wrapper tracks attachments itself because
+// GLES rejects two shaders of one stage on a program, while GL 2.1 allows
+// any number of compilation units per stage. Only the first TU of each
+// stage is attached to the backend; a combined translation is compiled
+// into it at link time when needed.
+struct program_record_t {
+    std::vector<GLuint> shaders;          // logical attach order
+    std::vector<GLuint> backend_attached; // subset attached to the backend
+    bool force_link_fail = false;         // combined translation failed
+    bool stage_combined[2] = {false, false}; // [0]=vertex, [1]=fragment
+    std::string link_log;
+    std::vector<SFPEW::Shader::uniform_initializer_t> combined_inits;
+};
+
+std::mutex g_shader_mutex; // guards both maps; never held across backend calls
 std::unordered_map<GLuint, shader_record_t>& shaderRecords() {
     static std::unordered_map<GLuint, shader_record_t> records;
     return records;
+}
+std::unordered_map<GLuint, program_record_t>& programRecords() {
+    static std::unordered_map<GLuint, program_record_t> records;
+    return records;
+}
+
+bool contains(const std::vector<GLuint>& v, GLuint x) {
+    return std::find(v.begin(), v.end(), x) != v.end();
 }
 
 } // namespace
@@ -119,24 +146,43 @@ void glCompileShader(GLuint shader) {
     }
 
     auto result = SFPEW::Shader::translate(stage, original, SFPEW::Shader::detect_backend_target());
-    const std::string& upload = result.ok ? result.essl : original;
-    if (!result.ok) {
+    const bool defer = !result.ok && result.parse_ok;
+    if (!result.ok && !defer) {
         SFPEW_LOGW("shader %u: translation failed, passing original through:\n%s", shader,
                    result.log.c_str());
     }
 
-    const char* text = upload.c_str();
-    const GLint text_length = (GLint)upload.size();
-    g_glFuncs.glShaderSource(shader, 1, &text, &text_length);
-    g_glFuncs.glCompileShader(shader);
+    if (!defer) {
+        // Deferred TUs are compiled into the backend at link time only; a
+        // standalone-incomplete TU has nothing valid to upload here.
+        const std::string& upload = result.ok ? result.essl : original;
+        const char* text = upload.c_str();
+        const GLint text_length = (GLint)upload.size();
+        g_glFuncs.glShaderSource(shader, 1, &text, &text_length);
+        g_glFuncs.glCompileShader(shader);
+    }
 
     std::lock_guard<std::mutex> lock(g_shader_mutex);
     auto it = shaderRecords().find(shader);
     if (it != shaderRecords().end()) {
         it->second.translated = result.ok;
-        it->second.translate_log = std::move(result.log);
+        it->second.deferred = defer;
+        it->second.translate_log = defer ? std::string() : std::move(result.log);
         it->second.uniform_inits = std::move(result.uniform_initializers);
     }
+}
+
+void glGetShaderiv(GLuint shader, GLenum pname, GLint* params) {
+    if (params == nullptr || !sfpewEnsureBackend() || g_glFuncs.glGetShaderiv == nullptr) return;
+    if (pname == GL_COMPILE_STATUS) {
+        std::lock_guard<std::mutex> lock(g_shader_mutex);
+        auto it = shaderRecords().find(shader);
+        if (it != shaderRecords().end() && it->second.deferred) {
+            *params = GL_TRUE; // resolved at link time (GL 2.1 multi-TU)
+            return;
+        }
+    }
+    g_glFuncs.glGetShaderiv(shader, pname, params);
 }
 
 namespace {
@@ -196,49 +242,251 @@ void applyOneInitializer(const SFPEW::Shader::uniform_initializer_t& init, GLint
 // GL 2.1 semantics: uniform initializers define the post-link values. The
 // translated ESSL cannot carry them, so set them here through the uniform
 // API. Application values are overwritten exactly like a real relink.
-void applyUniformInitializers(GLuint program) {
-    if (g_glFuncs.glGetAttachedShaders == nullptr || g_glFuncs.glGetUniformLocation == nullptr ||
+void applyUniformInitializers(GLuint program,
+                              const std::vector<SFPEW::Shader::uniform_initializer_t>& inits) {
+    if (inits.empty() || g_glFuncs.glGetUniformLocation == nullptr ||
         g_glFuncs.glUseProgram == nullptr || g_glFuncs.glGetIntegerv == nullptr) {
         return;
     }
-    GLuint shaders[8] = {};
-    GLsizei shader_count = 0;
-    g_glFuncs.glGetAttachedShaders(program, 8, &shader_count, shaders);
-
-    std::vector<const SFPEW::Shader::uniform_initializer_t*> inits;
-    {
-        std::lock_guard<std::mutex> lock(g_shader_mutex);
-        for (GLsizei s = 0; s < shader_count; ++s) {
-            auto it = shaderRecords().find(shaders[s]);
-            if (it == shaderRecords().end()) continue;
-            for (const auto& init : it->second.uniform_inits) {
-                const auto same_name = [&](const auto* other) { return other->name == init.name; };
-                if (std::none_of(inits.begin(), inits.end(), same_name)) inits.push_back(&init);
-            }
-        }
-    }
-    if (inits.empty()) return;
-
     GLint previous = 0;
     g_glFuncs.glGetIntegerv(GL_CURRENT_PROGRAM, &previous);
     g_glFuncs.glUseProgram(program);
-    for (const auto* init : inits) {
-        const GLint loc = g_glFuncs.glGetUniformLocation(program, init->name.c_str());
-        if (loc >= 0) applyOneInitializer(*init, loc);
+    for (const auto& init : inits) {
+        const GLint loc = g_glFuncs.glGetUniformLocation(program, init.name.c_str());
+        if (loc >= 0) applyOneInitializer(init, loc);
     }
     g_glFuncs.glUseProgram((GLuint)previous);
 }
 
+void appendUnique(std::vector<SFPEW::Shader::uniform_initializer_t>& all,
+                  const std::vector<SFPEW::Shader::uniform_initializer_t>& more) {
+    for (const auto& init : more) {
+        const auto same_name = [&](const auto& other) { return other.name == init.name; };
+        if (std::none_of(all.begin(), all.end(), same_name)) all.push_back(init);
+    }
+}
+
+int stageIndex(GLenum stage) { return stage == GL_VERTEX_SHADER ? 0 : 1; }
+
 } // namespace
+
+void glAttachShader(GLuint program, GLuint shader) {
+    if (!sfpewEnsureBackend() || g_glFuncs.glAttachShader == nullptr) return;
+
+    GLenum stage = 0;
+    {
+        std::lock_guard<std::mutex> lock(g_shader_mutex);
+        auto sit = shaderRecords().find(shader);
+        if (sit != shaderRecords().end()) {
+            stage = sit->second.stage;
+            auto& rec = programRecords()[program];
+            if (contains(rec.shaders, shader)) {
+                g_glstate.set_error(GL_INVALID_OPERATION); // already attached
+                return;
+            }
+            bool stage_taken = false;
+            for (GLuint other : rec.shaders) {
+                auto oit = shaderRecords().find(other);
+                stage_taken = stage_taken ||
+                              (oit != shaderRecords().end() && oit->second.stage == stage);
+            }
+            rec.shaders.push_back(shader);
+            if (stage_taken) return; // logical only: GLES forbids a second TU per stage
+            rec.backend_attached.push_back(shader);
+        }
+    }
+    g_glFuncs.glAttachShader(program, shader);
+}
+
+void glDetachShader(GLuint program, GLuint shader) {
+    if (!sfpewEnsureBackend() || g_glFuncs.glDetachShader == nullptr) return;
+    {
+        std::lock_guard<std::mutex> lock(g_shader_mutex);
+        auto pit = programRecords().find(program);
+        if (pit != programRecords().end() && contains(pit->second.shaders, shader)) {
+            auto& rec = pit->second;
+            rec.shaders.erase(std::find(rec.shaders.begin(), rec.shaders.end(), shader));
+            auto bit = std::find(rec.backend_attached.begin(), rec.backend_attached.end(), shader);
+            if (bit == rec.backend_attached.end()) return; // was logical-only
+            rec.backend_attached.erase(bit);
+        }
+    }
+    g_glFuncs.glDetachShader(program, shader);
+}
+
+void glDeleteProgram(GLuint program) {
+    if (!sfpewEnsureBackend() || g_glFuncs.glDeleteProgram == nullptr) return;
+    g_glFuncs.glDeleteProgram(program);
+    sfpewForgetUserProgram(program);
+    std::lock_guard<std::mutex> lock(g_shader_mutex);
+    programRecords().erase(program);
+}
 
 void glLinkProgram(GLuint program) {
     if (!sfpewEnsureBackend() || g_glFuncs.glLinkProgram == nullptr) return;
+
+    // Snapshot the per-stage TU lists; translation runs outside the lock.
+    struct stage_work_t {
+        std::vector<GLuint> tus;
+        std::vector<std::string> sources;
+        bool needs_combined = false;
+    } work[2];
+    bool tracked = false;
+    {
+        std::lock_guard<std::mutex> lock(g_shader_mutex);
+        auto pit = programRecords().find(program);
+        if (pit != programRecords().end()) {
+            tracked = true;
+            auto& rec = pit->second;
+            rec.force_link_fail = false;
+            rec.link_log.clear();
+            rec.combined_inits.clear();
+            rec.stage_combined[0] = rec.stage_combined[1] = false;
+            for (GLuint sh : rec.shaders) {
+                auto sit = shaderRecords().find(sh);
+                if (sit == shaderRecords().end()) continue;
+                auto& w = work[stageIndex(sit->second.stage)];
+                w.tus.push_back(sh);
+                w.sources.push_back(sit->second.original);
+                w.needs_combined = w.needs_combined || sit->second.deferred;
+            }
+            for (auto& w : work) w.needs_combined = w.needs_combined || w.tus.size() > 1;
+        }
+    }
+
+    for (int s = 0; s < 2; ++s) {
+        auto& w = work[s];
+        if (!w.needs_combined) continue;
+        const GLenum stage = s == 0 ? GL_VERTEX_SHADER : GL_FRAGMENT_SHADER;
+        auto result =
+            SFPEW::Shader::translate(stage, w.sources, SFPEW::Shader::detect_backend_target());
+
+        std::lock_guard<std::mutex> lock(g_shader_mutex);
+        auto& rec = programRecords()[program];
+        rec.stage_combined[s] = true;
+        if (!result.ok) {
+            rec.force_link_fail = true;
+            rec.link_log += "[SFPEW translator, " +
+                            std::string(s == 0 ? "vertex" : "fragment") + " stage]\n" +
+                            result.log + "\n";
+            continue;
+        }
+        // Compile the combined ESSL into the stage's one backend-attached
+        // TU (attach the first if a detach removed the primary).
+        GLuint primary = 0;
+        for (GLuint sh : w.tus) {
+            if (contains(rec.backend_attached, sh)) { primary = sh; break; }
+        }
+        if (primary == 0) {
+            primary = w.tus.front();
+            rec.backend_attached.push_back(primary);
+            g_glFuncs.glAttachShader(program, primary);
+        }
+        const char* text = result.essl.c_str();
+        const GLint text_length = (GLint)result.essl.size();
+        g_glFuncs.glShaderSource(primary, 1, &text, &text_length);
+        g_glFuncs.glCompileShader(primary);
+        appendUnique(rec.combined_inits, result.uniform_initializers);
+    }
+
     g_glFuncs.glLinkProgram(program);
 
     GLint status = GL_FALSE;
     if (g_glFuncs.glGetProgramiv != nullptr)
         g_glFuncs.glGetProgramiv(program, GL_LINK_STATUS, &status);
-    if (status == GL_TRUE) applyUniformInitializers(program);
+    if (status != GL_TRUE) return;
+
+    // Gather the initializers that apply to this link: per-TU values for
+    // fast-path stages, the combined translation's values otherwise.
+    std::vector<SFPEW::Shader::uniform_initializer_t> inits;
+    {
+        std::lock_guard<std::mutex> lock(g_shader_mutex);
+        auto pit = programRecords().find(program);
+        if (pit != programRecords().end()) {
+            if (pit->second.force_link_fail) return;
+            appendUnique(inits, pit->second.combined_inits);
+            for (GLuint sh : pit->second.shaders) {
+                auto sit = shaderRecords().find(sh);
+                if (sit == shaderRecords().end()) continue;
+                if (pit->second.stage_combined[stageIndex(sit->second.stage)]) continue;
+                appendUnique(inits, sit->second.uniform_inits);
+            }
+        }
+    }
+    if (!tracked && g_glFuncs.glGetAttachedShaders != nullptr) {
+        // Program attached before the wrapper tracked it: backend truth.
+        GLuint shaders[8] = {};
+        GLsizei count = 0;
+        g_glFuncs.glGetAttachedShaders(program, 8, &count, shaders);
+        std::lock_guard<std::mutex> lock(g_shader_mutex);
+        for (GLsizei i = 0; i < count; ++i) {
+            auto sit = shaderRecords().find(shaders[i]);
+            if (sit != shaderRecords().end()) appendUnique(inits, sit->second.uniform_inits);
+        }
+    }
+    applyUniformInitializers(program, inits);
+}
+
+void glGetProgramiv(GLuint program, GLenum pname, GLint* params) {
+    if (params == nullptr || !sfpewEnsureBackend() || g_glFuncs.glGetProgramiv == nullptr) return;
+    {
+        std::lock_guard<std::mutex> lock(g_shader_mutex);
+        auto pit = programRecords().find(program);
+        if (pit != programRecords().end()) {
+            if (pname == GL_LINK_STATUS && pit->second.force_link_fail) {
+                *params = GL_FALSE;
+                return;
+            }
+            if (pname == GL_ATTACHED_SHADERS) {
+                *params = (GLint)pit->second.shaders.size();
+                return;
+            }
+        }
+    }
+    g_glFuncs.glGetProgramiv(program, pname, params);
+}
+
+void glGetAttachedShaders(GLuint program, GLsizei maxCount, GLsizei* count, GLuint* shaders) {
+    if (!sfpewEnsureBackend() || g_glFuncs.glGetAttachedShaders == nullptr) return;
+    if (maxCount < 0) {
+        g_glstate.set_error(GL_INVALID_VALUE);
+        return;
+    }
+    {
+        std::lock_guard<std::mutex> lock(g_shader_mutex);
+        auto pit = programRecords().find(program);
+        if (pit != programRecords().end()) {
+            GLsizei n = 0;
+            for (GLuint sh : pit->second.shaders) {
+                if (n >= maxCount || shaders == nullptr) break;
+                shaders[n++] = sh;
+            }
+            if (count != nullptr) *count = n;
+            return;
+        }
+    }
+    g_glFuncs.glGetAttachedShaders(program, maxCount, count, shaders);
+}
+
+void glGetProgramInfoLog(GLuint program, GLsizei bufSize, GLsizei* length, GLchar* infoLog) {
+    if (infoLog == nullptr || bufSize <= 0) return;
+    if (!sfpewEnsureBackend() || g_glFuncs.glGetProgramInfoLog == nullptr) return;
+
+    std::string combined;
+    {
+        std::lock_guard<std::mutex> lock(g_shader_mutex);
+        auto pit = programRecords().find(program);
+        if (pit != programRecords().end()) combined = pit->second.link_log;
+    }
+    GLsizei backend_length = 0;
+    std::vector<GLchar> backend_log((size_t)bufSize);
+    g_glFuncs.glGetProgramInfoLog(program, bufSize, &backend_length, backend_log.data());
+    combined.append(backend_log.data(), (size_t)std::max(backend_length, 0));
+
+    const GLsizei n = (GLsizei)std::min((size_t)bufSize - 1, combined.size());
+    std::memcpy(infoLog, combined.data(), (size_t)n);
+    infoLog[n] = '\0';
+    if (length != nullptr) *length = n;
 }
 
 void glGetShaderSource(GLuint shader, GLsizei bufSize, GLsizei* length, GLchar* source) {
@@ -296,27 +544,21 @@ void sfpewDeleteObjectARB(GLuint object) {
     if (!sfpewEnsureBackend()) return;
     if (g_glFuncs.glIsShader != nullptr && g_glFuncs.glIsShader(object)) {
         glDeleteShader(object);
-    } else if (g_glFuncs.glDeleteProgram != nullptr) {
-        g_glFuncs.glDeleteProgram(object);
+    } else {
+        glDeleteProgram(object);
     }
 }
 
-void sfpewAttachObjectARB(GLuint program, GLuint shader) {
-    if (!sfpewEnsureBackend() || g_glFuncs.glAttachShader == nullptr) return;
-    g_glFuncs.glAttachShader(program, shader);
-}
+void sfpewAttachObjectARB(GLuint program, GLuint shader) { glAttachShader(program, shader); }
 
-void sfpewDetachObjectARB(GLuint program, GLuint shader) {
-    if (!sfpewEnsureBackend() || g_glFuncs.glDetachShader == nullptr) return;
-    g_glFuncs.glDetachShader(program, shader);
-}
+void sfpewDetachObjectARB(GLuint program, GLuint shader) { glDetachShader(program, shader); }
 
 void sfpewGetObjectParameterivARB(GLuint object, GLenum pname, GLint* params) {
     if (params == nullptr || !sfpewEnsureBackend()) return;
     if (g_glFuncs.glIsShader != nullptr && g_glFuncs.glIsShader(object)) {
-        if (g_glFuncs.glGetShaderiv != nullptr) g_glFuncs.glGetShaderiv(object, pname, params);
+        glGetShaderiv(object, pname, params);
     } else {
-        if (g_glFuncs.glGetProgramiv != nullptr) g_glFuncs.glGetProgramiv(object, pname, params);
+        glGetProgramiv(object, pname, params);
     }
 }
 
@@ -324,8 +566,8 @@ void sfpewGetInfoLogARB(GLuint object, GLsizei maxLength, GLsizei* length, GLcha
     if (!sfpewEnsureBackend()) return;
     if (g_glFuncs.glIsShader != nullptr && g_glFuncs.glIsShader(object)) {
         glGetShaderInfoLog(object, maxLength, length, infoLog);
-    } else if (g_glFuncs.glGetProgramInfoLog != nullptr && infoLog != nullptr && maxLength > 0) {
-        g_glFuncs.glGetProgramInfoLog(object, maxLength, length, infoLog);
+    } else {
+        glGetProgramInfoLog(object, maxLength, length, infoLog);
     }
 }
 

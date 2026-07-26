@@ -315,45 +315,74 @@ std::once_flag g_glslang_once;
 
 } // namespace
 
-std::string preprocess(GLenum stage, const std::string& source) {
-    const bool vertex = stage == GL_VERTEX_SHADER;
+namespace {
 
-    // Strip the caller's #version: glslang's OpenGL-SPIR-V environment only
-    // initializes its builtin tables for modern versions, so the toolchain
-    // input is always "450 compatibility" - a superset in which every 1.10/
-    // 1.20 construct (attribute/varying/texture2D) is still legal.
+// Strip the caller's #version: glslang's OpenGL-SPIR-V environment only
+// initializes its builtin tables for modern versions, so the toolchain
+// input is always "450 core" - a superset in which every 1.10/1.20
+// construct still parses once the preprocessor has rewritten the
+// compatibility spellings.
+std::string rewriteBody(bool vertex, const std::string& source) {
     std::string body = source;
     const size_t vpos = body.find("#version");
     if (vpos != std::string::npos) {
         const size_t eol = body.find('\n', vpos);
         body = body.substr(0, vpos) + body.substr(eol == std::string::npos ? body.size() : eol + 1);
     }
-    const std::string version_line = "#version 450\n"; // SPIR-V rejects compatibility
+    return replaceIdentifiers(body, commonReplacements(),
+                              vertex ? vertexReplacements() : fragmentReplacements());
+}
 
-    const std::string rewritten =
-        replaceIdentifiers(body, commonReplacements(),
-                           vertex ? vertexReplacements() : fragmentReplacements());
-
-    std::string result = version_line;
+std::string buildPrelude(bool vertex, bool uses_fragdata) {
+    std::string result = "#version 450\n"; // SPIR-V rejects compatibility
     result += kSharedPrelude;
     result += vertex ? kVertexPrelude : kFragmentPrelude;
     if (!vertex) {
         // FragColor and FragData[0] would collide on one location; declare
         // only what the shader actually writes (GL forbids mixing them).
-        if (rewritten.find("fpe_FragData") != std::string::npos)
-            result += kFragDataOut;
-        else
-            result += kFragColorOut;
+        result += uses_fragdata ? kFragDataOut : kFragColorOut;
     }
-    result += "#line 1\n"; // keep glslang diagnostics on user line numbers
-    result += rewritten;
+    return result;
+}
+
+} // namespace
+
+std::string preprocess(GLenum stage, const std::string& source) {
+    return preprocess(stage, std::vector<std::string>{source});
+}
+
+// Multiple compilation units of one stage (GL 2.1 multi-TU programs, which
+// GLES forbids) merge by concatenation: GLSL has no TU-local scope, so
+// concatenating the rewritten bodies after a single prelude reproduces the
+// linker's global-scope merge for everything short of duplicated
+// initialized globals.
+std::string preprocess(GLenum stage, const std::vector<std::string>& sources) {
+    const bool vertex = stage == GL_VERTEX_SHADER;
+    std::vector<std::string> bodies;
+    bodies.reserve(sources.size());
+    bool uses_fragdata = false;
+    for (const auto& source : sources) {
+        bodies.push_back(rewriteBody(vertex, source));
+        uses_fragdata = uses_fragdata || bodies.back().find("fpe_FragData") != std::string::npos;
+    }
+    std::string result = buildPrelude(vertex, uses_fragdata);
+    for (const auto& body : bodies) {
+        result += "#line 1\n"; // keep glslang diagnostics on user line numbers
+        result += body;
+        if (result.empty() || result.back() != '\n') result += '\n';
+    }
     return result;
 }
 
 translation_result_t translate(GLenum stage, const std::string& source,
                                const target_language_t& target) {
+    return translate(stage, std::vector<std::string>{source}, target);
+}
+
+translation_result_t translate(GLenum stage, const std::vector<std::string>& sources,
+                               const target_language_t& target) {
     translation_result_t result;
-    result.preprocessed = preprocess(stage, source);
+    result.preprocessed = preprocess(stage, sources);
 
     std::call_once(g_glslang_once, [] { glslang::InitializeProcess(); });
 
@@ -374,6 +403,7 @@ translation_result_t translate(GLenum stage, const std::string& source,
         result.log = std::string("glslang parse:\n") + shader.getInfoLog();
         return result;
     }
+    result.parse_ok = true;
 
     glslang::TProgram program;
     program.addShader(&shader);

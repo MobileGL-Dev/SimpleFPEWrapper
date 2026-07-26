@@ -30,6 +30,9 @@ struct uniform_initializer_t {
 
 struct translation_result_t {
     bool ok = false;
+    bool parse_ok = false;  // the TU parses standalone; a link-only failure
+                            // means unresolved cross-TU symbols (defer to
+                            // glLinkProgram, GL 2.1 multi-TU semantics)
     std::string essl;       // ESSL 3.00 source on success
     std::string log;        // preprocessor/glslang/SPIRV-Cross diagnostics
     std::string preprocessed; // post-preprocess GLSL (for tests/debugging)
@@ -51,11 +54,18 @@ struct target_language_t {
 translation_result_t translate(GLenum stage, const std::string& source,
                                const target_language_t& target);
 
+// Several compilation units of ONE stage translated together (GL 2.1
+// multi-TU programs): the rewritten bodies are concatenated after a single
+// prelude, which reproduces the GLSL linker's global-scope merge.
+translation_result_t translate(GLenum stage, const std::vector<std::string>& sources,
+                               const target_language_t& target);
+
 // Queries the current backend once per context and caches the result.
 target_language_t detect_backend_target();
 
 // Exposed separately for offline tests: the compat-builtin rewrite and
 // prelude injection only (no glslang round trip).
 std::string preprocess(GLenum stage, const std::string& source);
+std::string preprocess(GLenum stage, const std::vector<std::string>& sources);
 
 } // namespace SFPEW::Shader

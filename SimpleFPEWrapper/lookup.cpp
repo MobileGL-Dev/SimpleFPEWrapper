@@ -62,6 +62,13 @@ SFPEW_APIENTRY __eglMustCastToProperFunctionPointerType eglGetProcAddress(const 
     if (std::strcmp("glLinkProgramARB", name) == 0) {
         return (__eglMustCastToProperFunctionPointerType)glLinkProgram;
     }
+    GETPROC(glAttachShader, name)
+    GETPROC(glDetachShader, name)
+    GETPROC(glDeleteProgram, name)
+    GETPROC(glGetShaderiv, name)
+    GETPROC(glGetProgramiv, name)
+    GETPROC(glGetAttachedShaders, name)
+    GETPROC(glGetProgramInfoLog, name)
     if (std::strcmp("glGetShaderSourceARB", name) == 0) {
         return (__eglMustCastToProperFunctionPointerType)glGetShaderSource;
     }

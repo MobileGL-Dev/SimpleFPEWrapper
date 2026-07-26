@@ -1,6 +1,6 @@
 {
  "source": "lookup.cpp",
- "count": 418,
+ "count": 425,
  "entries": {
   "glAccum": {
    "status": "resolvable",
@@ -25,6 +25,10 @@
   "glAttachObjectARB": {
    "status": "alias",
    "target": "sfpewAttachObjectARB"
+  },
+  "glAttachShader": {
+   "status": "resolvable",
+   "target": "glAttachShader"
   },
   "glBegin": {
    "status": "resolvable",
@@ -286,6 +290,10 @@
    "status": "alias",
    "target": "sfpewDeleteObjectARB"
   },
+  "glDeleteProgram": {
+   "status": "resolvable",
+   "target": "glDeleteProgram"
+  },
   "glDeleteShader": {
    "status": "resolvable",
    "target": "glDeleteShader"
@@ -309,6 +317,10 @@
   "glDetachObjectARB": {
    "status": "alias",
    "target": "sfpewDetachObjectARB"
+  },
+  "glDetachShader": {
+   "status": "resolvable",
+   "target": "glDetachShader"
   },
   "glDisable": {
    "status": "resolvable",
@@ -450,6 +462,10 @@
    "status": "resolvable",
    "target": "glGenLists"
   },
+  "glGetAttachedShaders": {
+   "status": "resolvable",
+   "target": "glGetAttachedShaders"
+  },
   "glGetBooleanv": {
    "status": "resolvable",
    "target": "glGetBooleanv"
@@ -506,6 +522,14 @@
    "status": "resolvable",
    "target": "glGetPolygonStipple"
   },
+  "glGetProgramInfoLog": {
+   "status": "resolvable",
+   "target": "glGetProgramInfoLog"
+  },
+  "glGetProgramiv": {
+   "status": "resolvable",
+   "target": "glGetProgramiv"
+  },
   "glGetShaderInfoLog": {
    "status": "resolvable",
    "target": "glGetShaderInfoLog"
@@ -517,6 +541,10 @@
   "glGetShaderSourceARB": {
    "status": "alias",
    "target": "glGetShaderSource"
+  },
+  "glGetShaderiv": {
+   "status": "resolvable",
+   "target": "glGetShaderiv"
   },
   "glGetString": {
    "status": "resolvable",

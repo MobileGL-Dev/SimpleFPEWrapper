@@ -849,6 +849,15 @@ void glGetFloatv(GLenum pname, GLfloat* params) {
     case GL_ZOOM_Y:
         params[0] = g_glstate.fpe_uniform.pixel_zoom_y;
         break;
+    case GL_FOG_DENSITY:
+        params[0] = g_glstate.fpe_uniform.fog_density;
+        break;
+    case GL_FOG_START:
+        params[0] = g_glstate.fpe_uniform.fog_start;
+        break;
+    case GL_FOG_END:
+        params[0] = g_glstate.fpe_uniform.fog_end;
+        break;
     case GL_CURRENT_RASTER_POSITION:
         memcpy(params, glm::value_ptr(g_glstate.fpe_uniform.raster_position), 4 * sizeof(GLfloat));
         break;

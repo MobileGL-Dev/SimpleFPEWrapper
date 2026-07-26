@@ -125,7 +125,7 @@ endif()
 if(NOT ANDROID)
         include(CTest)
         if(BUILD_TESTING)
-                foreach(t smoke_dlopen smoke_error smoke_list_recursion)
+                foreach(t smoke_dlopen smoke_error smoke_list_recursion smoke_list_replay)
                         add_executable(${t} tests/${t}.c)
                         target_compile_definitions(${t} PRIVATE
                                 WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")

@@ -1,6 +1,6 @@
 {
  "source": "lookup.cpp",
- "count": 318,
+ "count": 358,
  "entries": {
   "glActiveTexture": {
    "status": "resolvable",
@@ -874,6 +874,102 @@
    "status": "resolvable",
    "target": "glPushMatrix"
   },
+  "glRasterPos2d": {
+   "status": "resolvable",
+   "target": "glRasterPos2d"
+  },
+  "glRasterPos2dv": {
+   "status": "resolvable",
+   "target": "glRasterPos2dv"
+  },
+  "glRasterPos2f": {
+   "status": "resolvable",
+   "target": "glRasterPos2f"
+  },
+  "glRasterPos2fv": {
+   "status": "resolvable",
+   "target": "glRasterPos2fv"
+  },
+  "glRasterPos2i": {
+   "status": "resolvable",
+   "target": "glRasterPos2i"
+  },
+  "glRasterPos2iv": {
+   "status": "resolvable",
+   "target": "glRasterPos2iv"
+  },
+  "glRasterPos2s": {
+   "status": "resolvable",
+   "target": "glRasterPos2s"
+  },
+  "glRasterPos2sv": {
+   "status": "resolvable",
+   "target": "glRasterPos2sv"
+  },
+  "glRasterPos3d": {
+   "status": "resolvable",
+   "target": "glRasterPos3d"
+  },
+  "glRasterPos3dv": {
+   "status": "resolvable",
+   "target": "glRasterPos3dv"
+  },
+  "glRasterPos3f": {
+   "status": "resolvable",
+   "target": "glRasterPos3f"
+  },
+  "glRasterPos3fv": {
+   "status": "resolvable",
+   "target": "glRasterPos3fv"
+  },
+  "glRasterPos3i": {
+   "status": "resolvable",
+   "target": "glRasterPos3i"
+  },
+  "glRasterPos3iv": {
+   "status": "resolvable",
+   "target": "glRasterPos3iv"
+  },
+  "glRasterPos3s": {
+   "status": "resolvable",
+   "target": "glRasterPos3s"
+  },
+  "glRasterPos3sv": {
+   "status": "resolvable",
+   "target": "glRasterPos3sv"
+  },
+  "glRasterPos4d": {
+   "status": "resolvable",
+   "target": "glRasterPos4d"
+  },
+  "glRasterPos4dv": {
+   "status": "resolvable",
+   "target": "glRasterPos4dv"
+  },
+  "glRasterPos4f": {
+   "status": "resolvable",
+   "target": "glRasterPos4f"
+  },
+  "glRasterPos4fv": {
+   "status": "resolvable",
+   "target": "glRasterPos4fv"
+  },
+  "glRasterPos4i": {
+   "status": "resolvable",
+   "target": "glRasterPos4i"
+  },
+  "glRasterPos4iv": {
+   "status": "resolvable",
+   "target": "glRasterPos4iv"
+  },
+  "glRasterPos4s": {
+   "status": "resolvable",
+   "target": "glRasterPos4s"
+  },
+  "glRasterPos4sv": {
+   "status": "resolvable",
+   "target": "glRasterPos4sv"
+  },
   "glReadPixels": {
    "status": "resolvable",
    "target": "glReadPixels"
@@ -1273,6 +1369,70 @@
   "glViewport": {
    "status": "resolvable",
    "target": "glViewport"
+  },
+  "glWindowPos2d": {
+   "status": "resolvable",
+   "target": "glWindowPos2d"
+  },
+  "glWindowPos2dv": {
+   "status": "resolvable",
+   "target": "glWindowPos2dv"
+  },
+  "glWindowPos2f": {
+   "status": "resolvable",
+   "target": "glWindowPos2f"
+  },
+  "glWindowPos2fv": {
+   "status": "resolvable",
+   "target": "glWindowPos2fv"
+  },
+  "glWindowPos2i": {
+   "status": "resolvable",
+   "target": "glWindowPos2i"
+  },
+  "glWindowPos2iv": {
+   "status": "resolvable",
+   "target": "glWindowPos2iv"
+  },
+  "glWindowPos2s": {
+   "status": "resolvable",
+   "target": "glWindowPos2s"
+  },
+  "glWindowPos2sv": {
+   "status": "resolvable",
+   "target": "glWindowPos2sv"
+  },
+  "glWindowPos3d": {
+   "status": "resolvable",
+   "target": "glWindowPos3d"
+  },
+  "glWindowPos3dv": {
+   "status": "resolvable",
+   "target": "glWindowPos3dv"
+  },
+  "glWindowPos3f": {
+   "status": "resolvable",
+   "target": "glWindowPos3f"
+  },
+  "glWindowPos3fv": {
+   "status": "resolvable",
+   "target": "glWindowPos3fv"
+  },
+  "glWindowPos3i": {
+   "status": "resolvable",
+   "target": "glWindowPos3i"
+  },
+  "glWindowPos3iv": {
+   "status": "resolvable",
+   "target": "glWindowPos3iv"
+  },
+  "glWindowPos3s": {
+   "status": "resolvable",
+   "target": "glWindowPos3s"
+  },
+  "glWindowPos3sv": {
+   "status": "resolvable",
+   "target": "glWindowPos3sv"
   }
  }
 }

@@ -272,6 +272,14 @@ struct fixed_function_uniform_t {
     // time per spec; consumed by the generated shaders in plans/08.
     glm::dvec4 clip_planes[6] = {};
 
+    // Raster position state (glRasterPos*/glWindowPos*): window coords,
+    // validity, and associated attributes. Consumed by the plans/08
+    // bitmap/pixel paths; queryable via GL_CURRENT_RASTER_*.
+    glm::vec4 raster_position = {0, 0, 0, 1}; // window x, y, z, clip w
+    bool raster_position_valid = true;
+    glm::vec4 raster_color = {1, 1, 1, 1};
+    glm::vec4 raster_texcoord = {0, 0, 0, 1};
+
     // glPointSize (GLES has no fixed point-size state; emitted as
     // gl_PointSize from the generated vertex shader)
     GLfloat point_size = 1.0f;

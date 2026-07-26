@@ -810,6 +810,18 @@ void glGetFloatv(GLenum pname, GLfloat* params) {
         memcpy(params, ptr, sizeof(GLfloat) * 16);
         break;
     }
+    case GL_CURRENT_RASTER_POSITION:
+        memcpy(params, glm::value_ptr(g_glstate.fpe_uniform.raster_position), 4 * sizeof(GLfloat));
+        break;
+    case GL_CURRENT_RASTER_COLOR:
+        memcpy(params, glm::value_ptr(g_glstate.fpe_uniform.raster_color), 4 * sizeof(GLfloat));
+        break;
+    case GL_CURRENT_RASTER_TEXTURE_COORDS:
+        memcpy(params, glm::value_ptr(g_glstate.fpe_uniform.raster_texcoord), 4 * sizeof(GLfloat));
+        break;
+    case GL_CURRENT_RASTER_POSITION_VALID:
+        params[0] = g_glstate.fpe_uniform.raster_position_valid ? 1.0f : 0.0f;
+        break;
     case GL_COLOR_MATRIX: {
         auto* ptr = glm::value_ptr(g_glstate.fpe_uniform.transformation.matrices[matrix_idx(GL_COLOR)]);
         memcpy(params, ptr, sizeof(GLfloat) * 16);

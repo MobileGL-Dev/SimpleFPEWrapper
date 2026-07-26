@@ -27,6 +27,23 @@ GLint sfpewLogicalProgram();
 GLuint sfpewLogicalArrayBufferBinding();
 
 SFPEW_APIENTRY GLenum glGetError();
+SFPEW_APIENTRY void glWindowPos2d(GLdouble x, GLdouble y);
+SFPEW_APIENTRY void glWindowPos2f(GLfloat x, GLfloat y);
+SFPEW_APIENTRY void glWindowPos2i(GLint x, GLint y);
+SFPEW_APIENTRY void glWindowPos2s(GLshort x, GLshort y);
+SFPEW_APIENTRY void glWindowPos3d(GLdouble x, GLdouble y, GLdouble z);
+SFPEW_APIENTRY void glWindowPos3f(GLfloat x, GLfloat y, GLfloat z);
+SFPEW_APIENTRY void glWindowPos3i(GLint x, GLint y, GLint z);
+SFPEW_APIENTRY void glWindowPos3s(GLshort x, GLshort y, GLshort z);
+SFPEW_APIENTRY void glWindowPos2dv(const GLdouble* v);
+SFPEW_APIENTRY void glWindowPos2fv(const GLfloat* v);
+SFPEW_APIENTRY void glWindowPos2iv(const GLint* v);
+SFPEW_APIENTRY void glWindowPos2sv(const GLshort* v);
+SFPEW_APIENTRY void glWindowPos3dv(const GLdouble* v);
+SFPEW_APIENTRY void glWindowPos3fv(const GLfloat* v);
+SFPEW_APIENTRY void glWindowPos3iv(const GLint* v);
+SFPEW_APIENTRY void glWindowPos3sv(const GLshort* v);
+
 SFPEW_APIENTRY void glSecondaryColorPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* pointer);
 SFPEW_APIENTRY void glFogCoordPointer(GLenum type, GLsizei stride, const GLvoid* pointer);
 SFPEW_APIENTRY GLboolean glIsEnabled(GLenum cap);

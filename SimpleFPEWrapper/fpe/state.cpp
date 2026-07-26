@@ -1137,6 +1137,85 @@ void glTexGendv(GLenum coord, GLenum pname, const GLdouble* params) {
     SELF_CALL(glTexGenfv, coord, pname, converted)
 }
 
+namespace {
+
+// Shared glRasterPos backend: run the full fixed-function transform and
+// store the resulting window coordinates (plans/08, 8.1).
+void set_raster_pos(GLfloat x, GLfloat y, GLfloat z, GLfloat w) {
+    flushPendingImmediateDraws();
+    auto& un = g_glstate.fpe_uniform;
+    const glm::vec4 clip = un.transformation.matrices[matrix_idx(GL_PROJECTION)] *
+                           un.transformation.matrices[matrix_idx(GL_MODELVIEW)] * glm::vec4(x, y, z, w);
+    auto& st = g_glstate.fpe_uniform;
+    if (clip.w <= 0.0f) {
+        st.raster_position_valid = false;
+        return;
+    }
+    const glm::vec3 ndc = glm::vec3(clip) / clip.w;
+    st.raster_position_valid =
+        ndc.x >= -1.0f && ndc.x <= 1.0f && ndc.y >= -1.0f && ndc.y <= 1.0f && ndc.z >= -1.0f && ndc.z <= 1.0f;
+
+    GLint viewport[4] = {0, 0, 0, 0};
+    if (g_glFuncs.glGetIntegerv != nullptr) g_glFuncs.glGetIntegerv(GL_VIEWPORT, viewport);
+    st.raster_position = {viewport[0] + (ndc.x * 0.5f + 0.5f) * (GLfloat)viewport[2],
+                          viewport[1] + (ndc.y * 0.5f + 0.5f) * (GLfloat)viewport[3],
+                          ndc.z * 0.5f + 0.5f, clip.w};
+    st.raster_color = g_glstate.fpe_state.fpe_draw.current_data.color;
+    st.raster_texcoord = g_glstate.fpe_state.fpe_draw.current_data.texcoord[0];
+}
+
+void set_window_pos(GLfloat x, GLfloat y, GLfloat z) {
+    flushPendingImmediateDraws();
+    auto& st = g_glstate.fpe_uniform;
+    st.raster_position = {x, y, z, 1.0f};
+    st.raster_position_valid = true; // WindowPos never clips
+    st.raster_color = g_glstate.fpe_state.fpe_draw.current_data.color;
+    st.raster_texcoord = g_glstate.fpe_state.fpe_draw.current_data.texcoord[0];
+}
+
+} // namespace
+
+#define DEFINE_RASTERPOS(N, SUFFIX, TYPE, PARAMS, X, Y, Z, W)                                                          \
+    void glRasterPos##N##SUFFIX PARAMS {                                                                               \
+        LIST_RECORD(glRasterPos##N##SUFFIX, {}, ARGS_LIST(X, Y, Z, W))                                                 \
+        set_raster_pos((GLfloat)(X), (GLfloat)(Y), (GLfloat)(Z), (GLfloat)(W));                                        \
+    }
+#define DEFINE_RASTERPOS_FAMILY(SUFFIX, TYPE)                                                                          \
+    void glRasterPos2##SUFFIX(TYPE x, TYPE y) { set_raster_pos((GLfloat)x, (GLfloat)y, 0.0f, 1.0f); }                  \
+    void glRasterPos3##SUFFIX(TYPE x, TYPE y, TYPE z) { set_raster_pos((GLfloat)x, (GLfloat)y, (GLfloat)z, 1.0f); }    \
+    void glRasterPos4##SUFFIX(TYPE x, TYPE y, TYPE z, TYPE w) {                                                        \
+        set_raster_pos((GLfloat)x, (GLfloat)y, (GLfloat)z, (GLfloat)w);                                                \
+    }                                                                                                                  \
+    void glRasterPos2##SUFFIX##v(const TYPE* v) {                                                                      \
+        if (v) set_raster_pos((GLfloat)v[0], (GLfloat)v[1], 0.0f, 1.0f);                                               \
+    }                                                                                                                  \
+    void glRasterPos3##SUFFIX##v(const TYPE* v) {                                                                      \
+        if (v) set_raster_pos((GLfloat)v[0], (GLfloat)v[1], (GLfloat)v[2], 1.0f);                                      \
+    }                                                                                                                  \
+    void glRasterPos4##SUFFIX##v(const TYPE* v) {                                                                      \
+        if (v) set_raster_pos((GLfloat)v[0], (GLfloat)v[1], (GLfloat)v[2], (GLfloat)v[3]);                             \
+    }
+
+DEFINE_RASTERPOS_FAMILY(d, GLdouble)
+DEFINE_RASTERPOS_FAMILY(f, GLfloat)
+DEFINE_RASTERPOS_FAMILY(i, GLint)
+DEFINE_RASTERPOS_FAMILY(s, GLshort)
+
+#define DEFINE_WINDOWPOS_FAMILY(SUFFIX, TYPE)                                                                          \
+    void glWindowPos2##SUFFIX(TYPE x, TYPE y) { set_window_pos((GLfloat)x, (GLfloat)y, 0.0f); }                        \
+    void glWindowPos3##SUFFIX(TYPE x, TYPE y, TYPE z) { set_window_pos((GLfloat)x, (GLfloat)y, (GLfloat)z); }          \
+    void glWindowPos2##SUFFIX##v(const TYPE* v) {                                                                      \
+        if (v) set_window_pos((GLfloat)v[0], (GLfloat)v[1], 0.0f);                                                     \
+    }                                                                                                                  \
+    void glWindowPos3##SUFFIX##v(const TYPE* v) {                                                                      \
+        if (v) set_window_pos((GLfloat)v[0], (GLfloat)v[1], (GLfloat)v[2]);                                            \
+    }
+
+DEFINE_WINDOWPOS_FAMILY(d, GLdouble)
+DEFINE_WINDOWPOS_FAMILY(f, GLfloat)
+DEFINE_WINDOWPOS_FAMILY(i, GLint)
+DEFINE_WINDOWPOS_FAMILY(s, GLshort)
+
 void glPolygonMode(GLenum face, GLenum mode) {
     flushPendingImmediateDraws();
     if (mode != GL_FILL && mode != GL_LINE && mode != GL_POINT) {

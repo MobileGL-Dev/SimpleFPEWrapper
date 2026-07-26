@@ -158,6 +158,25 @@ if(NOT ANDROID)
                 endif()
 
                 # Vendored piglit shader_test subset through the mini-runner
+                # plans/11 Q5 microbenchmarks: numbers-only, never fails on
+                # timing. The binary always builds; the ctest entry only
+                # registers with -DSFPEW_BENCH=ON (run `ctest -L bench -V`)
+                # so default suite wall time stays flat. SFPEW_BENCH_SCALE
+                # scales iteration counts for slow/software devices.
+                if(SFPEW_TEST_EGL)
+                        option(SFPEW_BENCH "Register bench.fpe as a ctest" OFF)
+                        add_executable(sfpew_bench tests/bench_fpe.c)
+                        target_compile_definitions(sfpew_bench PRIVATE
+                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
+                        target_link_libraries(sfpew_bench PRIVATE dl m ${SFPEW_TEST_EGL})
+                        add_dependencies(sfpew_bench ${CMAKE_PROJECT_NAME})
+                        if(SFPEW_BENCH)
+                                add_test(NAME bench.fpe COMMAND sfpew_bench)
+                                set_tests_properties(bench.fpe PROPERTIES
+                                        SKIP_RETURN_CODE 77 LABELS bench)
+                        endif()
+                endif()
+
                 # (tests/piglit/README.md documents provenance and license).
                 if(SFPEW_TEST_EGL AND SFPEW_TEST_GLES)
                         add_executable(piglit_runner tests/piglit_runner.c)

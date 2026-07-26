@@ -1,0 +1,37 @@
+name: CI
+on:
+  push:
+    branches: [main, "impl/**"]
+  pull_request:
+
+jobs:
+  linux:
+    name: linux-${{ matrix.compiler }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install toolchain and a software GL device
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build clang \
+            libegl1 libgles2 libegl-mesa0 mesa-utils
+      - name: Configure
+        run: |
+          if [ "${{ matrix.compiler }}" = "clang" ]; then
+            export CC=clang CXX=clang++
+          else
+            export CC=gcc CXX=g++
+          fi
+          cmake -S . -B build -G Ninja
+      - name: Build
+        run: cmake --build build -j "$(nproc)"
+      - name: Test
+        # The translator device phase skips (rc 77) without a usable GPU;
+        # llvmpipe usually provides one on the runner.
+        run: cd build && ctest --output-on-failure

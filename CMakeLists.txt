@@ -77,6 +77,7 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         SimpleFPEWrapper/fpe/selection.cpp
         SimpleFPEWrapper/shader/translator.cpp
         SimpleFPEWrapper/shader/shaderobjects.cpp
+        SimpleFPEWrapper/shader/userprogram.cpp
         SimpleFPEWrapper/fpe/pointer_utils.cpp
         SimpleFPEWrapper/fpe/drawing1x.cpp
         SimpleFPEWrapper/fpe/vertexpointer_utils.cpp

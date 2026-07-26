@@ -24,6 +24,10 @@
 
 int init_fpe();
 
+// User-program compatibility uniforms (shader/userprogram.cpp, plans/09 9.3).
+void sfpewFeedUserProgramUniforms(GLuint program);
+void sfpewForgetUserProgram(GLuint program);
+
 // Selection/feedback CPU pipeline (fpe/selection.cpp, plans/10 10.3).
 void sfpewFlushSelectionHit();
 void sfpewSelectionProcessVertices(GLenum mode, const GLfloat* positions, size_t stride_floats,

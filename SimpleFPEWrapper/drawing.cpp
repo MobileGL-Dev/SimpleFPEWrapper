@@ -712,6 +712,7 @@ void drawArraysNow(GLenum mode, GLint first, GLsizei count, bool forceFixedFunct
     const uint32_t vertex_array_mask = 1u << vp2idx(GL_VERTEX_ARRAY);
     if ((!forceFixedFunction && current_program != 0) || first < 0 || count < 0 ||
         !(vertex_array.enabled_pointers & vertex_array_mask)) {
+        if (current_program != 0) sfpewFeedUserProgramUniforms((GLuint)current_program);
         g_glFuncs.glDrawArrays(mode, first, count);
         return;
     }
@@ -801,6 +802,7 @@ void drawElementsNow(GLenum mode, GLsizei count, GLenum type, const GLvoid* indi
     const uint32_t vertex_array_mask = 1u << vp2idx(GL_VERTEX_ARRAY);
 
     if (current_program != 0 || !(vertex_array.enabled_pointers & vertex_array_mask)) {
+        if (current_program != 0) sfpewFeedUserProgramUniforms((GLuint)current_program);
         if (g_glFuncs.glDrawElements != nullptr) g_glFuncs.glDrawElements(mode, count, type, indices);
         return;
     }

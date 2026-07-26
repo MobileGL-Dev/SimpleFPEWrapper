@@ -233,6 +233,7 @@ void glFogfv(GLenum pname, const GLfloat* params) {
     // LOG()
     // LOG_D("glFogfv(%s, [...])", glEnumToString(pname))
 
+    if (params == nullptr) return; // LIST_RECORD deep-copies via pname_to_count; guard before it
     LIST_RECORD(glFogfv, {{1, PointerUtils::pname_to_count(pname) * sizeof(GLfloat)}}, pname, params)
 
     switch (pname) {
@@ -264,6 +265,7 @@ void glFogiv(GLenum pname, const GLint* params) {
     // LOG()
     // LOG_D("glFogiv(%s, [...])", glEnumToString(pname))
 
+    if (params == nullptr) return;
     LIST_RECORD(glFogiv, {{1, PointerUtils::pname_to_count(pname) * sizeof(GLint)}}, pname, params)
 
     switch (pname) {
@@ -350,10 +352,13 @@ void glLightfv(GLenum light, GLenum pname, const GLfloat* params) {
     // LOG()
     // LOG_D("glLightfv(%s, %s, [...])", glEnumToString(light), glEnumToString(pname))
 
-    LIST_RECORD(glLightfv, {{2, PointerUtils::pname_to_count(pname) * sizeof(GLfloat)}}, light, pname, params)
-
+    // Commands that would generate an error are not compiled into display
+    // lists, and the record path deep-copies params before any check ran.
     const int index = light_index(light);
     if (index < 0 || params == nullptr) return;
+
+    LIST_RECORD(glLightfv, {{2, PointerUtils::pname_to_count(pname) * sizeof(GLfloat)}}, light, pname, params)
+
     auto& lightref = g_glstate.fpe_uniform.lights[index];
 
     switch (pname) {
@@ -401,9 +406,9 @@ void glLightiv(GLenum light, GLenum pname, const GLint* params) {
     // LOG()
     // LOG_D("glLightiv(%s, %s, [...])", glEnumToString(light), glEnumToString(pname))
 
-    LIST_RECORD(glLightiv, {{2, PointerUtils::pname_to_count(pname) * sizeof(GLint)}}, light, pname, params)
-
     if (light_index(light) < 0 || params == nullptr) return;
+
+    LIST_RECORD(glLightiv, {{2, PointerUtils::pname_to_count(pname) * sizeof(GLint)}}, light, pname, params)
 
     switch (pname) {
     case GL_SPOT_CUTOFF:
@@ -484,6 +489,7 @@ void glLightModelfv(GLenum pname, const GLfloat* params) {
     // LOG()
     // LOG_D("glLightModelfv(%s, [...])", glEnumToString(pname))
 
+    if (params == nullptr) return;
     LIST_RECORD(glLightModelfv, {{1, PointerUtils::pname_to_count(pname) * sizeof(GLfloat)}}, pname, params)
 
     switch (pname) {
@@ -506,6 +512,7 @@ void glLightModeliv(GLenum pname, const GLint* params) {
     // LOG()
     // LOG_D("glLightModeliv(%s, [...])", glEnumToString(pname))
 
+    if (params == nullptr) return;
     LIST_RECORD(glLightModeliv, {{1, PointerUtils::pname_to_count(pname) * sizeof(GLint)}}, pname, params)
 
     switch (pname) {
@@ -562,6 +569,7 @@ void glMateriali(GLenum face, GLenum pname, GLint param) {
 
 void glMaterialfv(GLenum face, GLenum pname, const GLfloat* params) {
     flushPendingImmediateDraws();
+    if (params == nullptr) return;
     LIST_RECORD(glMaterialfv, {{2, material_param_count(pname) * sizeof(GLfloat)}}, face, pname, params)
 
     if (!params) return;
@@ -597,6 +605,7 @@ void glMaterialfv(GLenum face, GLenum pname, const GLfloat* params) {
 
 void glMaterialiv(GLenum face, GLenum pname, const GLint* params) {
     flushPendingImmediateDraws();
+    if (params == nullptr) return;
     LIST_RECORD(glMaterialiv, {{2, material_param_count(pname) * sizeof(GLint)}}, face, pname, params)
 
     if (!params) return;
@@ -692,6 +701,7 @@ void glTexEnvi(GLenum target, GLenum pname, GLint param) {
 
 void glTexEnvfv(GLenum target, GLenum pname, const GLfloat* params) {
     flushPendingImmediateDraws();
+    if (params == nullptr) return;
     LIST_RECORD(glTexEnvfv, {{2, tex_env_param_count(pname) * sizeof(GLfloat)}}, target, pname, params)
 
     if (!params) return;
@@ -704,6 +714,7 @@ void glTexEnvfv(GLenum target, GLenum pname, const GLfloat* params) {
 
 void glTexEnviv(GLenum target, GLenum pname, const GLint* params) {
     flushPendingImmediateDraws();
+    if (params == nullptr) return;
     LIST_RECORD(glTexEnviv, {{2, tex_env_param_count(pname) * sizeof(GLint)}}, target, pname, params)
 
     if (!params) return;

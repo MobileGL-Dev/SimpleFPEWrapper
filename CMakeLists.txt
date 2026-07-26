@@ -38,6 +38,25 @@ else()
         set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -flto")
 endif()
 
+# GLSL 1.10/1.20 -> ESSL 3.00 translation toolchain (plans/09):
+# custom preprocessor + glslang -> SPIR-V -> SPIRV-Cross -> ESSL.
+# Both are trimmed builds: no HLSL, no CLI tools, no tests.
+set(GLSLANG_TESTS OFF CACHE BOOL "" FORCE)
+set(ENABLE_GLSLANG_BINARIES OFF CACHE BOOL "" FORCE)
+set(ENABLE_HLSL OFF CACHE BOOL "" FORCE)
+set(ENABLE_OPT OFF CACHE BOOL "" FORCE)
+set(BUILD_EXTERNAL OFF CACHE BOOL "" FORCE)
+add_subdirectory(3rdparty/glslang EXCLUDE_FROM_ALL)
+
+set(SPIRV_CROSS_CLI OFF CACHE BOOL "" FORCE)
+set(SPIRV_CROSS_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
+set(SPIRV_CROSS_ENABLE_HLSL OFF CACHE BOOL "" FORCE)
+set(SPIRV_CROSS_ENABLE_MSL OFF CACHE BOOL "" FORCE)
+set(SPIRV_CROSS_ENABLE_CPP OFF CACHE BOOL "" FORCE)
+set(SPIRV_CROSS_ENABLE_REFLECT OFF CACHE BOOL "" FORCE)
+set(SPIRV_CROSS_ENABLE_C_API OFF CACHE BOOL "" FORCE)
+add_subdirectory(3rdparty/SPIRV-Cross EXCLUDE_FROM_ALL)
+
 add_library(${CMAKE_PROJECT_NAME} SHARED
         SimpleFPEWrapper/init.cpp
         SimpleFPEWrapper/drawing.cpp
@@ -81,6 +100,12 @@ target_include_directories(${CMAKE_PROJECT_NAME} SYSTEM PUBLIC
         ${CMAKE_SOURCE_DIR}/3rdparty/glm
         ${CMAKE_SOURCE_DIR}/3rdparty/xxhash
 )
+target_include_directories(${CMAKE_PROJECT_NAME} SYSTEM PRIVATE
+        ${CMAKE_SOURCE_DIR}/3rdparty/glslang
+        ${CMAKE_SOURCE_DIR}/3rdparty/SPIRV-Cross
+)
+target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE
+        glslang glslang-default-resource-limits SPIRV spirv-cross-glsl spirv-cross-core)
 if(ANDROID)
         target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE log)
 endif()

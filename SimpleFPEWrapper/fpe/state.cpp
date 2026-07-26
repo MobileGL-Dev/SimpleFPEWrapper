@@ -194,6 +194,7 @@ void glFogf(GLenum pname, GLfloat param) {
 
     default:
         // LOG_D("ERROR: Invalid %s pname: %s", __func__, pname)
+        break;
     }
 }
 
@@ -223,6 +224,7 @@ void glFogi(GLenum pname, GLint param) {
         return;
     default:
         // LOG_D("ERROR: Invalid %s pname: %s", __func__, pname)
+        break;
     }
 }
 
@@ -253,6 +255,7 @@ void glFogfv(GLenum pname, const GLfloat* params) {
     }
     default:
         // LOG_D("ERROR: Invalid %s pname: %s", __func__, pname)
+        break;
     }
 }
 
@@ -285,6 +288,7 @@ void glFogiv(GLenum pname, const GLint* params) {
         break;
     default:
         // LOG_D("ERROR: Invalid %s pname: %s", __func__, pname)
+        break;
     }
 }
 
@@ -327,6 +331,7 @@ void glLightf(GLenum light, GLenum pname, GLfloat param) {
         break;
     default:
         // LOG_D("ERROR: Invalid %s pname: %s", __func__, pname)
+        break;
     }
 }
 
@@ -387,6 +392,7 @@ void glLightfv(GLenum light, GLenum pname, const GLfloat* params) {
     }
     default:
         // LOG_D("ERROR: Invalid %s pname: %s", __func__, pname);
+        break;
     }
 }
 
@@ -428,6 +434,7 @@ void glLightiv(GLenum light, GLenum pname, const GLint* params) {
     }
     default:
         // LOG_D("ERROR: Invalid %s pname: %s", __func__, pname)
+        break;
     }
 }
 
@@ -445,6 +452,7 @@ void glLightModelf(GLenum pname, GLfloat param) {
         SELF_CALL(glLightModeli, pname, (GLint)param)
     default:
         // LOG_D("ERROR: Invalid %s pname: %s", __func__, pname)
+        break;
     }
 }
 
@@ -467,6 +475,7 @@ void glLightModeli(GLenum pname, GLint param) {
         break;
     default:
         // LOG_D("ERROR: Invalid %s pname: %s", __func__, pname)
+        break;
     }
 }
 
@@ -488,6 +497,7 @@ void glLightModelfv(GLenum pname, const GLfloat* params) {
         break;
     default:
         // LOG_D("ERROR: Invalid %s pname: %s", __func__, pname)
+        break;
     }
 }
 
@@ -512,6 +522,7 @@ void glLightModeliv(GLenum pname, const GLint* params) {
         break;
     default:
         // LOG_D("ERROR: Invalid %s pname: %s", __func__, pname)
+        break;
     }
 }
 

@@ -7,6 +7,7 @@
 // End of Source File Header
 
 #include "types.h"
+#include <limits>
 
 void vertex_pointer_array_t::reset() {
     starting_pointer = NULL;
@@ -42,7 +43,15 @@ vertex_pointer_array_t vertex_pointer_array_t::normalize() {
     // if not valid starting pointer
     if (!(that.stride != 0 && that.starting_pointer != 0 &&
           (uintptr_t)that.starting_pointer > (uintptr_t)that.stride)) {
-        that.starting_pointer = attributes[first_va_idx].pointer;
+        // Use the LOWEST enabled pointer, not the first slot: attribute
+        // order in memory need not match slot order, and rebasing against a
+        // higher address underflowed into a near-2^64 "offset".
+        const void* lowest = attributes[first_va_idx].pointer;
+        for (int i = first_va_idx + 1; i < VERTEX_POINTER_COUNT; ++i) {
+            if (!((enabled_pointers >> i) & 1)) continue;
+            if ((uintptr_t)attributes[i].pointer < (uintptr_t)lowest) lowest = attributes[i].pointer;
+        }
+        that.starting_pointer = lowest;
     }
 
     // stride==0 && stride in pointer == 0
@@ -58,11 +67,22 @@ vertex_pointer_array_t vertex_pointer_array_t::normalize() {
         auto& vp = that.attributes[i];
 
         // check if pointer is a pointer rather than an offset
-        if (that.stride > 0 && (uint64_t)vp.pointer > (uint64_t)that.stride)
-            vp.pointer = (const void*)((uintptr_t)vp.pointer - (uintptr_t)that.starting_pointer);
+        if (that.stride > 0 && (uintptr_t)vp.pointer > (uintptr_t)that.stride) {
+            vp.pointer = (uintptr_t)vp.pointer >= (uintptr_t)that.starting_pointer
+                             ? (const void*)((uintptr_t)vp.pointer - (uintptr_t)that.starting_pointer)
+                             : nullptr; // stale/foreign pointer: never a huge offset
+        }
 
-        if (do_calc_stride)
-            that.stride = std::max((uint64_t)stride, (uint64_t)vp.pointer + vp.size * type_size(vp.type));
+        if (do_calc_stride) {
+            // Derive the stride from the offset relative to starting_pointer.
+            // The raw client ADDRESS used to flow into this max() and was
+            // truncated into GLsizei stride, producing a garbage layout.
+            uintptr_t offset = (uintptr_t)vp.pointer;
+            if (offset >= (uintptr_t)that.starting_pointer) offset -= (uintptr_t)that.starting_pointer;
+            const uint64_t end = (uint64_t)offset + (uint64_t)vp.size * (uint64_t)type_size(vp.type);
+            if (end > (uint64_t)that.stride && end <= (uint64_t)std::numeric_limits<GLsizei>::max())
+                that.stride = (GLsizei)end;
+        }
     }
 
     // Overwrite `stride` in pointers

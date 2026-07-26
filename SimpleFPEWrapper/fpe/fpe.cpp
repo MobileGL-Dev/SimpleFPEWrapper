@@ -221,15 +221,22 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint p
     }
     g_glFuncs.glUseProgram(prog_id);
 
+    // Client-memory arrays are uploaded with glBufferData below. That upload
+    // must NEVER target the caller's bound VBO: route it into fpe_vbo even
+    // when the caller had a buffer bound, or their buffer contents would be
+    // destroyed by the draw.
+    const bool client_memory_draw =
+        reinterpret_cast<uintptr_t>(vpa.starting_pointer) > static_cast<uintptr_t>(vpa.stride);
+
     // Ugh...Why binding vbo is required BEFORE calling VertexAttrib* functions?
-    if (previous_array_buffer == 0) {
+    if (previous_array_buffer == 0 || client_memory_draw) {
         g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, g_glstate.fpe_state.fpe_vbo);
     }
 
     // LOG_D("starting_ptr = %p", vpa.starting_pointer)
     // LOG_D("stride = %d", vpa.stride)
 
-    const GLuint attribute_array_buffer = previous_array_buffer == 0
+    const GLuint attribute_array_buffer = (previous_array_buffer == 0 || client_memory_draw)
                                               ? g_glstate.fpe_state.fpe_vbo
                                               : static_cast<GLuint>(previous_array_buffer);
     g_glstate.send_vertex_attributes(vpa, attribute_array_buffer);
@@ -238,7 +245,7 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint p
     int ret = 0;
 
     // Making sure it is a valid pointer rather than an offset into the buffer
-    if (reinterpret_cast<uintptr_t>(vpa.starting_pointer) > static_cast<uintptr_t>(vpa.stride)) {
+    if (client_memory_draw) {
         // LOG_D("VB @ 0x%x, size = %d * %d = %d", vpa.starting_pointer, *count, vpa.stride, *count * vpa.stride)
 
 #if DEBUG || GLOBAL_DEBUG
@@ -264,8 +271,17 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint p
         // vpa.starting_pointer,
         //      g_glstate.fpe_state.fpe_vbo)
 
-        const auto* draw_start = static_cast<const uint8_t*>(vpa.starting_pointer) + *first * vpa.stride;
-        g_glFuncs.glBufferData(GL_ARRAY_BUFFER, *count * vpa.stride, draw_start, GL_DYNAMIC_DRAW);
+        // 64-bit size math: GLsizei * GLsizei overflowed for large draws,
+        // handing glBufferData a negative or wrapped size.
+        const int64_t upload_size = (int64_t)*count * (int64_t)vpa.stride;
+        const int64_t skip = (int64_t)*first * (int64_t)vpa.stride;
+        if (upload_size <= 0 || upload_size > (int64_t)std::numeric_limits<GLsizei>::max() || skip < 0) {
+            g_glstate.set_error(GL_INVALID_VALUE);
+            vpa.reset();
+            return -1;
+        }
+        const auto* draw_start = static_cast<const uint8_t*>(vpa.starting_pointer) + skip;
+        g_glFuncs.glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)upload_size, draw_start, GL_DYNAMIC_DRAW);
         *first = 0;
 
     } else {

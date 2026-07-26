@@ -1173,7 +1173,10 @@ const std::string alpha_test(GLenum func, const std::string_view varname, const 
         return "    // Alpha Test\n"
                "    // GL_ALWAYS\n";
     }
-    return std::string("    ALPHA TEST ERROR: unknown func: ") + glEnumToString(func);
+    // State entry points validate alpha_func; if an unknown value slips
+    // through anyway, degrade to GL_ALWAYS rather than emitting text that
+    // breaks the GLSL compile.
+    return "    // Alpha Test: unknown func, treated as GL_ALWAYS\n";
 }
 
 std::string vp2in_name(GLenum vp, int index) {
@@ -1522,11 +1525,12 @@ void add_fs_body(const fixed_function_state_t& state, scratch_t& scratch, std::s
         case GL_LINEAR:
             fs += mg_fog_linear_func;
             break;
-        case GL_EXP:
-            fs += mg_fog_exp_func;
-            break;
         case GL_EXP2:
             fs += mg_fog_exp2_func;
+            break;
+        case GL_EXP:
+        default: // validated at the state entry; keep the GLSL compilable
+            fs += mg_fog_exp_func;
             break;
         }
     }
@@ -1595,11 +1599,12 @@ void add_fs_body(const fixed_function_state_t& state, scratch_t& scratch, std::s
         case GL_LINEAR:
             fs += "    float fogFactor = fog_linear(distance, FogStart, FogEnd);\n";
             break;
-        case GL_EXP:
-            fs += "    float fogFactor = fog_exp(distance, FogDensity);\n";
-            break;
         case GL_EXP2:
             fs += "    float fogFactor = fog_exp2(distance, FogDensity);\n";
+            break;
+        case GL_EXP:
+        default: // fogFactor must exist: the apply_fog line below reads it
+            fs += "    float fogFactor = fog_exp(distance, FogDensity);\n";
             break;
         }
         fs += "    color.rgb = apply_fog(color.rgb, FogColor.rgb, fogFactor);\n";

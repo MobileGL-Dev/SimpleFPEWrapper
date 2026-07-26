@@ -161,6 +161,14 @@ void glAlphaFunc(GLenum func, GLclampf ref) {
     // LOG()
     // LOG_D("glAlphaFunc(%s, %f)", glEnumToString(func), ref)
 
+    // alpha_func feeds shader generation; an unvalidated enum used to end
+    // up as error text inside the GLSL source. Erroring commands are not
+    // recorded into display lists.
+    if (func < GL_NEVER || func > GL_ALWAYS) {
+        g_glstate.set_error(GL_INVALID_ENUM);
+        return;
+    }
+
     LIST_RECORD(glAlphaFunc, {}, func, ref)
 
     g_glstate.fpe_state.alpha_func = func;
@@ -207,12 +215,22 @@ void glFogi(GLenum pname, GLint param) {
 
     switch (pname) {
     case GL_FOG_MODE:
+        // fog_mode selects generated shader code; an invalid mode used to
+        // produce GLSL referencing an undeclared fogFactor.
+        if (param != GL_LINEAR && param != GL_EXP && param != GL_EXP2) {
+            g_glstate.set_error(GL_INVALID_ENUM);
+            break;
+        }
         g_glstate.fpe_state.fog_mode = param;
         break;
     case GL_FOG_INDEX:
         g_glstate.fpe_state.fog_index = param;
         break;
     case GL_FOG_COORD_SRC:
+        if (param != GL_FRAGMENT_DEPTH && param != GL_FOG_COORD) {
+            g_glstate.set_error(GL_INVALID_ENUM);
+            break;
+        }
         g_glstate.fpe_state.fog_coord_src = param;
         break;
 

@@ -1,6 +1,6 @@
 {
  "source": "lookup.cpp",
- "count": 364,
+ "count": 367,
  "entries": {
   "glActiveTexture": {
    "status": "resolvable",
@@ -41,6 +41,10 @@
   "glBindTexture": {
    "status": "resolvable",
    "target": "glBindTexture"
+  },
+  "glBitmap": {
+   "status": "resolvable",
+   "target": "glBitmap"
   },
   "glBlendColor": {
    "status": "resolvable",
@@ -226,6 +230,10 @@
    "status": "resolvable",
    "target": "glColorPointer"
   },
+  "glCopyPixels": {
+   "status": "resolvable",
+   "target": "glCopyPixels"
+  },
   "glCullFace": {
    "status": "resolvable",
    "target": "glCullFace"
@@ -273,6 +281,10 @@
   "glDrawElements": {
    "status": "resolvable",
    "target": "glDrawElements"
+  },
+  "glDrawPixels": {
+   "status": "resolvable",
+   "target": "glDrawPixels"
   },
   "glEdgeFlagPointer": {
    "status": "resolvable",

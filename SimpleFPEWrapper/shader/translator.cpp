@@ -33,6 +33,87 @@ namespace SFPEW::Shader {
 
 namespace {
 
+// CompilerGLSL subclass so the protected IR is reachable: GLSL 1.20
+// uniform initializers survive into the SPIR-V as OpVariable initializers
+// and would be re-emitted verbatim, which every ESSL dialect rejects.
+// Scrape the constant values for post-link glUniform* application and
+// clear the initializer before compile().
+class EsslCompiler : public spirv_cross::CompilerGLSL {
+public:
+    using spirv_cross::CompilerGLSL::CompilerGLSL;
+
+    std::vector<uniform_initializer_t> scrapeUniformInitializers() {
+        std::vector<uniform_initializer_t> scraped;
+        ir.for_each_typed_id<spirv_cross::SPIRVariable>(
+            [&](uint32_t, spirv_cross::SPIRVariable& var) {
+                if (var.storage != spv::StorageClassUniformConstant || var.initializer == 0)
+                    return;
+                const auto* constant =
+                    maybe_get<spirv_cross::SPIRConstant>(var.initializer);
+                var.initializer = spirv_cross::ID(0);
+                if (constant == nullptr) return;
+
+                const auto& type = get_variable_data_type(var);
+                uniform_initializer_t init;
+                switch (type.basetype) {
+                case spirv_cross::SPIRType::Float:
+                    init.base = uniform_initializer_t::base_t::f32;
+                    break;
+                case spirv_cross::SPIRType::Int:
+                    init.base = uniform_initializer_t::base_t::i32;
+                    break;
+                case spirv_cross::SPIRType::UInt:
+                    init.base = uniform_initializer_t::base_t::u32;
+                    break;
+                case spirv_cross::SPIRType::Boolean:
+                    init.base = uniform_initializer_t::base_t::b32;
+                    break;
+                default:
+                    return; // structs/doubles: value dropped, output stays legal
+                }
+                if (!type.array.empty() && !type.array_size_literal.front()) return;
+                init.name = get_name(var.self);
+                init.columns = type.columns;
+                init.vecsize = type.vecsize;
+                init.array_size = type.array.empty() ? 1u : std::max(1u, type.array.front());
+                flatten(*constant, type, init);
+                scraped.push_back(std::move(init));
+            });
+        return scraped;
+    }
+
+private:
+    void flatten(const spirv_cross::SPIRConstant& c, const spirv_cross::SPIRType& type,
+                 uniform_initializer_t& out) {
+        if (!c.subconstants.empty()) {
+            const auto& inner = get<spirv_cross::SPIRType>(type.parent_type);
+            for (const auto& sub : c.subconstants) {
+                const auto* sc = maybe_get<spirv_cross::SPIRConstant>(sub);
+                if (sc != nullptr) flatten(*sc, inner, out);
+            }
+            return;
+        }
+        for (uint32_t col = 0; col < type.columns; ++col) {
+            for (uint32_t row = 0; row < type.vecsize; ++row) {
+                switch (out.base) {
+                case uniform_initializer_t::base_t::f32:
+                    out.f.push_back(c.scalar_f32(col, row));
+                    break;
+                case uniform_initializer_t::base_t::i32:
+                    out.i.push_back(c.scalar_i32(col, row));
+                    break;
+                case uniform_initializer_t::base_t::u32:
+                    out.i.push_back((int)c.scalar(col, row));
+                    break;
+                case uniform_initializer_t::base_t::b32:
+                    out.i.push_back(c.scalar(col, row) != 0 ? 1 : 0);
+                    break;
+                }
+            }
+        }
+    }
+};
+
 // Identifier replacements shared by both stages. Struct-typed builtins
 // (gl_LightSource, gl_Fog, materials) map onto identically-shaped fpe_*
 // structs declared in the prelude, so member accesses survive verbatim.
@@ -312,7 +393,7 @@ translation_result_t translate(GLenum stage, const std::string& source,
     }
 
     try {
-        spirv_cross::CompilerGLSL compiler(std::move(spirv));
+        EsslCompiler compiler(std::move(spirv));
         spirv_cross::CompilerGLSL::Options opts;
         opts.version = target.version;
         opts.es = target.es;
@@ -340,6 +421,7 @@ translation_result_t translate(GLenum stage, const std::string& source,
         } else {
             for (const auto& r : resources.stage_inputs) strip(r);
         }
+        result.uniform_initializers = compiler.scrapeUniformInitializers();
         result.essl = compiler.compile();
         result.ok = true;
     } catch (const std::exception& e) {

@@ -1,6 +1,6 @@
 {
  "source": "lookup.cpp",
- "count": 416,
+ "count": 418,
  "entries": {
   "glAccum": {
    "status": "resolvable",
@@ -621,6 +621,14 @@
   "glLineWidth": {
    "status": "resolvable",
    "target": "glLineWidth"
+  },
+  "glLinkProgram": {
+   "status": "resolvable",
+   "target": "glLinkProgram"
+  },
+  "glLinkProgramARB": {
+   "status": "alias",
+   "target": "glLinkProgram"
   },
   "glListBase": {
    "status": "resolvable",

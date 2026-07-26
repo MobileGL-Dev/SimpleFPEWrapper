@@ -10,14 +10,30 @@
 
 #include <GL/gl.h>
 #include <string>
+#include <vector>
 
 namespace SFPEW::Shader {
+
+// GLSL 1.20 uniform initializers are not expressible in ESSL: the values
+// are scraped out of the SPIR-V here and applied with glUniform* right
+// after a successful link (the GL 2.1 semantics: initializers define the
+// post-link value).
+struct uniform_initializer_t {
+    std::string name;
+    unsigned columns = 1;    // >1 => matrix (columns x vecsize)
+    unsigned vecsize = 1;
+    unsigned array_size = 1; // flattened element count of the top array
+    enum class base_t { f32, i32, u32, b32 } base = base_t::f32;
+    std::vector<float> f;    // column-major, used when base == f32
+    std::vector<int> i;      // other bases (bools as 0/1)
+};
 
 struct translation_result_t {
     bool ok = false;
     std::string essl;       // ESSL 3.00 source on success
     std::string log;        // preprocessor/glslang/SPIRV-Cross diagnostics
     std::string preprocessed; // post-preprocess GLSL (for tests/debugging)
+    std::vector<uniform_initializer_t> uniform_initializers;
 };
 
 // Backend shading-language target, detected at runtime from the real

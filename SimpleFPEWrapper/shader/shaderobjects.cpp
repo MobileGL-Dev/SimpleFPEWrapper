@@ -23,6 +23,7 @@
 #include "../fpe/fpe.hpp"
 #include "../fpe/drawing1x.h"
 
+#include <algorithm>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -35,6 +36,9 @@ struct shader_record_t {
     std::string original;
     std::string translate_log;
     bool translated = false;
+    // GLSL 1.20 uniform initializers scraped by the translator; applied
+    // with glUniform* after every successful link of a containing program.
+    std::vector<SFPEW::Shader::uniform_initializer_t> uniform_inits;
 };
 
 std::mutex g_shader_mutex;
@@ -54,7 +58,8 @@ GLuint glCreateShader(GLenum type) {
     const GLuint shader = g_glFuncs.glCreateShader(type);
     if (shader != 0) {
         std::lock_guard<std::mutex> lock(g_shader_mutex);
-        shaderRecords()[shader] = {type, {}, {}, false};
+        shaderRecords()[shader] = shader_record_t{};
+        shaderRecords()[shader].stage = type;
     }
     return shader;
 }
@@ -130,7 +135,110 @@ void glCompileShader(GLuint shader) {
     if (it != shaderRecords().end()) {
         it->second.translated = result.ok;
         it->second.translate_log = std::move(result.log);
+        it->second.uniform_inits = std::move(result.uniform_initializers);
     }
+}
+
+namespace {
+
+void applyOneInitializer(const SFPEW::Shader::uniform_initializer_t& init, GLint loc) {
+    using base_t = SFPEW::Shader::uniform_initializer_t::base_t;
+    const GLsizei count = (GLsizei)init.array_size;
+    if (init.columns > 1) {
+        if (init.base != base_t::f32) return;
+        const GLfloat* v = init.f.data();
+        switch (init.columns * 10 + init.vecsize) {
+        case 22: if (g_glFuncs.glUniformMatrix2fv) g_glFuncs.glUniformMatrix2fv(loc, count, GL_FALSE, v); break;
+        case 33: if (g_glFuncs.glUniformMatrix3fv) g_glFuncs.glUniformMatrix3fv(loc, count, GL_FALSE, v); break;
+        case 44: if (g_glFuncs.glUniformMatrix4fv) g_glFuncs.glUniformMatrix4fv(loc, count, GL_FALSE, v); break;
+        case 23: if (g_glFuncs.glUniformMatrix2x3fv) g_glFuncs.glUniformMatrix2x3fv(loc, count, GL_FALSE, v); break;
+        case 24: if (g_glFuncs.glUniformMatrix2x4fv) g_glFuncs.glUniformMatrix2x4fv(loc, count, GL_FALSE, v); break;
+        case 32: if (g_glFuncs.glUniformMatrix3x2fv) g_glFuncs.glUniformMatrix3x2fv(loc, count, GL_FALSE, v); break;
+        case 34: if (g_glFuncs.glUniformMatrix3x4fv) g_glFuncs.glUniformMatrix3x4fv(loc, count, GL_FALSE, v); break;
+        case 42: if (g_glFuncs.glUniformMatrix4x2fv) g_glFuncs.glUniformMatrix4x2fv(loc, count, GL_FALSE, v); break;
+        case 43: if (g_glFuncs.glUniformMatrix4x3fv) g_glFuncs.glUniformMatrix4x3fv(loc, count, GL_FALSE, v); break;
+        default: break;
+        }
+        return;
+    }
+    if (init.base == base_t::f32) {
+        const GLfloat* v = init.f.data();
+        switch (init.vecsize) {
+        case 1: if (g_glFuncs.glUniform1fv) g_glFuncs.glUniform1fv(loc, count, v); break;
+        case 2: if (g_glFuncs.glUniform2fv) g_glFuncs.glUniform2fv(loc, count, v); break;
+        case 3: if (g_glFuncs.glUniform3fv) g_glFuncs.glUniform3fv(loc, count, v); break;
+        case 4: if (g_glFuncs.glUniform4fv) g_glFuncs.glUniform4fv(loc, count, v); break;
+        default: break;
+        }
+        return;
+    }
+    if (init.base == base_t::u32 && g_glFuncs.glUniform1uiv != nullptr) {
+        const GLuint* v = (const GLuint*)init.i.data();
+        switch (init.vecsize) {
+        case 1: g_glFuncs.glUniform1uiv(loc, count, v); break;
+        case 2: if (g_glFuncs.glUniform2uiv) g_glFuncs.glUniform2uiv(loc, count, v); break;
+        case 3: if (g_glFuncs.glUniform3uiv) g_glFuncs.glUniform3uiv(loc, count, v); break;
+        case 4: if (g_glFuncs.glUniform4uiv) g_glFuncs.glUniform4uiv(loc, count, v); break;
+        default: break;
+        }
+        return;
+    }
+    const GLint* v = init.i.data();
+    switch (init.vecsize) {
+    case 1: if (g_glFuncs.glUniform1iv) g_glFuncs.glUniform1iv(loc, count, v); break;
+    case 2: if (g_glFuncs.glUniform2iv) g_glFuncs.glUniform2iv(loc, count, v); break;
+    case 3: if (g_glFuncs.glUniform3iv) g_glFuncs.glUniform3iv(loc, count, v); break;
+    case 4: if (g_glFuncs.glUniform4iv) g_glFuncs.glUniform4iv(loc, count, v); break;
+    default: break;
+    }
+}
+
+// GL 2.1 semantics: uniform initializers define the post-link values. The
+// translated ESSL cannot carry them, so set them here through the uniform
+// API. Application values are overwritten exactly like a real relink.
+void applyUniformInitializers(GLuint program) {
+    if (g_glFuncs.glGetAttachedShaders == nullptr || g_glFuncs.glGetUniformLocation == nullptr ||
+        g_glFuncs.glUseProgram == nullptr || g_glFuncs.glGetIntegerv == nullptr) {
+        return;
+    }
+    GLuint shaders[8] = {};
+    GLsizei shader_count = 0;
+    g_glFuncs.glGetAttachedShaders(program, 8, &shader_count, shaders);
+
+    std::vector<const SFPEW::Shader::uniform_initializer_t*> inits;
+    {
+        std::lock_guard<std::mutex> lock(g_shader_mutex);
+        for (GLsizei s = 0; s < shader_count; ++s) {
+            auto it = shaderRecords().find(shaders[s]);
+            if (it == shaderRecords().end()) continue;
+            for (const auto& init : it->second.uniform_inits) {
+                const auto same_name = [&](const auto* other) { return other->name == init.name; };
+                if (std::none_of(inits.begin(), inits.end(), same_name)) inits.push_back(&init);
+            }
+        }
+    }
+    if (inits.empty()) return;
+
+    GLint previous = 0;
+    g_glFuncs.glGetIntegerv(GL_CURRENT_PROGRAM, &previous);
+    g_glFuncs.glUseProgram(program);
+    for (const auto* init : inits) {
+        const GLint loc = g_glFuncs.glGetUniformLocation(program, init->name.c_str());
+        if (loc >= 0) applyOneInitializer(*init, loc);
+    }
+    g_glFuncs.glUseProgram((GLuint)previous);
+}
+
+} // namespace
+
+void glLinkProgram(GLuint program) {
+    if (!sfpewEnsureBackend() || g_glFuncs.glLinkProgram == nullptr) return;
+    g_glFuncs.glLinkProgram(program);
+
+    GLint status = GL_FALSE;
+    if (g_glFuncs.glGetProgramiv != nullptr)
+        g_glFuncs.glGetProgramiv(program, GL_LINK_STATUS, &status);
+    if (status == GL_TRUE) applyUniformInitializers(program);
 }
 
 void glGetShaderSource(GLuint shader, GLsizei bufSize, GLsizei* length, GLchar* source) {

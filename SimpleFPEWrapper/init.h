@@ -42,6 +42,7 @@ SFPEW_APIENTRY void glShaderSource(GLuint shader, GLsizei count, const GLchar* c
 SFPEW_APIENTRY void glCompileShader(GLuint shader);
 SFPEW_APIENTRY void glGetShaderSource(GLuint shader, GLsizei bufSize, GLsizei* length, GLchar* source);
 SFPEW_APIENTRY void glGetShaderInfoLog(GLuint shader, GLsizei bufSize, GLsizei* length, GLchar* infoLog);
+SFPEW_APIENTRY void glLinkProgram(GLuint program);
 extern "C" {
 GLuint sfpewCreateShaderObjectARB(GLenum type);
 GLuint sfpewCreateProgramObjectARB(void);

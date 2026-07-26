@@ -1,0 +1,24 @@
+[require]
+GLSL >= 1.20
+
+[vertex shader]
+void main()
+{
+	gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;
+}
+
+[fragment shader]
+void main()
+{
+    const vec3 v = inversesqrt(vec3(16.0));
+
+    /* The following values are undefined but the compiler should not crash. */
+    const float undef1 = inversesqrt(0.0);
+    const float undef2 = inversesqrt(-1.0);
+
+    gl_FragColor = vec4(v, undef1 + undef2);
+}
+
+[test]
+draw rect -1 -1 2 2
+probe all rgb 0.25 0.25 0.25

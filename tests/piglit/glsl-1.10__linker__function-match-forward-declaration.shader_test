@@ -1,0 +1,41 @@
+/* Here we test that linking is successful when we have an unnecessary but
+ * valid forward declaration of get_my_position(). This test for the mesa bug
+ * from https://gitlab.freedesktop.org/mesa/mesa/-/issues/12115
+ */
+
+[require]
+GLSL >= 1.10
+
+[vertex shader]
+#version 110
+
+vec4 get_my_position(vec4 a);
+
+vec4 my_position(vec4 a)
+{
+   return a * 0.5;
+}
+
+vec4 get_my_position(vec4 a) {
+   return my_position(a);
+}
+
+[vertex shader]
+#version 110
+
+vec4 get_my_position(vec4 a);
+
+void main()
+{
+  gl_Position = get_my_position(vec4(1.0));
+}
+
+[fragment shader]
+#version 110
+void main()
+{
+  gl_FragColor = vec4(1.0);
+}
+
+[test]
+link success

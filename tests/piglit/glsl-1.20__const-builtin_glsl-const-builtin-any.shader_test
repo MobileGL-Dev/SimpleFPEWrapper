@@ -1,0 +1,24 @@
+[require]
+GLSL >= 1.20
+
+[vertex shader]
+void main()
+{
+	gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;
+}
+
+[fragment shader]
+void main()
+{
+    const bvec2 v_true = bvec2(true, true);
+    const bvec2 v_some = bvec2(true, false);
+    const bvec2 v_none = bvec2(false, false);
+    const bool true1 = any(v_true);
+    const bool true2 = any(v_some);
+    const bool false1 = any(v_none);
+    gl_FragColor = vec4(float(true1), float(true2), float(false1), 1.0);
+}
+
+[test]
+draw rect -1 -1 2 2
+probe all rgb 1.0 1.0 0.0

@@ -1,0 +1,20 @@
+[require]
+GLSL >= 1.20
+
+[vertex shader]
+void main()
+{
+	gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;
+}
+
+[fragment shader]
+void main()
+{
+   const vec3 signs = sign(vec3(0.0, -42.9, 55.7));
+   const float one = float(signs.x == signs.y + signs.z);
+   gl_FragColor = vec4(0.0, one, 0.0, one);
+}
+
+[test]
+draw rect -1 -1 2 2
+probe all rgb 0.0 1.0 0.0

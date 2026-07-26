@@ -1,0 +1,20 @@
+[require]
+GLSL >= 1.20
+
+[vertex shader]
+void main()
+{
+	gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;
+}
+
+[fragment shader]
+void main() {
+   const float sqrt_two_over_two = cos(0.785398163397448);
+   const float one = cos(0.0);
+   const float one_half = cos(-1.0471975511966);
+   gl_FragColor = vec4(sqrt_two_over_two, one, one_half, 1.0);
+}
+
+[test]
+draw rect -1 -1 2 2
+probe all rgb 0.707106781186548 1.0 0.5

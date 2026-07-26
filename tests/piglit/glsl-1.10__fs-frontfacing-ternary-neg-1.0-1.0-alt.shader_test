@@ -1,0 +1,38 @@
+[require]
+GLSL >= 1.10
+
+[vertex shader passthrough]
+
+[fragment shader]
+uniform vec2 u;
+
+void main()
+{
+	float f = gl_FrontFacing ? -1.0 : 1.0;
+
+	// This non-obvious arithmetic is carefully crafted to try to avoid
+	// some NIR optimizations that hid a bug in the Intel compiler backend
+	// for Gfx12+ (Tigerlake and newer) GPUs.  Basically, when NIR sees
+	//
+	//    x = (gl_FrontFacing ? -1.0 : 1.0) * a;
+	//
+	// it converts it to
+	//
+	//    x = gl_FrontFacing ? -a : a;
+	//
+	// This avoids the bad code generation for the (gl_FrontFacing ? -1.0
+	// : 1.0) case.
+	f = (f + u.x) * u.y; // Remap (-1.0, 1.0) -> (0.75, 0.25)
+
+	gl_FragColor = vec4(0.0, f, 0.0, 1.0);
+}
+
+[test]
+uniform vec2 u -2.0 -0.25
+
+draw rect -1 -1 2 1
+draw rect 1 0 -2 1
+relative probe rgba (0, 0) (0.0, 0.75, 0.0, 1.0)
+relative probe rgba (1, 0) (0.0, 0.75, 0.0, 1.0)
+relative probe rgba (0, 1) (0.0, 0.25, 0.0, 1.0)
+relative probe rgba (1, 1) (0.0, 0.25, 0.0, 1.0)

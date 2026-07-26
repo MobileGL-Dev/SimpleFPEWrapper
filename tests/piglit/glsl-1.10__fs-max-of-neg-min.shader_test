@@ -1,0 +1,34 @@
+# Attempts to recreate a a bug in an algebraic optimization added in
+# 07cd30ca293 ("nir/opt_algebraic: optimize fmax(-fmin(b, a), b) ->
+# fmax(b, -a)"
+[require]
+GLSL >= 1.10
+
+[vertex shader passthrough]
+
+[fragment shader]
+
+uniform float a;
+uniform float b;
+
+void main()
+{
+	float c = max(-min(a, b), b);
+
+	// The wrong answer for the bug this is trying to reproduce is -15.
+	// For that specific case, the test will produce medium (15/35) green.
+	if (c <= 0.0 || c > 35.0)
+		gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
+	else
+		gl_FragColor = vec4(0.0, c / 35.0 , 0.0, 1.0);
+}
+
+[test]
+clear color 0.2 0.2 0.2 0.2
+clear
+
+uniform float a 15.0
+uniform float b -35.0
+
+draw rect -1 -1 2 2
+probe all rgba 0.0 1.0 0.0 1.0

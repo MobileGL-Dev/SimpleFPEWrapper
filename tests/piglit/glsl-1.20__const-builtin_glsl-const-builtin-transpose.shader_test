@@ -1,0 +1,24 @@
+[require]
+GLSL >= 1.20
+
+[vertex shader]
+void main()
+{
+	gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;
+}
+
+[fragment shader]
+void main()
+{
+    const mat2 m = mat2(1.0, 2.0, 4.0,  8.0);
+    const mat2 mt = transpose(m);
+    const mat2 mtt = transpose(mt);
+    if (m == mat2(1.0, 4.0, 2.0, 8.0) && mt == mtt)
+        gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0);
+    else
+        gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0);
+}
+
+[test]
+draw rect -1 -1 2 2
+probe all rgb 0 1 0

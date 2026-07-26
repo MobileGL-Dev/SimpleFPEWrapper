@@ -1,0 +1,62 @@
+[require]
+GLSL >= 1.10
+
+[vertex shader]
+varying vec4 color;
+
+uniform int value;
+uniform int i;
+uniform int j;
+uniform int check;
+
+void main()
+{
+    gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;
+
+    /* Intentionally create an array larger than 1KB */
+    int array[512];
+    array[0] = 0;
+    array[i] = value;
+    if (array[j] == check)
+        color = vec4(0.0, 1.0, 0.0, 1.0);
+    else
+        color = vec4(1.0, 0.0, 0.0, 1.0);
+}
+
+[fragment shader]
+varying vec4 color;
+
+void main()
+{
+    gl_FragColor = color;
+}
+
+[test]
+ortho
+clear color 0.5 0.5 0.5 0.5
+clear
+uniform int i 0
+uniform int j 0
+uniform int value 1025342
+uniform int check 1025342
+draw rect 10 10 10 10
+probe rgb 15 15 0.0 1.0 0.0
+uniform int i 128
+uniform int j 128
+uniform int value 30462
+uniform int check 30462
+draw rect 30 10 10 10
+probe rgb 35 15 0.0 1.0 0.0
+uniform int i 256
+uniform int j 256
+uniform int value 502738
+uniform int check 502738
+draw rect 50 10 10 10
+probe rgb 55 15 0.0 1.0 0.0
+uniform int i 511
+uniform int j 511
+uniform int value 33048
+uniform int check 33048
+draw rect 70 10 10 10
+probe rgb 75 15 0.0 1.0 0.0
+

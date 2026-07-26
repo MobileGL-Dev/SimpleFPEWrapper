@@ -1,0 +1,46 @@
+/* Here we test that linking matches a non-exact function match with implicit
+ * function param conversions.
+ *
+ * From page 42 (page 49 of the PDF) of the GLSL 1.20 spec:
+ *
+ * "If an exact match is found, the other signatures are ignored, and
+ *  the exact match is used.  Otherwise, if no exact match is found, then
+ *  the implicit conversions in Section 4.1.10 "Implicit Conversions" will
+ *  be applied to the calling arguments if this can make their types match
+ *  a signature.  In this case, it is a semantic error if there are
+ *  multiple ways to apply these conversions to the actual arguments of a
+ *  call such that the call can be made to match multiple signatures."
+ */
+
+[require]
+GLSL >= 1.20
+
+[vertex shader]
+#version 120
+
+vec4 my_position(vec4 a)
+{
+   return a * 0.5;
+}
+
+[vertex shader]
+#version 120
+
+vec4 my_position(ivec4 a);
+
+void main()
+{
+  gl_Position = my_position(ivec4(1.0));
+}
+
+
+[fragment shader]
+#version 120
+void main()
+{
+  gl_FragColor = vec4(1.0);
+}
+
+
+[test]
+link success

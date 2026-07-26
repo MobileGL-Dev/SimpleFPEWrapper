@@ -1,0 +1,34 @@
+[require]
+GLSL >= 1.20
+
+[vertex shader]
+void main()
+{
+	gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;
+}
+
+[fragment shader]
+/* Verify that out-of-bounds access to an array does not result in any sort of
+ * program interruption.
+ *
+ * In this test case the array index will not be constant folded.
+ */
+#version 120
+
+float array[] = float [] (1.0, 2.0, 3.0, 4.0);
+uniform int idx;
+
+void main()
+{
+   if (array[idx] == 5.0)
+      gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
+   else
+      gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0);
+}
+
+[test]
+uniform int idx 20
+clear color 0.0 0.0 0.0 0.0
+clear
+ortho
+draw rect 10 10 10 10

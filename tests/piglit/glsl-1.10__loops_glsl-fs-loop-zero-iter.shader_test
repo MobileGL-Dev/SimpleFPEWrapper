@@ -1,0 +1,29 @@
+[require]
+GLSL >= 1.10
+
+[vertex shader]
+void main()
+{
+	gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;
+}
+
+[fragment shader]
+/* Verify that a zero-iteration loop is not executed.  See also
+ * bugzilla #23743.
+ */
+#define COUNT 0
+
+void main()
+{
+	gl_FragColor = vec4(0.0, 1.0, 0.0, 0.0);
+
+	for (int i = 0; i < COUNT; i++)
+		gl_FragColor = vec4(1.0, 0.0, 0.0, 0.0);
+}
+
+[test]
+clear color 0.3 0.3 0.3 0.0
+clear
+ortho
+draw rect 10 10 10 10
+probe rgb 15 15 0.0 1.0 0.0

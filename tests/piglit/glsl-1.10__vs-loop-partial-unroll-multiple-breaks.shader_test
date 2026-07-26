@@ -1,0 +1,81 @@
+# This tests unrolling of a loop with two exit points where the trip count
+# of both exits is unknown but we can estimate loop length via array access.
+[require]
+GLSL >= 1.10
+
+[vertex shader]
+uniform int loop_count;
+
+uniform int n_stop;
+uniform float stops[18];
+
+void main()
+{
+  gl_Position = gl_Vertex;
+
+  vec4 colour = vec4(1.0, 1.0, 1.0, 1.0);
+
+  int x = 0;
+  int i;
+  for (i = 0; i < n_stop - 1; i++) {
+    if (0.0 < stops[i])
+        break;
+  }
+
+  if (i == 0)
+     colour = vec4(0.0, 1.0, 0.0, 1.0);
+  else if (i == 1)
+     colour = vec4(1.0, 0.0, 0.0, 1.0);
+  else if (i == 2)
+     colour = vec4(0.0, 0.0, 1.0, 1.0);
+
+  gl_FrontColor = colour;
+}
+
+[fragment shader]
+void main()
+{
+  gl_FragColor = gl_Color;
+}
+
+[test]
+clear color 0.5 0.5 0.5 0.5
+
+uniform int n_stop 1
+uniform float stops[0] 1.0
+draw rect -1 -1 2 2
+probe all rgba 0.0 1.0 0.0 1.0
+
+uniform int n_stop 2
+uniform float stops[0] 0.0
+uniform float stops[1] 1.0
+draw rect -1 -1 2 2
+probe all rgba 1.0 0.0 0.0 1.0
+
+uniform int n_stop 3
+uniform float stops[0] 0.0
+uniform float stops[1] 1.0
+draw rect -1 -1 2 2
+probe all rgba 1.0 0.0 0.0 1.0
+
+uniform int n_stop 3
+uniform float stops[0] 0.0
+uniform float stops[1] 0.0
+uniform float stops[2] 1.0
+draw rect -1 -1 2 2
+probe all rgba 0.0 0.0 1.0 1.0
+
+uniform int n_stop 3
+uniform float stops[0] 0.0
+uniform float stops[1] 0.0
+uniform float stops[2] 0.0
+draw rect -1 -1 2 2
+probe all rgba 0.0 0.0 1.0 1.0
+
+uniform int n_stop 4
+uniform float stops[0] 0.0
+uniform float stops[1] 0.0
+uniform float stops[2] 0.0
+uniform float stops[2] 0.0
+draw rect -1 -1 2 2
+probe all rgba 1.0 1.0 1.0 1.0

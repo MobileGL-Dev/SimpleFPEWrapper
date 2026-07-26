@@ -1,0 +1,30 @@
+/* For testing an opimization which eliminates varying assigned from
+ * uniform. This will copy/move the assigned uniform to another shader.
+ * This test use the user defined uniform.
+ */
+[require]
+GLSL >= 1.10
+
+[vertex shader]
+uniform vec4 user_color;
+varying vec4 color;
+void main()
+{
+	color = user_color;
+	gl_Position = ftransform();
+}
+
+[fragment shader]
+varying vec4 color;
+void main()
+{
+	gl_FragColor = color;
+}
+
+[test]
+uniform vec4 user_color 0.2 0.5 0.8 0.1
+draw rect -1 -1 2 2
+probe all rgba 0.2 0.5 0.8 0.1
+uniform vec4 user_color 0.5 0.1 0.4 0.9
+draw rect -1 -1 2 2
+probe all rgba 0.5 0.1 0.4 0.9

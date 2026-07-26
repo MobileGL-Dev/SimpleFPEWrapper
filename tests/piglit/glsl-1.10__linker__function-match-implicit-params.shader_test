@@ -1,0 +1,37 @@
+/* Here we test that linking fails for a non-exact function match with
+ * implicit function param conversions. Implicit conversion are not allowed
+ * until glsl 1.20.
+ */
+
+[require]
+GLSL >= 1.10
+
+[vertex shader]
+#version 110
+
+vec4 my_position(vec4 a)
+{
+   return a * 0.5;
+}
+
+[vertex shader]
+#version 110
+
+vec4 my_position(ivec4 a);
+
+void main()
+{
+  gl_Position = my_position(ivec4(1.0));
+}
+
+
+[fragment shader]
+#version 110
+void main()
+{
+  gl_FragColor = vec4(1.0);
+}
+
+
+[test]
+link error

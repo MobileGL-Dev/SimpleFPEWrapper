@@ -1,0 +1,23 @@
+# Test for a mesa bug where global temps created by the compiler to copy the
+# global constants were conflicting across shaders in the same stage.
+# https://gitlab.freedesktop.org/mesa/mesa/-/issues/12136
+[require]
+GLSL >= 1.10
+
+[fragment shader]
+#version 110
+
+const float M_PI = 3.14159265;
+
+[fragment shader]
+#version 110
+
+const mat3 c_mat = mat3(0.643038, 0.0592687, 0.0059619, 0.311187, 0.931436, 0.063929, 0.0457755, 0.00929492, 0.930118 );
+
+void main()
+{
+  gl_FragColor = vec4(0);
+}
+
+[test]
+link success

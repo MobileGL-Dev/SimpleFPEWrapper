@@ -1,0 +1,49 @@
+[require]
+GLSL >= 1.20
+
+[vertex shader passthrough]
+
+[fragment shader]
+#version 120
+
+const vec4 red = vec4(1., 0., 0., 1.);
+const vec4 green = vec4(0., 1., 0., 1.);
+const vec4 blue = vec4(0., 0., 1., 1.);
+
+void main()
+{
+    int i = 17;
+    int j = -2;
+    do
+        // Page 45 of the GLSL 4.60.7 specification says:
+        //
+        //    The body of a do-while loop introduces a new scope lasting only
+        //    between the do and while (not including the while test
+        //    expression), whether or not the body is simple or compound
+        //
+        // Earlier versions of the spec have similar wording.  Any changes
+        // here are taken to be clarifications rather than intentional
+        // version-related changes.
+        int i = (j++, 0);
+    while (i <= 0 && j < 3);
+
+    if (j == -1)
+        // Correct result. Loop executed once and `j` was incremented once.
+        gl_FragColor = green;
+    else if (j == 2)
+        // This means `i` in the loop test incorrectly came from inside the
+        // loop and the sequence operator produced the wrong result (i.e., j++
+        // instead of 0). The loop terminated when `i` was 1, and, due to
+        // post-increment, `j` is 2.
+        gl_FragColor = blue;
+    else
+        // Mostly likely cause is `i` in the loop test is the `i` from inside
+        // the loop when it should be the `i` from outside the loop.
+        gl_FragColor = red;
+}
+
+[test]
+clear color 0.0 0.0 0.0 0.0
+clear
+draw rect -1 -1 2 2
+probe all rgba 0.0 1.0 0.0 1.0

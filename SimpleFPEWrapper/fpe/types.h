@@ -391,6 +391,13 @@ struct glstate_t {
     // context (previously the file-scope global fpe_inited).
     bool fpe_ready = false;
 
+    // Desktop-only glPixelStore modes, consumed by the CPU pixel repack
+    // pipeline (plans/05 and plans/08); GLES rejects these pnames.
+    bool pixel_store_unpack_swap_bytes = false;
+    bool pixel_store_unpack_lsb_first = false;
+    bool pixel_store_pack_swap_bytes = false;
+    bool pixel_store_pack_lsb_first = false;
+
     // Wrapper-side GL error slot. GL semantics: only the first error since
     // the last glGetError() is kept; later ones are discarded until read.
     GLenum first_error = GL_NO_ERROR;

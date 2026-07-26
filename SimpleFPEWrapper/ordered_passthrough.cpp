@@ -8,6 +8,7 @@
 
 #include "init.h"
 #include "fpe/drawing1x.h"
+#include "fpe/fpe.hpp"
 
 namespace {
 
@@ -156,5 +157,68 @@ ORDERED_PASSTHROUGH(glTexSubImage2D,
                     (GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width,
                      GLsizei height, GLenum format, GLenum type, const GLvoid* pixels),
                     (target, level, xoffset, yoffset, width, height, format, type, pixels))
+
+// --- Desktop-only entry points GLES lacks (plans/03, 3.4) ---------------
+
+void glDepthRange(GLdouble nearVal, GLdouble farVal) {
+    if (!sfpewEnsureBackend() || g_glFuncs.glDepthRangef == nullptr) return;
+    flushPendingImmediateDraws();
+    g_glFuncs.glDepthRangef(static_cast<GLfloat>(nearVal), static_cast<GLfloat>(farVal));
+}
+
+void glHint(GLenum target, GLenum mode) {
+    if (mode != GL_FASTEST && mode != GL_NICEST && mode != GL_DONT_CARE) {
+        g_glstate.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    switch (target) {
+    // Backed by the GLES backend.
+    case GL_GENERATE_MIPMAP_HINT:
+    case GL_FRAGMENT_SHADER_DERIVATIVE_HINT:
+        if (!sfpewEnsureBackend() || g_glFuncs.glHint == nullptr) return;
+        flushPendingImmediateDraws();
+        g_glFuncs.glHint(target, mode);
+        return;
+    // Legal GL 2.1 hints with no GLES equivalent: accepting them as a no-op
+    // is a conforming implementation of a hint.
+    case GL_FOG_HINT:
+    case GL_LINE_SMOOTH_HINT:
+    case GL_PERSPECTIVE_CORRECTION_HINT:
+    case GL_POINT_SMOOTH_HINT:
+    case GL_POLYGON_SMOOTH_HINT:
+    case GL_TEXTURE_COMPRESSION_HINT:
+        return;
+    default:
+        g_glstate.set_error(GL_INVALID_ENUM);
+        return;
+    }
+}
+
+void glPixelStorei(GLenum pname, GLint param) {
+    switch (pname) {
+    // Desktop-only modes: shadowed for the CPU repack pipeline (plans/05/08).
+    case GL_UNPACK_SWAP_BYTES:
+        g_glstate.pixel_store_unpack_swap_bytes = param != 0;
+        return;
+    case GL_UNPACK_LSB_FIRST:
+        g_glstate.pixel_store_unpack_lsb_first = param != 0;
+        return;
+    case GL_PACK_SWAP_BYTES:
+        g_glstate.pixel_store_pack_swap_bytes = param != 0;
+        return;
+    case GL_PACK_LSB_FIRST:
+        g_glstate.pixel_store_pack_lsb_first = param != 0;
+        return;
+    default:
+        // Everything else (ALIGNMENT, ROW_LENGTH, SKIP_*, IMAGE_HEIGHT...)
+        // is native ES 3.0 state; let the backend validate the value.
+        if (!sfpewEnsureBackend() || g_glFuncs.glPixelStorei == nullptr) return;
+        flushPendingImmediateDraws();
+        g_glFuncs.glPixelStorei(pname, param);
+        return;
+    }
+}
+
+void glPixelStoref(GLenum pname, GLfloat param) { glPixelStorei(pname, static_cast<GLint>(param)); }
 
 #undef ORDERED_PASSTHROUGH

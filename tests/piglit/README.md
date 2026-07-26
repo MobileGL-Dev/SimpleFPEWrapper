@@ -1,11 +1,12 @@
 # Vendored piglit shader_test subset
 
-These 618 `.shader_test` files are copied verbatim from the
+These 656 `.shader_test` files are copied verbatim from the
 [piglit](https://gitlab.freedesktop.org/mesa/piglit) test suite
 (`tests/spec/glsl-1.10/{execution,linker}` and
 `tests/spec/glsl-1.20/{execution,linker}`), selected for compatibility
 with the command subset implemented by `tests/piglit_runner.c`
-(draw rect, probes, uniforms, ortho, clear, link success/error).
+(draw rect [tex], probes, uniforms, ortho, clear, link success/error,
+texture rgbw/checkerboard/miptree, texparameter min/mag).
 File names encode their origin directory
 (`glsl-1.10__builtins_...`, `glsl-1.20__linker__...`).
 

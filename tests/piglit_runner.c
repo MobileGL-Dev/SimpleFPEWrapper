@@ -74,6 +74,12 @@ static void (*pVertexAttribPointer)(GLuint, GLint, GLenum, GLboolean, GLsizei, c
 static void (*pEnableVertexAttribArray)(GLuint);
 static void (*pDrawArrays)(GLenum, GLint, GLsizei);
 static GLenum (*pGetError)(void);
+static void (*pGenTextures)(GLsizei, GLuint*);
+static void (*pBindTexture)(GLenum, GLuint);
+static void (*pActiveTexture)(GLenum);
+static void (*pTexImage2D)(GLenum, GLint, GLint, GLsizei, GLsizei, GLint, GLenum, GLenum,
+                           const void*);
+static void (*pTexParameteri)(GLenum, GLenum, GLint);
 
 #define R(dst, name)                                                                               \
     do {                                                                                           \
@@ -122,6 +128,11 @@ static int resolve_all(void) {
     R(pEnableVertexAttribArray, "glEnableVertexAttribArray");
     R(pDrawArrays, "glDrawArrays");
     R(pGetError, "glGetError");
+    R(pGenTextures, "glGenTextures");
+    R(pBindTexture, "glBindTexture");
+    R(pActiveTexture, "glActiveTexture");
+    R(pTexImage2D, "glTexImage2D");
+    R(pTexParameteri, "glTexParameteri");
     return 1;
 }
 
@@ -189,6 +200,111 @@ static int draw_rect(float x, float y, float w, float h) {
     return 1;
 }
 
+static int draw_rect_tex(float x, float y, float w, float h, float tx, float ty, float tw,
+                         float th) {
+    GLint loc = pGetAttribLocation(g_program, "fpe_Vertex");
+    if (loc < 0) loc = pGetAttribLocation(g_program, "piglit_vertex");
+    if (loc < 0) {
+        fprintf(stderr, "FAIL: no vertex attribute (fpe_Vertex/piglit_vertex)\n");
+        return 0;
+    }
+    GLint tloc = pGetAttribLocation(g_program, "fpe_MultiTexCoord0");
+    if (tloc < 0) tloc = pGetAttribLocation(g_program, "piglit_texcoord");
+    const GLfloat data[16] = {
+        x,  y,  x + w,   y,  x,  y + h,   x + w,   y + h,   // position
+        tx, ty, tx + tw, ty, tx, ty + th, tx + tw, ty + th, // texcoord
+    };
+    pBufferData(0x8892 /* ARRAY_BUFFER */, sizeof(data), data, 0x88E8 /* DYNAMIC_DRAW */);
+    pVertexAttribPointer((GLuint)loc, 2, 0x1406 /* FLOAT */, 0, 0, 0);
+    pEnableVertexAttribArray((GLuint)loc);
+    if (tloc >= 0) {
+        pVertexAttribPointer((GLuint)tloc, 2, 0x1406 /* FLOAT */, 0, 0,
+                             (const void*)(8 * sizeof(GLfloat)));
+        pEnableVertexAttribArray((GLuint)tloc);
+    }
+    pDrawArrays(0x0005 /* TRIANGLE_STRIP */, 0, 4);
+    return 1;
+}
+
+// GL_TEXTURE_2D = 0x0DE1; upload always GL_RGBA/GL_UNSIGNED_BYTE like
+// upstream's GLES path.
+static GLuint new_bound_texture_2d(int unit, GLint min_filter) {
+    GLuint tex = 0;
+    pActiveTexture(0x84C0 /* TEXTURE0 */ + unit);
+    pGenTextures(1, &tex);
+    pBindTexture(0x0DE1, tex);
+    pTexParameteri(0x0DE1, 0x2802 /* WRAP_S */, 0x812F /* CLAMP_TO_EDGE */);
+    pTexParameteri(0x0DE1, 0x2803 /* WRAP_T */, 0x812F);
+    pTexParameteri(0x0DE1, 0x2800 /* MAG_FILTER */, 0x2600 /* NEAREST */);
+    pTexParameteri(0x0DE1, 0x2801 /* MIN_FILTER */, min_filter);
+    return tex;
+}
+
+// piglit_rgbw_texture(alpha=false): bottom-left red, bottom-right green,
+// top-left blue, top-right white; every alpha 1.
+static void texture_rgbw(int unit, int w, int h) {
+    static const GLubyte colors[4][4] = {
+        {255, 0, 0, 255}, {0, 255, 0, 255}, {0, 0, 255, 255}, {255, 255, 255, 255}};
+    new_bound_texture_2d(unit, 0x2600 /* NEAREST */);
+    GLubyte* data = malloc((size_t)w * h * 4);
+    for (int yy = 0; yy < h; ++yy) {
+        for (int xx = 0; xx < w; ++xx) {
+            const int idx = (yy < h / 2 ? 0 : 2) + (xx < w / 2 ? 0 : 1);
+            memcpy(&data[(yy * w + xx) * 4], colors[idx], 4);
+        }
+    }
+    pTexImage2D(0x0DE1, 0, 0x1908 /* RGBA */, w, h, 0, 0x1908, 0x1401 /* UBYTE */, data);
+    free(data);
+}
+
+// piglit_checkerboard_texture: half-size squares -> quadrants; c1 fills
+// bottom-left/top-right, c2 the other two.
+static void texture_checkerboard(int unit, int level, int w, int h, const float c1[4],
+                                 const float c2[4]) {
+    new_bound_texture_2d(unit, 0x2600 /* NEAREST */);
+    GLubyte b1[4], b2[4];
+    for (int i = 0; i < 4; ++i) {
+        // Round like a desktop driver quantizing float texel data; piglit
+        // expectations bake that in (0.01 -> 3/255, not 2/255).
+        b1[i] = (GLubyte)lroundf(c1[i] * 255.0f);
+        b2[i] = (GLubyte)lroundf(c2[i] * 255.0f);
+    }
+    GLubyte* data = malloc((size_t)w * h * 4);
+    const int hs = w / 2 > 0 ? w / 2 : 1, vs = h / 2 > 0 ? h / 2 : 1;
+    for (int yy = 0; yy < h; ++yy) {
+        for (int xx = 0; xx < w; ++xx) {
+            const int checker = ((yy / vs) & 1) ^ ((xx / hs) & 1);
+            memcpy(&data[(yy * w + xx) * 4], checker ? b2 : b1, 4);
+        }
+    }
+    pTexImage2D(0x0DE1, level, 0x1908, w, h, 0, 0x1908, 0x1401, data);
+    free(data);
+}
+
+// piglit_miptree_texture: 8x8..1x1 levels solid red/green/blue/white.
+static void texture_miptree(int unit) {
+    static const GLubyte colors[4][4] = {
+        {255, 0, 0, 255}, {0, 255, 0, 255}, {0, 0, 255, 255}, {255, 255, 255, 255}};
+    new_bound_texture_2d(unit, 0x2700 /* NEAREST_MIPMAP_NEAREST */);
+    for (int level = 0; level < 4; ++level) {
+        const int size = 8 >> level;
+        GLubyte data[8 * 8 * 4];
+        for (int i = 0; i < size * size; ++i) memcpy(&data[i * 4], colors[level], 4);
+        pTexImage2D(0x0DE1, level, 0x1908, size, size, 0, 0x1908, 0x1401, data);
+    }
+}
+
+static int filter_enum(const char* name, GLint* out) {
+    if (strcmp(name, "nearest") == 0) *out = 0x2600;
+    else if (strcmp(name, "linear") == 0) *out = 0x2601;
+    else if (strcmp(name, "nearest_mipmap_nearest") == 0) *out = 0x2700;
+    else if (strcmp(name, "linear_mipmap_nearest") == 0) *out = 0x2701;
+    else if (strcmp(name, "nearest_mipmap_linear") == 0) *out = 0x2702;
+    else if (strcmp(name, "linear_mipmap_linear") == 0) *out = 0x2703;
+    else return 0;
+    return 1;
+}
+
 static int probe_pixels(int px, int py, int pw, int ph, const float expected[4], int comps) {
     static GLubyte pixels[WIN * WIN * 4];
     pReadPixels(0, 0, WIN, WIN, 0x1908 /* RGBA */, 0x1401 /* UNSIGNED_BYTE */, pixels);
@@ -216,7 +332,8 @@ static int run_test_section(char* body) {
     for (char* line = strtok_r(body, "\n", &save); line; line = strtok_r(NULL, "\n", &save)) {
         while (*line == ' ' || *line == '\t') ++line;
         if (*line == '\0' || *line == '#') continue;
-        float a, b, c, d, e, f, g;
+        float a, b, c, d, e, f, g, h_;
+        int i1, i2, i3, i4;
         char name[128];
         char type[16];
         if (sscanf(line, "clear color %f %f %f %f", &a, &b, &c, &d) == 4) {
@@ -227,8 +344,37 @@ static int run_test_section(char* body) {
             pOrtho(0, WIN, 0, WIN, -1, 1);
             g_ortho_w = WIN;
             g_ortho_h = WIN;
+        } else if (sscanf(line, "draw rect tex %f %f %f %f %f %f %f %f", &a, &b, &c, &d, &e, &f,
+                          &g, &h_) == 8) {
+            if (!draw_rect_tex(a, b, c, d, e, f, g, h_)) return 0;
         } else if (sscanf(line, "draw rect %f %f %f %f", &a, &b, &c, &d) == 4) {
             if (!draw_rect(a, b, c, d)) return 0;
+        } else if (sscanf(line, "texture rgbw %d ( %d , %d )%15s", &i1, &i2, &i3, type) == 3 ||
+                   (sscanf(line, "texture rgbw %d ( %d , %d ) %15s", &i1, &i2, &i3, type) == 4 &&
+                    strcmp(type, "GL_RGBA8") == 0)) {
+            texture_rgbw(i1, i2, i3);
+        } else if (sscanf(line,
+                          "texture checkerboard %d %d ( %d , %d ) "
+                          "( %f , %f , %f , %f ) ( %f , %f , %f , %f )",
+                          &i1, &i2, &i3, &i4, &a, &b, &c, &d, &e, &f, &g, &h_) == 12) {
+            const float c1[4] = {a, b, c, d}, c2[4] = {e, f, g, h_};
+            texture_checkerboard(i1, i2, i3, i4, c1, c2);
+        } else if (sscanf(line, "texture miptree %d", &i1) == 1) {
+            texture_miptree(i1);
+        } else if (sscanf(line, "texparameter 2D min %31s", name) == 1) {
+            GLint filter = 0;
+            if (!filter_enum(name, &filter)) {
+                fprintf(stderr, "SKIP: texparameter min %s unsupported\n", name);
+                exit(77);
+            }
+            pTexParameteri(0x0DE1, 0x2801 /* MIN_FILTER */, filter);
+        } else if (sscanf(line, "texparameter 2D mag %31s", name) == 1) {
+            GLint filter = 0;
+            if (!filter_enum(name, &filter)) {
+                fprintf(stderr, "SKIP: texparameter mag %s unsupported\n", name);
+                exit(77);
+            }
+            pTexParameteri(0x0DE1, 0x2800 /* MAG_FILTER */, filter);
         } else if (sscanf(line, "relative probe rgba ( %f , %f ) ( %f , %f , %f , %f )", &a, &b, &c,
                           &d, &e, &f) == 6) {
             const float exp4[4] = {c, d, e, f};
@@ -304,8 +450,15 @@ static int run_test_section(char* body) {
     return 1;
 }
 
-static const char* kDefaultVS = "#version 110\n"
-                                "void main() { gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex; }\n";
+// Fixed-function-equivalent default vertex shader for FS-only tests,
+// like upstream's fixed-function vertex processing: position transform
+// plus the texcoord passthrough that `draw rect tex` relies on.
+static const char* kDefaultVS =
+    "#version 110\n"
+    "void main() {\n"
+    "    gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;\n"
+    "    gl_TexCoord[0] = gl_MultiTexCoord0;\n"
+    "}\n";
 
 int main(int argc, char** argv) {
     if (argc < 2) {

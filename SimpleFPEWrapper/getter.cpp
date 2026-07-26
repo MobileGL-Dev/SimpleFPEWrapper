@@ -765,6 +765,20 @@ void glGetIntegerv(GLenum pname, GLint* params) {
         *params = static_cast<GLint>(
             g_glstate.fpe_uniform.transformation.matrices_stack[matrix_idx(GL_PROJECTION)].size() + 1);
         break;
+    case GL_MAX_LIST_NESTING:
+        *params = 64;
+        break;
+    case GL_LIST_INDEX:
+        *params = static_cast<GLint>(DisplayListManager::currentList());
+        break;
+    case GL_LIST_MODE:
+        *params = DisplayListManager::currentList() != 0
+                      ? static_cast<GLint>(DisplayListManager::currentListMode())
+                      : 0;
+        break;
+    case GL_LIST_BASE:
+        *params = static_cast<GLint>(DisplayListManager::listBase());
+        break;
     case GL_TEXTURE_STACK_DEPTH: {
         const int unit = std::clamp(static_cast<int>(sfpewLogicalActiveTexture() - GL_TEXTURE0), 0, MAX_TEX - 1);
         *params = static_cast<GLint>(

@@ -37,6 +37,8 @@ void decodePackedListIds(GLsizei n, size_t width, const GLvoid* lists,
 
 } // namespace
 
+GLuint DisplayListManager::listBase() { return currentListBase; }
+
 GLuint glGenLists(GLsizei range) {
     // LOG()
     // LOG_D("glGenLists(%i)", range)
@@ -69,12 +71,28 @@ void glNewList(GLuint list, GLenum mode) {
     flushPendingImmediateDraws();
     // LOG()
     // LOG_D("glNewList(%d, %s)", list, glEnumToString(mode))
+    if (list == 0) {
+        g_glstate.set_error(GL_INVALID_VALUE);
+        return;
+    }
+    if (mode != GL_COMPILE && mode != GL_COMPILE_AND_EXECUTE) {
+        g_glstate.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    if (DisplayListManager::shouldRecord()) { // glNewList inside glNewList
+        g_glstate.set_error(GL_INVALID_OPERATION);
+        return;
+    }
     DisplayListManager::startRecord(list, mode);
 }
 
 void glEndList() {
     // LOG()
     // LOG_D("glEndLists()")
+    if (!DisplayListManager::shouldRecord()) { // glEndList without glNewList
+        g_glstate.set_error(GL_INVALID_OPERATION);
+        return;
+    }
     DisplayListManager::endRecord();
 }
 

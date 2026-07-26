@@ -239,6 +239,9 @@ public:
     }
 
     static uint64_t generation() { return mutationGeneration; }
+    static GLuint currentList() { return currentListID; }
+    static GLuint listBase(); // defined in list.cpp next to the storage
+    static GLenum currentListMode() { return listMode; }
 };
 
 inline DisplayListManager displayListManager;

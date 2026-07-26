@@ -189,3 +189,69 @@ void glDisableClientState(GLenum cap) {
     // LOG_D("Enabled Ptr: 0x%x", g_glstate.fpe_state.vertexpointer_array.enabled_pointers)
     g_glstate.fpe_state.vertexpointer_array.dirty = true;
 }
+
+// glInterleavedArrays: a GL 1.1 shortcut that declares up to four client
+// arrays inside one interleaved block (spec table 2.5). Implemented on top
+// of the public pointer/enable entry points so flushing, shadowing and
+// future recording behave exactly as if the caller made those calls.
+void glInterleavedArrays(GLenum format, GLsizei stride, const void* pointer) {
+    struct layout_t {
+        GLint tex, color, normal, vertex;    // component counts, 0 = absent
+        GLenum color_type;
+        size_t tex_off, color_off, normal_off, vertex_off, tight;
+    };
+    constexpr size_t F = sizeof(GLfloat);
+    layout_t l{};
+    switch (format) {
+    case GL_V2F:              l = {0, 0, 0, 2, 0, 0, 0, 0, 0, 2 * F}; break;
+    case GL_V3F:              l = {0, 0, 0, 3, 0, 0, 0, 0, 0, 3 * F}; break;
+    case GL_C4UB_V2F:         l = {0, 4, 0, 2, GL_UNSIGNED_BYTE, 0, 0, 0, 4, 4 + 2 * F}; break;
+    case GL_C4UB_V3F:         l = {0, 4, 0, 3, GL_UNSIGNED_BYTE, 0, 0, 0, 4, 4 + 3 * F}; break;
+    case GL_C3F_V3F:          l = {0, 3, 0, 3, GL_FLOAT, 0, 0, 0, 3 * F, 6 * F}; break;
+    case GL_N3F_V3F:          l = {0, 0, 3, 3, 0, 0, 0, 0, 3 * F, 6 * F}; l.normal_off = 0; break;
+    case GL_C4F_N3F_V3F:      l = {0, 4, 3, 3, GL_FLOAT, 0, 0, 4 * F, 7 * F, 10 * F}; break;
+    case GL_T2F_V3F:          l = {2, 0, 0, 3, 0, 0, 0, 0, 2 * F, 5 * F}; break;
+    case GL_T4F_V4F:          l = {4, 0, 0, 4, 0, 0, 0, 0, 4 * F, 8 * F}; break;
+    case GL_T2F_C4UB_V3F:     l = {2, 4, 0, 3, GL_UNSIGNED_BYTE, 0, 2 * F, 0, 2 * F + 4, 2 * F + 4 + 3 * F}; break;
+    case GL_T2F_C3F_V3F:      l = {2, 3, 0, 3, GL_FLOAT, 0, 2 * F, 0, 5 * F, 8 * F}; break;
+    case GL_T2F_N3F_V3F:      l = {2, 0, 3, 3, 0, 0, 0, 2 * F, 5 * F, 8 * F}; break;
+    case GL_T2F_C4F_N3F_V3F:  l = {2, 4, 3, 3, GL_FLOAT, 0, 2 * F, 6 * F, 9 * F, 12 * F}; break;
+    case GL_T4F_C4F_N3F_V4F:  l = {4, 4, 3, 4, GL_FLOAT, 0, 4 * F, 8 * F, 11 * F, 14 * F}; break;
+    default:
+        g_glstate.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    if (stride < 0) {
+        g_glstate.set_error(GL_INVALID_VALUE);
+        return;
+    }
+    const GLsizei effective_stride = stride != 0 ? stride : static_cast<GLsizei>(l.tight);
+    const auto* base = static_cast<const uint8_t*>(pointer);
+
+    // Per spec, these four client arrays are unconditionally disabled.
+    glDisableClientState(GL_EDGE_FLAG_ARRAY);
+    glDisableClientState(GL_INDEX_ARRAY);
+    glDisableClientState(GL_SECONDARY_COLOR_ARRAY);
+    glDisableClientState(GL_FOG_COORD_ARRAY);
+
+    if (l.tex > 0) {
+        glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+        glTexCoordPointer(l.tex, GL_FLOAT, effective_stride, base + l.tex_off);
+    } else {
+        glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+    }
+    if (l.color > 0) {
+        glEnableClientState(GL_COLOR_ARRAY);
+        glColorPointer(l.color, l.color_type, effective_stride, base + l.color_off);
+    } else {
+        glDisableClientState(GL_COLOR_ARRAY);
+    }
+    if (l.normal > 0) {
+        glEnableClientState(GL_NORMAL_ARRAY);
+        glNormalPointer(GL_FLOAT, effective_stride, base + l.normal_off);
+    } else {
+        glDisableClientState(GL_NORMAL_ARRAY);
+    }
+    glEnableClientState(GL_VERTEX_ARRAY);
+    glVertexPointer(l.vertex, GL_FLOAT, effective_stride, base + l.vertex_off);
+}

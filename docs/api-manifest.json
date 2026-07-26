@@ -1,6 +1,6 @@
 {
  "source": "lookup.cpp",
- "count": 292,
+ "count": 293,
  "entries": {
   "glActiveTexture": {
    "status": "resolvable",
@@ -389,6 +389,10 @@
   "glIndexPointer": {
    "status": "resolvable",
    "target": "glIndexPointer"
+  },
+  "glInterleavedArrays": {
+   "status": "resolvable",
+   "target": "glInterleavedArrays"
   },
   "glIsEnabled": {
    "status": "resolvable",

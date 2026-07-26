@@ -36,13 +36,17 @@ struct fpe_backend_draw_state_guard_t {
     GLint array_buffer = 0;
     GLint element_array_buffer = 0;
 
-    explicit fpe_backend_draw_state_guard_t(GLint known_program = -1) {
+    explicit fpe_backend_draw_state_guard_t(GLint known_program = -1,
+                                            GLint known_array_buffer = -1) {
         if (known_program >= 0)
             program = known_program;
         else
             g_glFuncs.glGetIntegerv(GL_CURRENT_PROGRAM, &program);
         g_glFuncs.glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &vertex_array);
-        g_glFuncs.glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &array_buffer);
+        if (known_array_buffer >= 0)
+            array_buffer = known_array_buffer;
+        else
+            g_glFuncs.glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &array_buffer);
         g_glFuncs.glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &element_array_buffer);
     }
 

@@ -136,7 +136,8 @@ void drawImmediateVertices(GLenum primitive, const GLfloat* vertices, size_t flo
         return;
     }
 
-    fpe_backend_draw_state_guard_t backendState;
+    fpe_backend_draw_state_guard_t backendState(
+        sfpewLogicalProgram(), static_cast<GLint>(sfpewLogicalArrayBufferBinding()));
     // glBegin/glEnd uses temporary interleaved data. Preserve the caller's
     // client-array declarations so an immediate draw cannot invalidate the
     // following glDrawArrays call.

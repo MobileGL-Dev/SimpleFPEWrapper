@@ -15,22 +15,38 @@
 namespace {
 
 GLuint clientArrayBufferBindings[VERTEX_POINTER_COUNT] = {};
-thread_local GLuint logicalArrayBuffer = 0;
-thread_local bool logicalArrayBufferKnown = false;
+struct logical_array_buffer_state_t {
+    EGLContext context = EGL_NO_CONTEXT;
+    GLuint binding = 0;
+    bool known = false;
+};
 
-GLuint logicalArrayBufferBinding() {
-    if (logicalArrayBufferKnown) return logicalArrayBuffer;
+thread_local logical_array_buffer_state_t logicalArrayBufferState;
+
+logical_array_buffer_state_t& getLogicalArrayBufferState() {
+    const EGLContext context =
+        g_eglFuncs.eglGetCurrentContext ? g_eglFuncs.eglGetCurrentContext() : EGL_NO_CONTEXT;
+    if (logicalArrayBufferState.context != context) {
+        logicalArrayBufferState = {};
+        logicalArrayBufferState.context = context;
+    }
+    return logicalArrayBufferState;
+}
+
+GLuint getLogicalArrayBufferBinding() {
+    auto& state = getLogicalArrayBufferState();
+    if (state.known) return state.binding;
 
     GLint binding = 0;
     g_glFuncs.glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &binding);
-    logicalArrayBuffer = static_cast<GLuint>(binding);
-    logicalArrayBufferKnown = true;
-    return logicalArrayBuffer;
+    state.binding = static_cast<GLuint>(binding);
+    state.known = true;
+    return state.binding;
 }
 
 void rememberClientArrayBufferBinding(int index) {
     if (index < 0 || index >= VERTEX_POINTER_COUNT) return;
-    clientArrayBufferBindings[index] = logicalArrayBufferBinding();
+    clientArrayBufferBindings[index] = getLogicalArrayBufferBinding();
 }
 
 } // namespace
@@ -39,8 +55,9 @@ void glBindBuffer(GLenum target, GLuint buffer) {
     flushPendingImmediateDraws();
     g_glFuncs.glBindBuffer(target, buffer);
     if (target == GL_ARRAY_BUFFER) {
-        logicalArrayBuffer = buffer;
-        logicalArrayBufferKnown = true;
+        auto& state = getLogicalArrayBufferState();
+        state.binding = buffer;
+        state.known = true;
     }
 }
 
@@ -49,14 +66,17 @@ void glDeleteBuffers(GLsizei n, const GLuint* buffers) {
     g_glFuncs.glDeleteBuffers(n, buffers);
     if (n <= 0 || buffers == nullptr) return;
 
-    if (!logicalArrayBufferKnown) return;
+    auto& state = getLogicalArrayBufferState();
+    if (!state.known) return;
     for (GLsizei i = 0; i < n; ++i) {
-        if (buffers[i] == logicalArrayBuffer) {
-            logicalArrayBuffer = 0;
+        if (buffers[i] == state.binding) {
+            state.binding = 0;
             break;
         }
     }
 }
+
+GLuint sfpewLogicalArrayBufferBinding() { return getLogicalArrayBufferBinding(); }
 
 GLuint getClientArrayBufferBinding(int index) {
     if (index < 0 || index >= VERTEX_POINTER_COUNT) return 0;

@@ -337,6 +337,12 @@ void glGetIntegerv(GLenum pname, GLint* params) {
         }
         *params = cachedNumExtensions;
         break;
+    case GL_CURRENT_PROGRAM:
+        *params = sfpewLogicalProgram();
+        break;
+    case GL_ARRAY_BUFFER_BINDING:
+        *params = static_cast<GLint>(sfpewLogicalArrayBufferBinding());
+        break;
     default:
         g_glFuncs.glGetIntegerv(pname, params);
         break;

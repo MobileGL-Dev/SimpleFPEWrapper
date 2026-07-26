@@ -250,6 +250,10 @@ struct fixed_function_uniform_t {
     // glLightModel
     glm::vec4 light_model_ambient = {0.2, 0.2, 0.2, 1.0};
 
+    // glPointSize (GLES has no fixed point-size state; emitted as
+    // gl_PointSize from the generated vertex shader)
+    GLfloat point_size = 1.0f;
+
     // glMatrix*
     struct transformation_t transformation;
 
@@ -284,6 +288,7 @@ struct program_uniform_locations_t {
     GLint fog_start = -1;
     GLint fog_end = -1;
     GLint alpha_ref = -1;
+    GLint point_size = -1;
     bool initialized = false;
 
     void initialize(GLuint program);
@@ -306,6 +311,7 @@ struct program_uniform_values_t {
     GLfloat fog_start = 0.0f;
     GLfloat fog_end = 0.0f;
     GLclampf alpha_ref = 0.0f;
+    GLfloat point_size = 1.0f;
     bool initialized = false;
 };
 

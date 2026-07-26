@@ -38,6 +38,7 @@ void program_uniform_locations_t::initialize(GLuint program) {
     fog_start = location("FogStart");
     fog_end = location("FogEnd");
     alpha_ref = location("alpharef");
+    point_size = location("PointSize");
 
     for (int i = 0; i < MAX_LIGHTS; ++i) {
         light_ambient[i] = location(std::format("Light{}Ambient", i));
@@ -167,6 +168,11 @@ void glstate_t::send_uniforms(program_t& program) {
         (first_upload || fpe_uniform.alpha_ref != values.alpha_ref)) {
         if (locations.alpha_ref >= 0) g_glFuncs.glUniform1f(locations.alpha_ref, fpe_uniform.alpha_ref);
         values.alpha_ref = fpe_uniform.alpha_ref;
+    }
+
+    if ((first_upload || fpe_uniform.point_size != values.point_size) && locations.point_size >= 0) {
+        g_glFuncs.glUniform1f(locations.point_size, fpe_uniform.point_size);
+        values.point_size = fpe_uniform.point_size;
     }
 
     values.initialized = true;

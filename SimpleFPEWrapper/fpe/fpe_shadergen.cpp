@@ -1372,6 +1372,7 @@ void add_vs_inout(const fixed_function_state_t& state, scratch_t& scratch, std::
 void add_vs_uniforms(const fixed_function_state_t& state, scratch_t& scratch, std::string& vs) {
     // Transformation matrix
     vs += "uniform mat4 ModelViewProjMat;\n";
+    vs += "uniform float PointSize;\n"; // GLES has no glPointSize state
     if (state.fpe_bools.fog_enable) {
         vs += "uniform mat4 ModelViewMat;\n";
     }
@@ -1452,7 +1453,8 @@ void add_lighting_calculation(const fixed_function_state_t& state, const std::st
 void add_vs_body(const fixed_function_state_t& state, scratch_t& scratch, std::string& vs) {
     vs += "void main() {\n"
           //            "   gl_Position = ProjMat * ModelViewMat * vec4(Position, 1.0);\n";
-          "    gl_Position = ModelViewProjMat * Position;\n";
+          "    gl_Position = ModelViewProjMat * Position;\n"
+          "    gl_PointSize = PointSize;\n";
     if (state.fpe_bools.fog_enable) {
         vs += "    vec4 viewPosition = ModelViewMat * Position;\n"
               "    vViewPosition = viewPosition.xyz;\n";

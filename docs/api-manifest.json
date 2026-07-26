@@ -1,6 +1,6 @@
 {
  "source": "lookup.cpp",
- "count": 299,
+ "count": 300,
  "entries": {
   "glActiveTexture": {
    "status": "resolvable",
@@ -817,6 +817,10 @@
   "glPixelStorei": {
    "status": "resolvable",
    "target": "glPixelStorei"
+  },
+  "glPointSize": {
+   "status": "resolvable",
+   "target": "glPointSize"
   },
   "glPolygonOffset": {
    "status": "resolvable",

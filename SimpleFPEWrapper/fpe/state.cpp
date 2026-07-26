@@ -1024,6 +1024,16 @@ DEFINE_MULTITEXCOORD_VECTOR_ALL(f, GLfloat)
 DEFINE_MULTITEXCOORD_VECTOR_ALL(i, GLint)
 DEFINE_MULTITEXCOORD_VECTOR_ALL(s, GLshort)
 
+void glPointSize(GLfloat size) {
+    flushPendingImmediateDraws();
+    if (size <= 0.0f) {
+        g_glstate.set_error(GL_INVALID_VALUE);
+        return;
+    }
+    LIST_RECORD(glPointSize, {}, size)
+    g_glstate.fpe_uniform.point_size = size;
+}
+
 // glRect: GL 2.1 defines it as the equivalent Begin/Vertex2/End sequence.
 // Delegating to the public entry points keeps display-list recording and
 // glyph batching semantics identical to the expanded form.

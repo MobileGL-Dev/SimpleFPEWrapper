@@ -1484,7 +1484,7 @@ void add_vs_body(const fixed_function_state_t& state, scratch_t& scratch, std::s
     vs += "}\n";
 }
 
-void add_fs_uniforms(const fixed_function_state_t& state, scratch_t& scratch, std::string& fs) {
+void add_fs_uniforms(const fixed_function_state_t& state, [[maybe_unused]] scratch_t& scratch, std::string& fs) {
     for (int i = 0; i < MAX_TEX; ++i) {
         if (state.fpe_bools.texture_2d_enable[i]) {
             fs += std::format("uniform sampler2D Sampler{};\n", i);

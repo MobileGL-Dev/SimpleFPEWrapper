@@ -221,7 +221,7 @@ int matrix_idx(GLenum matrix_mode) {
     return 0;
 }
 
-void print_matrix(const glm::mat4& mat) {
+void print_matrix([[maybe_unused]] const glm::mat4& mat) {
 #if DEBUG || GLOBAL_DEBUG
     auto* pmat = (const float*)glm::value_ptr(mat);
     // LOG_D_N("[")

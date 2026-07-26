@@ -63,6 +63,17 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
 
 target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE -Wall -Wextra)
 
+# GCC's LTO value-range analysis reports a false positive inside xxhash's
+# byte-copy loop when a 64-byte add() call is inlined (the guarded branch
+# is provably dead there: bufferSize + 64 < 32 never holds). The warning
+# is emitted at the ltrans stage, out of reach of pragmas and per-TU
+# options, so waive these two categories for the LTO link only;
+# compile-time diagnostics keep them enabled.
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        target_link_options(${CMAKE_PROJECT_NAME} PRIVATE
+                -Wno-stringop-overflow -Wno-aggressive-loop-optimizations)
+endif()
+
 target_include_directories(${CMAKE_PROJECT_NAME} PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_include_directories(${CMAKE_PROJECT_NAME} SYSTEM PUBLIC
         ${CMAKE_SOURCE_DIR}/3rdparty/glm

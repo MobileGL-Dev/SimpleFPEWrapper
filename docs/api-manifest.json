@@ -1,6 +1,6 @@
 {
  "source": "lookup.cpp",
- "count": 300,
+ "count": 303,
  "entries": {
   "glActiveTexture": {
    "status": "resolvable",
@@ -81,6 +81,10 @@
   "glClientActiveTextureARB": {
    "status": "alias",
    "target": "glClientActiveTexture"
+  },
+  "glClipPlane": {
+   "status": "resolvable",
+   "target": "glClipPlane"
   },
   "glColor3b": {
    "status": "resolvable",
@@ -341,6 +345,10 @@
   "glGetBooleanv": {
    "status": "resolvable",
    "target": "glGetBooleanv"
+  },
+  "glGetClipPlane": {
+   "status": "resolvable",
+   "target": "glGetClipPlane"
   },
   "glGetDoublev": {
    "status": "resolvable",
@@ -821,6 +829,10 @@
   "glPointSize": {
    "status": "resolvable",
    "target": "glPointSize"
+  },
+  "glPolygonMode": {
+   "status": "resolvable",
+   "target": "glPolygonMode"
   },
   "glPolygonOffset": {
    "status": "resolvable",

@@ -312,6 +312,9 @@ SFPEW_APIENTRY __eglMustCastToProperFunctionPointerType eglGetProcAddress(const 
         return (__eglMustCastToProperFunctionPointerType)glMultiTexCoord4sv;
     }
     GETPROC(glPointSize, name)
+    GETPROC(glPolygonMode, name)
+    GETPROC(glClipPlane, name)
+    GETPROC(glGetClipPlane, name)
     GETPROC(glRectd, name)
     GETPROC(glRectf, name)
     GETPROC(glRecti, name)

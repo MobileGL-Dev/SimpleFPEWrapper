@@ -114,6 +114,14 @@ bool hijack_fpe_states(GLenum cap, bool enable, fixed_function_bool_t* bools) {
     case GL_NORMALIZE:
         bools->normalize_enable = enable;
         return true;
+    case GL_CLIP_PLANE0:
+    case GL_CLIP_PLANE0 + 1:
+    case GL_CLIP_PLANE0 + 2:
+    case GL_CLIP_PLANE0 + 3:
+    case GL_CLIP_PLANE0 + 4:
+    case GL_CLIP_PLANE0 + 5:
+        bools->clip_plane_enable[cap - GL_CLIP_PLANE0] = enable;
+        return true;
     case GL_RESCALE_NORMAL:
         bools->rescale_normal_enable = enable;
         return true;
@@ -1023,6 +1031,49 @@ DEFINE_MULTITEXCOORD_VECTOR_ALL(d, GLdouble)
 DEFINE_MULTITEXCOORD_VECTOR_ALL(f, GLfloat)
 DEFINE_MULTITEXCOORD_VECTOR_ALL(i, GLint)
 DEFINE_MULTITEXCOORD_VECTOR_ALL(s, GLshort)
+
+void glPolygonMode(GLenum face, GLenum mode) {
+    flushPendingImmediateDraws();
+    if (mode != GL_FILL && mode != GL_LINE && mode != GL_POINT) {
+        g_glstate.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    if (face != GL_FRONT && face != GL_BACK && face != GL_FRONT_AND_BACK) {
+        g_glstate.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    LIST_RECORD(glPolygonMode, {}, face, mode)
+    if (face == GL_FRONT || face == GL_FRONT_AND_BACK) g_glstate.fpe_uniform.polygon_mode_front = mode;
+    if (face == GL_BACK || face == GL_FRONT_AND_BACK) g_glstate.fpe_uniform.polygon_mode_back = mode;
+    if (mode != GL_FILL)
+        SFPEW_LOGW("glPolygonMode(0x%x): LINE/POINT emulation is not implemented yet (plans/08)", mode);
+}
+
+void glClipPlane(GLenum plane, const GLdouble* equation) {
+    flushPendingImmediateDraws();
+    if (plane < GL_CLIP_PLANE0 || plane >= GL_CLIP_PLANE0 + 6) {
+        g_glstate.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    if (equation == nullptr) return;
+    LIST_RECORD(glClipPlane, {{1, sizeof(GLdouble) * 4}}, plane, equation)
+    // Spec: the stored plane is the given equation transformed by the
+    // inverse of the model-view matrix current at call time.
+    const auto& mv = g_glstate.fpe_uniform.transformation.matrices[matrix_idx(GL_MODELVIEW)];
+    const glm::vec4 eye = glm::transpose(glm::inverse(mv)) *
+                          glm::vec4((float)equation[0], (float)equation[1], (float)equation[2], (float)equation[3]);
+    g_glstate.fpe_uniform.clip_planes[plane - GL_CLIP_PLANE0] = glm::dvec4(eye);
+}
+
+void glGetClipPlane(GLenum plane, GLdouble* equation) {
+    if (equation == nullptr) return;
+    if (plane < GL_CLIP_PLANE0 || plane >= GL_CLIP_PLANE0 + 6) {
+        g_glstate.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    const auto& p = g_glstate.fpe_uniform.clip_planes[plane - GL_CLIP_PLANE0];
+    for (int i = 0; i < 4; ++i) equation[i] = p[i];
+}
 
 void glPointSize(GLfloat size) {
     flushPendingImmediateDraws();

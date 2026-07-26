@@ -81,6 +81,9 @@ struct fixed_function_bool_t {      // glEnable/glDisable
     bool rescale_normal_enable = false;
     bool light_enable[MAX_LIGHTS] = {false};
     bool texture_2d_enable[MAX_TEX] = {false};
+    // Stored for the plans/08 shader consumption; participates in the
+    // program hash via the aggregate but is not read by the generator yet.
+    bool clip_plane_enable[6] = {false};
 };
 
 struct light_t {
@@ -249,6 +252,14 @@ struct fixed_function_uniform_t {
 
     // glLightModel
     glm::vec4 light_model_ambient = {0.2, 0.2, 0.2, 1.0};
+
+    // glPolygonMode: GL_FILL is native; LINE/POINT emulation is plans/08.
+    GLenum polygon_mode_front = GL_FILL;
+    GLenum polygon_mode_back = GL_FILL;
+
+    // glClipPlane equations, already transformed into eye space at call
+    // time per spec; consumed by the generated shaders in plans/08.
+    glm::dvec4 clip_planes[6] = {};
 
     // glPointSize (GLES has no fixed point-size state; emitted as
     // gl_PointSize from the generated vertex shader)

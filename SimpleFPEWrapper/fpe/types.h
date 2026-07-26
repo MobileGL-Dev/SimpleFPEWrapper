@@ -554,6 +554,17 @@ struct glstate_t {
     const char* fpe_vtx_shader_src;
     const char* fpe_frag_shader_src;
 
+    // Backend binding shadows: the VAO the wrapper last bound on the backend,
+    // and the element-array binding of VAO 0 (element bindings are VAO state;
+    // only VAO 0's needs explicit save/restore). They replace the draw
+    // guard's two synchronous glGetIntegerv round-trips and self-heal with a
+    // real query every 256 draws, mirroring the logical program shadow.
+    GLint backend_vao_binding = 0;
+    bool backend_vao_known = false;
+    GLint backend_vao0_element_binding = 0;
+    bool backend_vao0_element_known = false;
+    unsigned backend_shadow_heal_counter = 0;
+
     // Attribute stack storage (defined in attribstack.cpp); lives here so
     // it is per-context like everything else on this aggregate. shared_ptr
     // erases the deleter, so the incomplete type is fine in this header.

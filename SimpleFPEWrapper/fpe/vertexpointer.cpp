@@ -62,6 +62,17 @@ void glBindBuffer(GLenum target, GLuint buffer) {
         auto& state = getLogicalArrayBufferState();
         state.binding = buffer;
         state.known = true;
+    } else if (target == GL_ELEMENT_ARRAY_BUFFER) {
+        // Element bindings are VAO state; app calls run with the app's VAO
+        // bound (the draw guard restored it). Track VAO 0's binding for the
+        // guard; with an unknown or non-zero backend VAO, force a re-query.
+        auto& gs = g_glstate_c;
+        if (gs.backend_vao_known && gs.backend_vao_binding == 0) {
+            gs.backend_vao0_element_binding = static_cast<GLint>(buffer);
+            gs.backend_vao0_element_known = true;
+        } else {
+            gs.backend_vao0_element_known = false;
+        }
     }
 }
 
@@ -73,11 +84,14 @@ void glDeleteBuffers(GLsizei n, const GLuint* buffers) {
     if (n <= 0 || buffers == nullptr) return;
 
     auto& state = getLogicalArrayBufferState();
-    if (!state.known) return;
+    auto& gs = g_glstate_c;
     for (GLsizei i = 0; i < n; ++i) {
-        if (buffers[i] == state.binding) {
-            state.binding = 0;
-            break;
+        if (state.known && buffers[i] == state.binding) state.binding = 0;
+        // Deleting the shadowed element binding: let the next draw guard
+        // re-query instead of guessing what the driver unbound.
+        if (gs.backend_vao0_element_known &&
+            static_cast<GLint>(buffers[i]) == gs.backend_vao0_element_binding) {
+            gs.backend_vao0_element_known = false;
         }
     }
 }

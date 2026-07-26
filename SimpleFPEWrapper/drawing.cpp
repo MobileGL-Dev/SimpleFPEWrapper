@@ -929,7 +929,7 @@ void drawElementsNow(GLenum mode, GLsizei count, GLenum type, const GLvoid* indi
     if (rewrite_quads || element_buffer == 0) {
         // CPU-side index data goes through the dedicated FPE element buffer.
         if (state.fpe_element_ibo == 0) g_glFuncs.glGenBuffers(1, &state.fpe_element_ibo);
-        g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, state.fpe_element_ibo);
+        sfpewBackendBindElementBuffer(state.fpe_element_ibo);
         state.fpe_ibo_bound = false; // fpe_vao's element binding changed
         if (rewrite_quads) {
             g_glFuncs.glBufferData(GL_ELEMENT_ARRAY_BUFFER,
@@ -943,7 +943,7 @@ void drawElementsNow(GLenum mode, GLsizei count, GLenum type, const GLvoid* indi
         draw_indices = nullptr; // offset 0 into the freshly uploaded buffer
     } else {
         // Indices stay in the caller's VBO; bind it inside fpe_vao.
-        g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLuint>(element_buffer));
+        sfpewBackendBindElementBuffer(static_cast<GLuint>(element_buffer));
         state.fpe_ibo_bound = false;
     }
 

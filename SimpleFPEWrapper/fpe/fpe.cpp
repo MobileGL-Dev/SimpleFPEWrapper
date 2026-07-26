@@ -7,6 +7,7 @@
 // End of Source File Header
 
 #include "fpe.hpp"
+#include "drawing1x.h"
 #include <memory>
 #include <mutex>
 #include <glm/gtc/type_ptr.hpp>
@@ -354,7 +355,7 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint p
     raw_vpa.generate_compressed_index(g_glstate_c.fpe_state.fpe_draw.current_data.sizes.data);
     //    g_glFuncs.glGenVertexArrays(1, &vpa.fpe_vao);
     // LOG_D("fpe_vao: %d", g_glstate_c.fpe_state.fpe_vao)
-    g_glFuncs.glBindVertexArray(g_glstate_c.fpe_state.fpe_vao);
+    sfpewBackendBindVertexArray(g_glstate_c.fpe_state.fpe_vao);
 
     auto key = g_glstate_c.program_hash();
     // LOG_D("%s: key=0x%x", __func__, key)
@@ -369,58 +370,17 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint p
     }
     g_glFuncs.glUseProgram(prog_id);
 
-    // Client-memory arrays are uploaded with glBufferData below. That upload
-    // must NEVER target the caller's bound VBO: route it into fpe_vbo even
-    // when the caller had a buffer bound, or their buffer contents would be
-    // destroyed by the draw.
+    // Client-memory arrays stream through the persistent-coherent immediate
+    // ring (no per-draw buffer orphan). The upload must NEVER target the
+    // caller's bound VBO, or their buffer contents would be destroyed.
     const bool client_memory_draw =
         reinterpret_cast<uintptr_t>(vpa.starting_pointer) > static_cast<uintptr_t>(vpa.stride);
 
-    // Ugh...Why binding vbo is required BEFORE calling VertexAttrib* functions?
-    if (previous_array_buffer == 0 || client_memory_draw) {
-        g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, g_glstate_c.fpe_state.fpe_vbo);
-    }
-
-    // LOG_D("starting_ptr = %p", vpa.starting_pointer)
-    // LOG_D("stride = %d", vpa.stride)
-
-    const GLuint attribute_array_buffer = (previous_array_buffer == 0 || client_memory_draw)
-                                              ? g_glstate_c.fpe_state.fpe_vbo
-                                              : static_cast<GLuint>(previous_array_buffer);
-    g_glstate_c.send_vertex_attributes(vpa, attribute_array_buffer);
-    vpa.dirty = false;
-
     int ret = 0;
 
-    // Making sure it is a valid pointer rather than an offset into the buffer
     if (client_memory_draw) {
-        // LOG_D("VB @ 0x%x, size = %d * %d = %d", vpa.starting_pointer, *count, vpa.stride, *count * vpa.stride)
-
-#if DEBUG || GLOBAL_DEBUG
-        //    for (int j = 0; j < *count; ++j) {
-//        for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
-//            bool enabled = ((vpa.enabled_pointers >> i) & 1);
-//
-//            if (!enabled)
-//                continue;
-//
-//            auto &vp = vpa.pointers[i];
-//
-//            // const void* ptr, GLenum type, int size, int stride, int offset, int i
-//            log_vtx_attrib_data(vpa.starting_pointer, vp.type, vp.size, vp.stride,
-//                                (const char*)vp.pointer - (const char*)vpa.starting_pointer, j);
-//
-//        }
-//        // LOG_D("")
-//    }
-#endif
-
-        // LOG_D("glBufferData: size = %d, data = 0x%x -> GL_ARRAY_BUFFER (%d)", *count * vpa.stride,
-        // vpa.starting_pointer,
-        //      g_glstate_c.fpe_state.fpe_vbo)
-
         // 64-bit size math: GLsizei * GLsizei overflowed for large draws,
-        // handing glBufferData a negative or wrapped size.
+        // handing the upload a negative or wrapped size.
         const int64_t upload_size = (int64_t)*count * (int64_t)vpa.stride;
         const int64_t skip = (int64_t)*first * (int64_t)vpa.stride;
         if (upload_size <= 0 || upload_size > (int64_t)std::numeric_limits<GLsizei>::max() || skip < 0) {
@@ -429,12 +389,24 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint p
             return -1;
         }
         const auto* draw_start = static_cast<const uint8_t*>(vpa.starting_pointer) + skip;
-        g_glFuncs.glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)upload_size, draw_start, GL_DYNAMIC_DRAW);
+        auto& st = g_glstate_c.fpe_state;
+        g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, st.fpe_immediate_vbo);
+        const GLintptr ring_offset =
+            sfpewUploadImmediateVertexData(draw_start, (size_t)upload_size);
+        g_glstate_c.send_vertex_attributes(vpa, st.fpe_immediate_vbo, ring_offset);
         *first = 0;
-
     } else {
-        // LOG_D("Using already bound VB")
+        // Buffer-based arrays: attributes reference the caller's VBO (or
+        // fpe_vbo when nothing is bound, matching the legacy layout).
+        if (previous_array_buffer == 0) {
+            g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, g_glstate_c.fpe_state.fpe_vbo);
+        }
+        const GLuint attribute_array_buffer = previous_array_buffer == 0
+                                                  ? g_glstate_c.fpe_state.fpe_vbo
+                                                  : static_cast<GLuint>(previous_array_buffer);
+        g_glstate_c.send_vertex_attributes(vpa, attribute_array_buffer);
     }
+    vpa.dirty = false;
 
     // plans/08 8.3: GL_LINE/GL_POINT polygon modes (uniform across faces -
     // per-face split needs CPU facing tests and stays a documented gap).
@@ -476,7 +448,7 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint p
         if (!wire.empty()) {
             auto& st = g_glstate_c.fpe_state;
             if (st.fpe_element_ibo == 0) g_glFuncs.glGenBuffers(1, &st.fpe_element_ibo);
-            g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, st.fpe_element_ibo);
+            sfpewBackendBindElementBuffer(st.fpe_element_ibo);
             st.fpe_ibo_bound = false; // fpe_vao's element binding changed
             g_glFuncs.glBufferData(GL_ELEMENT_ARRAY_BUFFER,
                                    (GLsizeiptr)(wire.size() * sizeof(uint32_t)), wire.data(),
@@ -506,7 +478,7 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint p
         //      g_glstate_c.fpe_state.fpe_ibo)
 
         if (!g_glstate_c.fpe_state.fpe_ibo_bound) {
-            g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_glstate_c.fpe_state.fpe_ibo);
+            sfpewBackendBindElementBuffer(g_glstate_c.fpe_state.fpe_ibo);
             g_glstate_c.fpe_state.fpe_ibo_bound = true;
         }
 

@@ -22,7 +22,9 @@ constexpr size_t kImmediateVboMinCapacity = 16u * 1024u * 1024u;
 constexpr size_t kImmediateVboAlignment = 256u;
 constexpr size_t kImmediateGlyphBatchLimit = 256u;
 
-GLintptr uploadImmediateVertexData(const void* data, size_t size) {
+} // namespace
+
+GLintptr sfpewUploadImmediateVertexData(const void* data, size_t size) {
     auto& gs = g_glstate_c;
     auto& state = gs.fpe_state;
     const auto dropAllFences = [&]() {
@@ -55,7 +57,7 @@ GLintptr uploadImmediateVertexData(const void* data, size_t size) {
         if (g_glFuncs.glFinish != nullptr) g_glFuncs.glFinish();
         replaceImmediateBuffer();
         state.fpe_immediate_vbo_persistent_attempted = false;
-        return uploadImmediateVertexData(data, size);
+        return sfpewUploadImmediateVertexData(data, size);
     }
     if (!state.fpe_immediate_vbo_persistent_attempted) {
         state.fpe_immediate_vbo_persistent_attempted = true;
@@ -127,6 +129,8 @@ GLintptr uploadImmediateVertexData(const void* data, size_t size) {
     state.fpe_immediate_vbo_offset = offset + size;
     return static_cast<GLintptr>(offset);
 }
+
+namespace {
 
 struct immediate_client_state_guard_t {
     vertex_pointer_array_t vertexPointerArray = g_glstate_c.fpe_state.vertexpointer_array;
@@ -220,11 +224,11 @@ void drawImmediateVertices(GLenum primitive, const GLfloat* vertices, size_t flo
     }
 
     g_glFuncs.glUseProgram(programId);
-    g_glFuncs.glBindVertexArray(state.fpe_vao);
+    sfpewBackendBindVertexArray(state.fpe_vao);
     g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, state.fpe_immediate_vbo);
 
     const GLintptr vertexOffset =
-        uploadImmediateVertexData(vertices, floatCount * sizeof(GLfloat));
+        sfpewUploadImmediateVertexData(vertices, floatCount * sizeof(GLfloat));
     gs.send_vertex_attributes(va, state.fpe_immediate_vbo, vertexOffset);
     gs.send_uniforms(program);
 
@@ -233,7 +237,7 @@ void drawImmediateVertices(GLenum primitive, const GLfloat* vertices, size_t flo
         const GLsizei indexCount = (drawCount / 4) * 6;
         const bool uploadIndices = prepare_quad_indices(drawCount, 0);
         if (!state.fpe_ibo_bound) {
-            g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, state.fpe_ibo);
+            sfpewBackendBindElementBuffer(state.fpe_ibo);
             state.fpe_ibo_bound = true;
         }
         if (uploadIndices) {

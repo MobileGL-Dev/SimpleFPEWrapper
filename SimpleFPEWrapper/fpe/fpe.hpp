@@ -47,11 +47,31 @@ const void* quad_index_data();
 size_t quad_index_size_bytes();
 GLenum quad_index_type();
 
+// Route every wrapper-side backend VAO / element-array bind through these so
+// the binding shadows on glstate_t stay exact (docs/context-model.md). All
+// call sites run downstream of an entry's strict resolve.
+inline void sfpewBackendBindVertexArray(GLuint vao) {
+    g_glFuncs.glBindVertexArray(vao);
+    auto& gs = g_glstate_c;
+    gs.backend_vao_binding = static_cast<GLint>(vao);
+    gs.backend_vao_known = true;
+}
+
+inline void sfpewBackendBindElementBuffer(GLuint buffer) {
+    g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, buffer);
+    auto& gs = g_glstate_c;
+    if (gs.backend_vao_known && gs.backend_vao_binding == 0) {
+        gs.backend_vao0_element_binding = static_cast<GLint>(buffer);
+        gs.backend_vao0_element_known = true;
+    }
+}
+
 struct fpe_backend_draw_state_guard_t {
     GLint program = 0;
     GLint vertex_array = 0;
     GLint array_buffer = 0;
-    GLint element_array_buffer = 0;
+    // -1: not captured; the restored VAO carries its own element binding.
+    GLint element_array_buffer = -1;
     // Without a backend (no context yet / loader failure) the guard must be
     // inert: display-list replay reaches this even backend-less.
     bool active = false;
@@ -67,19 +87,42 @@ struct fpe_backend_draw_state_guard_t {
             program = known_program;
         else
             g_glFuncs.glGetIntegerv(GL_CURRENT_PROGRAM, &program);
-        g_glFuncs.glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &vertex_array);
         if (known_array_buffer >= 0)
             array_buffer = known_array_buffer;
         else
             g_glFuncs.glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &array_buffer);
-        g_glFuncs.glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &element_array_buffer);
+
+        // The two remaining bindings come from the backend shadows instead of
+        // synchronous glGetIntegerv round-trips; a real query self-heals them
+        // every 256 draws (JNI-direct callers cannot desync them for long).
+        auto& gs = g_glstate_c;
+        const bool heal = (++gs.backend_shadow_heal_counter & 0xFFu) == 0u;
+        if (gs.backend_vao_known && !heal) {
+            vertex_array = gs.backend_vao_binding;
+        } else {
+            g_glFuncs.glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &vertex_array);
+            gs.backend_vao_binding = vertex_array;
+            gs.backend_vao_known = true;
+        }
+        if (vertex_array == 0) {
+            if (gs.backend_vao0_element_known && !heal) {
+                element_array_buffer = gs.backend_vao0_element_binding;
+            } else {
+                g_glFuncs.glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &element_array_buffer);
+                gs.backend_vao0_element_binding = element_array_buffer;
+                gs.backend_vao0_element_known = true;
+            }
+        }
     }
 
     ~fpe_backend_draw_state_guard_t() {
         if (!active) return;
         g_glFuncs.glUseProgram(program);
-        g_glFuncs.glBindVertexArray(vertex_array);
-        g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, element_array_buffer);
+        sfpewBackendBindVertexArray(static_cast<GLuint>(vertex_array));
+        // A non-zero restored VAO already carries its element binding; only
+        // VAO 0's must be re-bound explicitly.
+        if (element_array_buffer >= 0)
+            sfpewBackendBindElementBuffer(static_cast<GLuint>(element_array_buffer));
         g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, array_buffer);
     }
 

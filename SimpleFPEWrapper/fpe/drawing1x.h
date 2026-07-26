@@ -15,6 +15,12 @@
 
 void flushPendingImmediateDraws();
 
+// Stream-upload into the persistent-coherent immediate ring (GL_ARRAY_BUFFER
+// must already be bound to fpe_immediate_vbo). Returns the byte offset of the
+// uploaded range inside the ring (0 on the glBufferData fallback). Shared by
+// the glBegin/glEnd path and the client-array draw commit.
+GLintptr sfpewUploadImmediateVertexData(const void* data, size_t size);
+
 // Vertex-data entries ride the Begin/End context pin: zero strict resolves
 // while a batch is collecting, one strict resolve otherwise (types.h).
 template <typename Type, GLint N>

@@ -13,6 +13,7 @@
 #include <limits>
 #include <cstring>
 #include <vector>
+#include <algorithm>
 
 #define DEBUG 0
 
@@ -276,6 +277,9 @@ bool gather_client_arrays(const vertex_pointer_array_t& raw, GLint first, GLsize
     int enabled_count = 0;
     size_t element_bytes[VERTEX_POINTER_COUNT] = {};
     size_t total_stride = 0;
+    GLsizei shared_stride = -1;
+    uintptr_t window_begin = UINTPTR_MAX;
+    uintptr_t window_end = 0;
     for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
         if (!((raw.enabled_pointers >> i) & 1u)) continue;
         const auto& attr = raw.attributes[i];
@@ -284,8 +288,23 @@ bool gather_client_arrays(const vertex_pointer_array_t& raw, GLint first, GLsize
         ++enabled_count;
         element_bytes[i] = (size_t)attr.size * (size_t)type_size(attr.type);
         total_stride += element_bytes[i];
+        const GLsizei effective_stride =
+            attr.stride != 0 ? attr.stride : (GLsizei)element_bytes[i];
+        if (shared_stride < 0) shared_stride = effective_stride;
+        else if (effective_stride != shared_stride) shared_stride = 0;
+        const auto ptr = reinterpret_cast<uintptr_t>(attr.pointer);
+        window_begin = std::min(window_begin, ptr);
+        window_end = std::max(window_end, ptr + element_bytes[i]);
     }
     if (enabled_count < 2 || total_stride == 0) return false;
+
+    // Already-interleaved layout (the Minecraft chunk shape): every enabled
+    // attribute shares one stride and lives inside a single stride window,
+    // so normalize()'s single-block zero-copy path covers it. The gather
+    // would only re-pack identical data element by element.
+    if (shared_stride > 0 && window_end - window_begin <= (uintptr_t)shared_stride) {
+        return false;
+    }
 
     static thread_local std::vector<uint8_t> gathered;
     const size_t total_size = (size_t)count * total_stride;

@@ -173,10 +173,25 @@ struct fixed_function_draw_state_t {
 
     size_t vertex_count = 0;
 
+    // advance() fast path: compact copy plan derived from sizes. Rebuilt
+    // whenever the sizes snapshot below stops matching current_data.sizes
+    // (a 92-byte compare), which also catches wholesale sizes overwrites
+    // (attrib-stack restore, immediate-draw guard) without hooks.
+    struct packed_span_t {
+        uint16_t src_offset; // in floats, from the start of current_data
+        uint16_t count;
+    };
+    packed_span_t packed_spans[VERTEX_POINTER_COUNT];
+    int packed_span_count = -1; // -1: never built
+    size_t packed_floats = 0;
+    fixed_function_draw_size_t packed_layout_sizes;
+
     void reset();
 
     // Put one vertex into vb, from current draw state
     void advance();
+
+    void rebuild_packed_layout();
 
     // Declare attribute `slot` as size `requested` for the primitive being
     // collected. First attribute use after vertices were already collected

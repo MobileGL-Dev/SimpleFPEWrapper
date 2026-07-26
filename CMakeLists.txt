@@ -74,6 +74,7 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         SimpleFPEWrapper/fpe/list.cpp
         SimpleFPEWrapper/fpe/attribstack.cpp
         SimpleFPEWrapper/fpe/pixelops.cpp
+        SimpleFPEWrapper/shader/translator.cpp
         SimpleFPEWrapper/fpe/pointer_utils.cpp
         SimpleFPEWrapper/fpe/drawing1x.cpp
         SimpleFPEWrapper/fpe/vertexpointer_utils.cpp
@@ -122,6 +123,21 @@ if(NOT ANDROID)
                         add_dependencies(${t} ${CMAKE_PROJECT_NAME})
                         add_test(NAME ${t} COMMAND ${t})
                 endforeach()
+
+                # Translation pipeline end-to-end test: needs EGL/GLESv2 to
+                # also compile the output on a real driver (skips otherwise).
+                find_library(SFPEW_TEST_EGL EGL)
+                find_library(SFPEW_TEST_GLES GLESv2)
+                if(SFPEW_TEST_EGL AND SFPEW_TEST_GLES)
+                        add_executable(smoke_translator tests/smoke_translator.c)
+                        target_compile_definitions(smoke_translator PRIVATE
+                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
+                        target_link_libraries(smoke_translator PRIVATE dl
+                                ${SFPEW_TEST_EGL} ${SFPEW_TEST_GLES})
+                        add_dependencies(smoke_translator ${CMAKE_PROJECT_NAME})
+                        add_test(NAME smoke_translator COMMAND smoke_translator)
+                        set_tests_properties(smoke_translator PROPERTIES SKIP_RETURN_CODE 77)
+                endif()
 
                 # The committed API manifest must match what lookup.cpp
                 # actually resolves (plans/03, 3.5).

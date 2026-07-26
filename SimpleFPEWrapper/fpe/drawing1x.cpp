@@ -344,19 +344,23 @@ void glBegin(GLenum mode) {
 
     if (mode != GL_TRIANGLE_STRIP) flushPendingImmediateDraws();
 
-    if (!g_glstate.fpe_ready) {
-        if (init_fpe() != 0) return;
-    }
-
     auto& s = g_glstate.fpe_state.fpe_draw;
 
     if (s.primitive != GL_NONE) {
         // Nested glBegin. Report it; keep collecting the outer primitive.
+        // Checked BEFORE backend init so the error contract holds even
+        // without a current context.
         g_glstate.set_error(GL_INVALID_OPERATION);
         return;
     }
 
+    // Advance the Begin/End state machine BEFORE backend init: the pairing
+    // contract must hold even without a context (draws bail out safely).
     s.primitive = mode;
+
+    if (!g_glstate.fpe_ready) {
+        if (init_fpe() != 0) return;
+    }
 }
 
 void glEnd() {

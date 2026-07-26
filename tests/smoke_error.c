@@ -73,6 +73,53 @@ int main(void) {
         return 1;
     }
 
+    // --- Extended error-contract matrix (production hardening) ----------
+    void (*matrixMode)(GLenum) = (void (*)(GLenum))resolve("glMatrixMode");
+    void (*pushMatrix)(void) = (void (*)(void))resolve("glPushMatrix");
+    void (*popMatrix)(void) = (void (*)(void))resolve("glPopMatrix");
+    void (*begin)(GLenum) = (void (*)(GLenum))resolve("glBegin");
+    void (*end)(void) = (void (*)(void))resolve("glEnd");
+    void (*alphaFunc)(GLenum, float) = (void (*)(GLenum, float))resolve("glAlphaFunc");
+    void (*popAttrib)(void) = (void (*)(void))resolve("glPopAttrib");
+    void (*popName)(void) = (void (*)(void))resolve("glPopName");
+    void (*texGeni)(GLenum, GLenum, int) = (void (*)(GLenum, GLenum, int))resolve("glTexGeni");
+    if (!matrixMode || !pushMatrix || !popMatrix || !begin || !end || !alphaFunc || !popAttrib ||
+        !popName || !texGeni) {
+        fprintf(stderr, "FAIL: extended entry points missing\n");
+        return 1;
+    }
+#define EXPECT_ERROR(call, expected, tag)                                                          \
+    do {                                                                                           \
+        call;                                                                                      \
+        GLenum got = getError();                                                                   \
+        if (got != (expected)) {                                                                   \
+            fprintf(stderr, "FAIL[%s]: got 0x%x, want 0x%x\n", tag, got, (unsigned)(expected));   \
+            return 1;                                                                              \
+        }                                                                                          \
+    } while (0)
+
+    EXPECT_ERROR(matrixMode(0x1234), 0x0500 /* INVALID_ENUM */, "glMatrixMode(bad)");
+    EXPECT_ERROR(popMatrix(), 0x0504 /* STACK_UNDERFLOW */, "glPopMatrix(empty)");
+    for (int i = 0; i < 64; ++i) pushMatrix(); // modelview cap is 64
+    EXPECT_ERROR(pushMatrix(), 0x0503 /* STACK_OVERFLOW */, "glPushMatrix(full)");
+    for (int i = 0; i < 64; ++i) popMatrix();
+    (void)getError();
+
+    EXPECT_ERROR(begin(0x1234), 0x0500, "glBegin(bad mode)");
+    EXPECT_ERROR(end(), 0x0502 /* INVALID_OPERATION */, "glEnd(unmatched)");
+    begin(0x0007 /* QUADS */);
+    EXPECT_ERROR(begin(0x0007), 0x0502, "glBegin(nested)");
+    end();
+    (void)getError();
+
+    EXPECT_ERROR(alphaFunc(0x1234, 0.5f), 0x0500, "glAlphaFunc(bad func)");
+    EXPECT_ERROR(popAttrib(), 0x0504, "glPopAttrib(empty)");
+    EXPECT_ERROR(popName(), 0x0504, "glPopName(empty)");
+    EXPECT_ERROR(texGeni(0x2000 /* GL_S */, 0x2500 /* GL_TEXTURE_GEN_MODE */, 0x1234), 0x0500,
+                 "glTexGeni(bad mode)");
+    EXPECT_ERROR(texGeni(0x1234, 0x2500, 0x2400), 0x0500, "glTexGeni(bad coord)");
+
+    printf("OK: extended error-contract matrix holds\n");
     printf("OK: wrapper error machine behaves per GL semantics\n");
     return 0;
 }

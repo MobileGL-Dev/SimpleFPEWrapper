@@ -18,6 +18,7 @@
 
 #include <glm/gtc/matrix_inverse.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include <cmath>
 #include <cstring>
 #include <mutex>
 #include <unordered_map>
@@ -34,8 +35,13 @@ struct user_program_uniforms_t {
           front_shininess = -1;
     GLint fog_color = -1, fog_density = -1, fog_start = -1, fog_end = -1, fog_scale = -1;
     GLint light_model_ambient = -1;
+    GLint back_ambient = -1, back_diffuse = -1, back_specular = -1, back_emission = -1,
+          back_shininess = -1;
     GLint light_ambient[MAX_LIGHTS], light_diffuse[MAX_LIGHTS], light_specular[MAX_LIGHTS],
-        light_position[MAX_LIGHTS];
+        light_position[MAX_LIGHTS], light_half_vector[MAX_LIGHTS], light_spot_direction[MAX_LIGHTS],
+        light_spot_exponent[MAX_LIGHTS], light_spot_cutoff[MAX_LIGHTS],
+        light_spot_cos_cutoff[MAX_LIGHTS], light_const_atten[MAX_LIGHTS],
+        light_linear_atten[MAX_LIGHTS], light_quadratic_atten[MAX_LIGHTS];
     // change-detection mirrors
     glm::mat4 last_mv{0.0f}, last_proj{0.0f};
 };
@@ -68,22 +74,36 @@ void resolve(GLuint program, user_program_uniforms_t& u) {
     u.fog_end = loc("fpe_Fog.end");
     u.fog_scale = loc("fpe_Fog.scale");
     u.light_model_ambient = loc("fpe_LightModel.ambient");
+    u.back_ambient = loc("fpe_BackMaterial.ambient");
+    u.back_diffuse = loc("fpe_BackMaterial.diffuse");
+    u.back_specular = loc("fpe_BackMaterial.specular");
+    u.back_emission = loc("fpe_BackMaterial.emission");
+    u.back_shininess = loc("fpe_BackMaterial.shininess");
     char name[64];
+    const auto light_loc = [&](int i, const char* field) {
+        std::snprintf(name, sizeof(name), "fpe_LightSource[%d].%s", i, field);
+        return loc(name);
+    };
     for (int i = 0; i < MAX_LIGHTS; ++i) {
-        std::snprintf(name, sizeof(name), "fpe_LightSource[%d].ambient", i);
-        u.light_ambient[i] = loc(name);
-        std::snprintf(name, sizeof(name), "fpe_LightSource[%d].diffuse", i);
-        u.light_diffuse[i] = loc(name);
-        std::snprintf(name, sizeof(name), "fpe_LightSource[%d].specular", i);
-        u.light_specular[i] = loc(name);
-        std::snprintf(name, sizeof(name), "fpe_LightSource[%d].position", i);
-        u.light_position[i] = loc(name);
+        u.light_ambient[i] = light_loc(i, "ambient");
+        u.light_diffuse[i] = light_loc(i, "diffuse");
+        u.light_specular[i] = light_loc(i, "specular");
+        u.light_position[i] = light_loc(i, "position");
+        u.light_half_vector[i] = light_loc(i, "halfVector");
+        u.light_spot_direction[i] = light_loc(i, "spotDirection");
+        u.light_spot_exponent[i] = light_loc(i, "spotExponent");
+        u.light_spot_cutoff[i] = light_loc(i, "spotCutoff");
+        u.light_spot_cos_cutoff[i] = light_loc(i, "spotCosCutoff");
+        u.light_const_atten[i] = light_loc(i, "constantAttenuation");
+        u.light_linear_atten[i] = light_loc(i, "linearAttenuation");
+        u.light_quadratic_atten[i] = light_loc(i, "quadraticAttenuation");
     }
     u.any = u.model_view >= 0 || u.projection >= 0 || u.mvp >= 0 || u.normal >= 0 ||
-            u.texture_matrix >= 0 || u.front_ambient >= 0 || u.fog_color >= 0 ||
-            u.light_model_ambient >= 0;
+            u.texture_matrix >= 0 || u.front_ambient >= 0 || u.back_ambient >= 0 ||
+            u.fog_color >= 0 || u.light_model_ambient >= 0;
     for (int i = 0; i < MAX_LIGHTS && !u.any; ++i)
-        u.any = u.light_ambient[i] >= 0 || u.light_diffuse[i] >= 0 || u.light_position[i] >= 0;
+        u.any = u.light_ambient[i] >= 0 || u.light_diffuse[i] >= 0 || u.light_position[i] >= 0 ||
+                u.light_const_atten[i] >= 0 || u.light_spot_direction[i] >= 0;
 }
 
 } // namespace
@@ -161,6 +181,13 @@ void sfpewFeedUserProgramUniforms(GLuint program) {
     if (u->light_model_ambient >= 0)
         g_glFuncs.glUniform4fv(u->light_model_ambient, 1, glm::value_ptr(un.light_model_ambient));
 
+    const auto& back = un.materials[1];
+    if (u->back_ambient >= 0) g_glFuncs.glUniform4fv(u->back_ambient, 1, glm::value_ptr(back.ambient));
+    if (u->back_diffuse >= 0) g_glFuncs.glUniform4fv(u->back_diffuse, 1, glm::value_ptr(back.diffuse));
+    if (u->back_specular >= 0) g_glFuncs.glUniform4fv(u->back_specular, 1, glm::value_ptr(back.specular));
+    if (u->back_emission >= 0) g_glFuncs.glUniform4fv(u->back_emission, 1, glm::value_ptr(back.emission));
+    if (u->back_shininess >= 0) g_glFuncs.glUniform1f(u->back_shininess, back.shininess);
+
     for (int i = 0; i < MAX_LIGHTS; ++i) {
         const auto& light = un.lights[i];
         if (u->light_ambient[i] >= 0) g_glFuncs.glUniform4fv(u->light_ambient[i], 1, glm::value_ptr(light.ambient));
@@ -169,5 +196,31 @@ void sfpewFeedUserProgramUniforms(GLuint program) {
             g_glFuncs.glUniform4fv(u->light_specular[i], 1, glm::value_ptr(light.specular));
         if (u->light_position[i] >= 0)
             g_glFuncs.glUniform4fv(u->light_position[i], 1, glm::value_ptr(light.position));
+        if (u->light_half_vector[i] >= 0) {
+            // Infinite-viewer half vector of legacy lighting: only exact for
+            // directional lights, which is the case gl_LightSource.halfVector
+            // is specified for.
+            const glm::vec3 to_light = glm::normalize(glm::vec3(light.position));
+            const glm::vec3 half = glm::normalize(to_light + glm::vec3(0.0f, 0.0f, 1.0f));
+            g_glFuncs.glUniform4fv(u->light_half_vector[i], 1,
+                                   glm::value_ptr(glm::vec4(half, 1.0f)));
+        }
+        if (u->light_spot_direction[i] >= 0)
+            g_glFuncs.glUniform3fv(u->light_spot_direction[i], 1, glm::value_ptr(light.spot_direction));
+        if (u->light_spot_exponent[i] >= 0)
+            g_glFuncs.glUniform1f(u->light_spot_exponent[i], light.spot_exp);
+        if (u->light_spot_cutoff[i] >= 0)
+            g_glFuncs.glUniform1f(u->light_spot_cutoff[i], light.spot_cutoff);
+        if (u->light_spot_cos_cutoff[i] >= 0)
+            g_glFuncs.glUniform1f(u->light_spot_cos_cutoff[i],
+                                  light.spot_cutoff == 180.0f
+                                      ? -1.0f
+                                      : std::cos(glm::radians(light.spot_cutoff)));
+        if (u->light_const_atten[i] >= 0)
+            g_glFuncs.glUniform1f(u->light_const_atten[i], light.constant_attenuation);
+        if (u->light_linear_atten[i] >= 0)
+            g_glFuncs.glUniform1f(u->light_linear_atten[i], light.linear_attenuation);
+        if (u->light_quadratic_atten[i] >= 0)
+            g_glFuncs.glUniform1f(u->light_quadratic_atten[i], light.quadratic_attenuation);
     }
 }

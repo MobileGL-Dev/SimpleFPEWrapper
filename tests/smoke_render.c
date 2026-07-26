@@ -352,6 +352,96 @@ int main(void) {
     }
     printf("OK: phase 9 alpha test discards low-alpha fragments\n");
 
+    // --- Phase 10: GL_REPLACE texenv ignores the vertex color.
+    void (*fTexEnvi)(GLenum, GLenum, GLint) = (void (*)(GLenum, GLenum, GLint))resolve("glTexEnvi");
+    void (*fTexEnvfv)(GLenum, GLenum, const GLfloat*) =
+        (void (*)(GLenum, GLenum, const GLfloat*))resolve("glTexEnvfv");
+    if (!fTexEnvi || !fTexEnvfv) return 1;
+    fBindTexture(0x0DE1, texture); // solid green from phase 3
+    fEnable(0x0DE1);
+    fTexEnvi(0x2300 /* GL_TEXTURE_ENV */, 0x2200 /* GL_TEXTURE_ENV_MODE */, 0x1E01 /* GL_REPLACE */);
+    fClearColor(0.0f, 0.0f, 1.0f, 1.0f);
+    fClear(GL_COLOR_BUFFER_BIT);
+    fBegin(GL_QUADS);
+    fColor3f(1.0f, 0.0f, 0.0f); // must be ignored by REPLACE
+    fTexCoord2f(0.0f, 0.0f);
+    fVertex2f(-1.0f, -1.0f);
+    fTexCoord2f(1.0f, 0.0f);
+    fVertex2f(1.0f, -1.0f);
+    fTexCoord2f(1.0f, 1.0f);
+    fVertex2f(1.0f, 1.0f);
+    fTexCoord2f(0.0f, 1.0f);
+    fVertex2f(-1.0f, 1.0f);
+    fEnd();
+    fReadPixels(32, 32, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+    if (fGetError() != 0 || pixel[1] < 200 || pixel[0] > 50) {
+        fprintf(stderr, "FAIL: phase 10 REPLACE pixel (%u,%u,%u)\n", pixel[0], pixel[1], pixel[2]);
+        return 1;
+    }
+    printf("OK: phase 10 GL_REPLACE ignores vertex color\n");
+
+    // --- Phase 11: GL_COMBINE, REPLACE from GL_CONSTANT: output must be
+    // exactly the texenv color regardless of texture and vertex color.
+    static const GLfloat env_color[4] = {1.0f, 0.5f, 0.0f, 1.0f}; // orange
+    fTexEnvi(0x2300, 0x2200, 0x8570 /* GL_COMBINE */);
+    fTexEnvi(0x2300, 0x8571 /* GL_COMBINE_RGB */, 0x1E01 /* GL_REPLACE */);
+    fTexEnvi(0x2300, 0x8580 /* GL_SRC0_RGB */, 0x8576 /* GL_CONSTANT */);
+    fTexEnvi(0x2300, 0x8590 /* GL_OPERAND0_RGB */, 0x0300 /* GL_SRC_COLOR */);
+    fTexEnvi(0x2300, 0x8572 /* GL_COMBINE_ALPHA */, 0x1E01);
+    fTexEnvi(0x2300, 0x8588 /* GL_SRC0_ALPHA */, 0x8576);
+    fTexEnvfv(0x2300, 0x2201 /* GL_TEXTURE_ENV_COLOR */, env_color);
+    fClearColor(0.0f, 0.0f, 1.0f, 1.0f);
+    fClear(GL_COLOR_BUFFER_BIT);
+    fBegin(GL_QUADS);
+    fColor3f(0.0f, 1.0f, 0.0f);
+    fTexCoord2f(0.0f, 0.0f);
+    fVertex2f(-1.0f, -1.0f);
+    fTexCoord2f(1.0f, 0.0f);
+    fVertex2f(1.0f, -1.0f);
+    fTexCoord2f(1.0f, 1.0f);
+    fVertex2f(1.0f, 1.0f);
+    fTexCoord2f(0.0f, 1.0f);
+    fVertex2f(-1.0f, 1.0f);
+    fEnd();
+    fReadPixels(32, 32, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+    if (fGetError() != 0 || pixel[0] < 200 || pixel[1] < 100 || pixel[1] > 160 || pixel[2] > 50) {
+        fprintf(stderr, "FAIL: phase 11 COMBINE pixel (%u,%u,%u), expected orange\n", pixel[0],
+                pixel[1], pixel[2]);
+        return 1;
+    }
+    fTexEnvi(0x2300, 0x2200, 0x2100 /* GL_MODULATE */);
+    fDisable(0x0DE1);
+    printf("OK: phase 11 GL_COMBINE constant replace renders orange\n");
+
+    // --- Phase 12: saturated linear fog turns everything the fog color.
+    void (*fFogf)(GLenum, GLfloat) = (void (*)(GLenum, GLfloat))resolve("glFogf");
+    void (*fFogi)(GLenum, GLint) = (void (*)(GLenum, GLint))resolve("glFogi");
+    void (*fFogfv)(GLenum, const GLfloat*) = (void (*)(GLenum, const GLfloat*))resolve("glFogfv");
+    if (!fFogf || !fFogi || !fFogfv) return 1;
+    static const GLfloat fog_color[4] = {0.0f, 1.0f, 1.0f, 1.0f}; // cyan
+    fEnable(0x0B60 /* GL_FOG */);
+    fFogi(0x0B65 /* GL_FOG_MODE */, 0x2601 /* GL_LINEAR */);
+    fFogfv(0x0B66 /* GL_FOG_COLOR */, fog_color);
+    fFogf(0x0B63 /* GL_FOG_START */, -10.0f);
+    fFogf(0x0B64 /* GL_FOG_END */, -9.0f); // eye depth 0 >> end: fully fogged
+    fClearColor(0.0f, 0.0f, 1.0f, 1.0f);
+    fClear(GL_COLOR_BUFFER_BIT);
+    fBegin(GL_QUADS);
+    fColor3f(1.0f, 0.0f, 0.0f);
+    fVertex2f(-1.0f, -1.0f);
+    fVertex2f(1.0f, -1.0f);
+    fVertex2f(1.0f, 1.0f);
+    fVertex2f(-1.0f, 1.0f);
+    fEnd();
+    fDisable(0x0B60);
+    fReadPixels(32, 32, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+    if (fGetError() != 0 || pixel[1] < 200 || pixel[2] < 200 || pixel[0] > 50) {
+        fprintf(stderr, "FAIL: phase 12 fog pixel (%u,%u,%u), expected fog cyan\n", pixel[0],
+                pixel[1], pixel[2]);
+        return 1;
+    }
+    printf("OK: phase 12 saturated linear fog renders the fog color\n");
+
     printf("OK: all FPE render phases passed on the real GLES3 device\n");
     return 0;
 }

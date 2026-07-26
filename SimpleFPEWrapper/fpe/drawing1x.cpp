@@ -24,7 +24,15 @@ constexpr size_t kImmediateGlyphBatchLimit = 256u;
 
 GLintptr uploadImmediateVertexData(const void* data, size_t size) {
     auto& state = g_glstate.fpe_state;
+    const auto dropAllFences = [&]() {
+        for (auto& fence : state.fpe_immediate_fences) {
+            if (fence != nullptr && g_glFuncs.glDeleteSync != nullptr)
+                g_glFuncs.glDeleteSync((GLsync)fence);
+            fence = nullptr;
+        }
+    };
     const auto replaceImmediateBuffer = [&]() {
+        dropAllFences();
         if (state.fpe_immediate_vbo_map != nullptr && g_glFuncs.glUnmapBuffer != nullptr) {
             g_glFuncs.glUnmapBuffer(GL_ARRAY_BUFFER);
         }
@@ -79,12 +87,39 @@ GLintptr uploadImmediateVertexData(const void* data, size_t size) {
 
     size_t offset = (state.fpe_immediate_vbo_offset + kImmediateVboAlignment - 1u) &
                     ~(kImmediateVboAlignment - 1u);
-    if (offset + size > state.fpe_immediate_vbo_capacity) {
-        // The ring is deliberately large, so this is infrequent. Waiting at
-        // wrap keeps persistent mapped writes from racing old GPU consumers.
+    if (offset + size > state.fpe_immediate_vbo_capacity) offset = 0;
+
+    // Segmented synchronization: by the time an upload crosses into a new
+    // quarter of the ring, every draw consuming the PREVIOUS quarter has
+    // already been submitted (uploads and draws strictly alternate), so a
+    // fence on the old quarter is a correct completion marker. Entering a
+    // quarter waits on (and retires) its previous-lap fence. Without sync
+    // objects this degrades to the old glFinish at wrap only.
+    const bool have_sync = g_glFuncs.glFenceSync != nullptr &&
+                           g_glFuncs.glClientWaitSync != nullptr && g_glFuncs.glDeleteSync != nullptr;
+    const size_t segment_size = state.fpe_immediate_vbo_capacity / 4u;
+    if (have_sync && segment_size != 0) {
+        const size_t previous_segment =
+            std::min<size_t>(state.fpe_immediate_vbo_offset / segment_size, 3u);
+        const size_t first_segment = offset / segment_size;
+        const size_t last_segment = std::min<size_t>((offset + size - 1u) / segment_size, 3u);
+        if (first_segment != previous_segment || offset == 0) {
+            auto& old_fence = state.fpe_immediate_fences[previous_segment];
+            if (old_fence == nullptr)
+                old_fence = (void*)g_glFuncs.glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+            for (size_t seg = first_segment; seg <= last_segment; ++seg) {
+                auto& fence = state.fpe_immediate_fences[seg];
+                if (fence == nullptr) continue;
+                g_glFuncs.glClientWaitSync((GLsync)fence, GL_SYNC_FLUSH_COMMANDS_BIT,
+                                           1000000000ull /* 1s */);
+                g_glFuncs.glDeleteSync((GLsync)fence);
+                fence = nullptr;
+            }
+        }
+    } else if (offset == 0 && state.fpe_immediate_vbo_offset != 0) {
         if (g_glFuncs.glFinish != nullptr) g_glFuncs.glFinish();
-        offset = 0;
     }
+
     if (size > 0) {
         std::memcpy(static_cast<uint8_t*>(state.fpe_immediate_vbo_map) + offset, data, size);
     }

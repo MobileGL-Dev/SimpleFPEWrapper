@@ -223,6 +223,9 @@ struct fixed_function_state_t {
     GLuint fpe_vbo = 0;
 
     GLuint fpe_immediate_vbo = 0;
+    // Ring segmentation fences (4 segments): waiting on a quarter instead
+    // of glFinish keeps wrap-around from stalling the whole pipeline.
+    void* fpe_immediate_fences[4] = {};
     size_t fpe_immediate_vbo_capacity = 0;
     size_t fpe_immediate_vbo_offset = 0;
     void* fpe_immediate_vbo_map = nullptr;

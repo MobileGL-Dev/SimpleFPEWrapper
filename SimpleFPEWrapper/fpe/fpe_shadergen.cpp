@@ -1330,9 +1330,12 @@ void add_vs_inout(const fixed_function_state_t& state, scratch_t& scratch, std::
             linkage += out_name;
             linkage += ";\n";
 
+            const bool color_varying = usage == GL_COLOR_ARRAY && state.shade_model == GL_FLAT;
+            if (color_varying) vs += "flat ";
             vs += "out ";
             vs += linkage;
 
+            if (color_varying) scratch.last_stage_linkage += "flat ";
             scratch.last_stage_linkage += "in " + linkage;
 
             // TODO: Fog / vertex lighting. Texture coordinates first pass
@@ -1353,14 +1356,17 @@ void add_vs_inout(const fixed_function_state_t& state, scratch_t& scratch, std::
         }
     }
 
+    // GL_FLAT selects the provoking vertex for the primary color only;
+    // ESSL 3.00 expresses that with the flat qualifier on both sides.
+    const char* flat_q = state.shade_model == GL_FLAT ? "flat " : "";
     if (state.fpe_bools.lighting_enable && !scratch.has_vertex_color) {
-        vs += "out vec4 vertexColor;\n";
-        scratch.last_stage_linkage += "in vec4 vertexColor;\n";
+        vs += std::format("{}out vec4 vertexColor;\n", flat_q);
+        scratch.last_stage_linkage += std::format("{}in vec4 vertexColor;\n", flat_q);
         scratch.has_vertex_color = true;
     }
     if (state.fpe_bools.lighting_enable && state.light_model_two_side) {
-        vs += "out vec4 vertexBackColor;\n";
-        scratch.last_stage_linkage += "in vec4 vertexBackColor;\n";
+        vs += std::format("{}out vec4 vertexBackColor;\n", flat_q);
+        scratch.last_stage_linkage += std::format("{}in vec4 vertexBackColor;\n", flat_q);
         scratch.has_back_vertex_color = true;
     }
 
@@ -1373,26 +1379,34 @@ void add_vs_uniforms(const fixed_function_state_t& state, scratch_t& scratch, st
     // Transformation matrix
     vs += "uniform mat4 ModelViewProjMat;\n";
     vs += "uniform float PointSize;\n"; // GLES has no glPointSize state
-    if (state.fpe_bools.fog_enable) {
-        vs += "uniform mat4 ModelViewMat;\n";
+    if (state.fpe_bools.fog_enable || state.fpe_bools.lighting_enable) {
+        vs += "uniform mat4 ModelViewMat;\n"; // eye-space position source
     }
     if (state.fpe_bools.lighting_enable) {
         vs += "uniform mat3 NormalMat;\n"
               "uniform vec4 LightModelAmbient;\n"
               "uniform vec4 FrontMaterialAmbient;\n"
               "uniform vec4 FrontMaterialDiffuse;\n"
-              "uniform vec4 FrontMaterialEmission;\n";
+              "uniform vec4 FrontMaterialEmission;\n"
+              "uniform vec4 FrontMaterialSpecular;\n"
+              "uniform float FrontMaterialShininess;\n";
         if (state.light_model_two_side) {
             vs += "uniform vec4 BackMaterialAmbient;\n"
                   "uniform vec4 BackMaterialDiffuse;\n"
-                  "uniform vec4 BackMaterialEmission;\n";
+                  "uniform vec4 BackMaterialEmission;\n"
+                  "uniform vec4 BackMaterialSpecular;\n"
+                  "uniform float BackMaterialShininess;\n";
         }
         for (int i = 0; i < MAX_LIGHTS; ++i) {
             if (!state.fpe_bools.light_enable[i]) continue;
-            vs += std::format("uniform vec4 Light{}Ambient;\n"
-                              "uniform vec4 Light{}Diffuse;\n"
-                              "uniform vec4 Light{}Position;\n",
-                              i, i, i);
+            vs += std::format("uniform vec4 Light{0}Ambient;\n"
+                              "uniform vec4 Light{0}Diffuse;\n"
+                              "uniform vec4 Light{0}Specular;\n"
+                              "uniform vec4 Light{0}Position;\n"
+                              "uniform vec3 Light{0}Attenuation;\n" // kc, kl, kq
+                              "uniform vec3 Light{0}SpotDirection;\n"
+                              "uniform vec2 Light{0}SpotParams;\n", // cos(cutoff) or -2, exponent
+                              i);
         }
     }
     for (int i = 0; i < MAX_TEX; ++i) {
@@ -1426,9 +1440,10 @@ void add_color_material(const fixed_function_state_t& state, GLenum face, const 
                           "    {}Diffuse = incomingColor;\n",
                           prefix, prefix);
         break;
+    case GL_SPECULAR:
+        vs += std::format("    {}Specular = incomingColor;\n", prefix);
+        break;
     default:
-        // Specular color material is retained in state, but this compatibility
-        // shader intentionally implements the ambient/diffuse vanilla path.
         break;
     }
 }
@@ -1437,14 +1452,43 @@ void add_lighting_calculation(const fixed_function_state_t& state, const std::st
                               const std::string& normal, const std::string& output, std::string& vs) {
     vs += std::format(
         "    vec3 {0}Lit = ({0}Emission + LightModelAmbient * {0}Ambient).rgb;\n", prefix);
+    // Viewer direction for the Blinn half-vector: the spec's non-local
+    // viewer is the constant (0,0,1); local viewer looks at the eye origin.
+    vs += std::format("    vec3 {}EyeDir = {};\n", prefix,
+                      state.light_model_local_viewer ? "normalize(-eyePosition.xyz)"
+                                                     : "vec3(0.0, 0.0, 1.0)");
     for (int i = 0; i < MAX_LIGHTS; ++i) {
         if (!state.fpe_bools.light_enable[i]) continue;
         vs += std::format(
-            "    vec3 {2}LightDirection{0} = normalize(Light{0}Position.xyz);\n"
+            // Directional (w == 0) vs positional lights branch on uniform
+            // data, so light parameter changes never require a new program.
+            "    vec3 {2}LightDirection{0};\n"
+            "    float {2}Attenuation{0} = 1.0;\n"
+            "    if (Light{0}Position.w == 0.0) {{\n"
+            "        {2}LightDirection{0} = normalize(Light{0}Position.xyz);\n"
+            "    }} else {{\n"
+            "        vec3 {2}ToLight{0} = Light{0}Position.xyz - eyePosition.xyz;\n"
+            "        float {2}Dist{0} = length({2}ToLight{0});\n"
+            "        {2}LightDirection{0} = {2}ToLight{0} / max({2}Dist{0}, 1e-6);\n"
+            "        {2}Attenuation{0} = 1.0 / (Light{0}Attenuation.x + Light{0}Attenuation.y * {2}Dist{0} +\n"
+            "                                  Light{0}Attenuation.z * {2}Dist{0} * {2}Dist{0});\n"
+            "        if (Light{0}SpotParams.x > -1.5) {{\n" // cutoff != 180
+            "            float {2}SpotDot{0} = dot(-{2}LightDirection{0}, normalize(Light{0}SpotDirection));\n"
+            "            {2}Attenuation{0} *= {2}SpotDot{0} >= Light{0}SpotParams.x\n"
+            "                ? pow(max({2}SpotDot{0}, 0.0), Light{0}SpotParams.y) : 0.0;\n"
+            "        }}\n"
+            "    }}\n"
             "    float {2}DiffuseFactor{0} = max(dot({1}, {2}LightDirection{0}), 0.0);\n"
-            "    {2}Lit += (Light{0}Ambient * {2}Ambient).rgb;\n"
-            "    {2}Lit += {2}DiffuseFactor{0} * (Light{0}Diffuse * {2}Diffuse).rgb;\n",
-            i, normal, prefix);
+            "    {2}Lit += {2}Attenuation{0} * (Light{0}Ambient * {2}Ambient).rgb;\n"
+            "    {2}Lit += {2}Attenuation{0} * {2}DiffuseFactor{0} * (Light{0}Diffuse * {2}Diffuse).rgb;\n"
+            "    if ({2}DiffuseFactor{0} > 0.0 && FrontMaterialShininess >= 0.0) {{\n"
+            "        vec3 {2}Half{0} = normalize({2}LightDirection{0} + {2}EyeDir);\n"
+            "        float {2}NdotH{0} = max(dot({1}, {2}Half{0}), 0.0);\n"
+            "        {2}Lit += {2}Attenuation{0} * pow({2}NdotH{0}, max({3}, 1e-4)) *\n"
+            "                  (Light{0}Specular * {2}Specular).rgb;\n"
+            "    }}\n",
+            i, normal, prefix,
+            prefix == std::string("front") ? "FrontMaterialShininess" : "BackMaterialShininess");
     }
     vs += std::format("    {} = vec4(clamp({}Lit, 0.0, 1.0), clamp({}Diffuse.a, 0.0, 1.0));\n",
                       output, prefix, prefix);
@@ -1455,9 +1499,11 @@ void add_vs_body(const fixed_function_state_t& state, scratch_t& scratch, std::s
           //            "   gl_Position = ProjMat * ModelViewMat * vec4(Position, 1.0);\n";
           "    gl_Position = ModelViewProjMat * Position;\n"
           "    gl_PointSize = PointSize;\n";
+    if (state.fpe_bools.fog_enable || state.fpe_bools.lighting_enable) {
+        vs += "    vec4 eyePosition = ModelViewMat * Position;\n";
+    }
     if (state.fpe_bools.fog_enable) {
-        vs += "    vec4 viewPosition = ModelViewMat * Position;\n"
-              "    vViewPosition = viewPosition.xyz;\n";
+        vs += "    vViewPosition = eyePosition.xyz;\n";
     }
     vs += scratch.vs_body;
 
@@ -1475,14 +1521,16 @@ void add_vs_body(const fixed_function_state_t& state, scratch_t& scratch, std::s
 
         vs += "    vec4 frontAmbient = FrontMaterialAmbient;\n"
               "    vec4 frontDiffuse = FrontMaterialDiffuse;\n"
-              "    vec4 frontEmission = FrontMaterialEmission;\n";
+              "    vec4 frontEmission = FrontMaterialEmission;\n"
+              "    vec4 frontSpecular = FrontMaterialSpecular;\n";
         add_color_material(state, GL_FRONT, "front", vs);
         add_lighting_calculation(state, "front", "transformedNormal", "vertexColor", vs);
 
         if (state.light_model_two_side) {
             vs += "    vec4 backAmbient = BackMaterialAmbient;\n"
                   "    vec4 backDiffuse = BackMaterialDiffuse;\n"
-                  "    vec4 backEmission = BackMaterialEmission;\n";
+                  "    vec4 backEmission = BackMaterialEmission;\n"
+                  "    vec4 backSpecular = BackMaterialSpecular;\n";
             add_color_material(state, GL_BACK, "back", vs);
             add_lighting_calculation(state, "back", "-transformedNormal", "vertexBackColor", vs);
         }

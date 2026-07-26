@@ -326,6 +326,11 @@ void glShadeModel(GLenum mode) {
     // LOG()
     // LOG_D("glShadeModel(%s)", glEnumToString(mode))
 
+    if (mode != GL_FLAT && mode != GL_SMOOTH) {
+        g_glstate.set_error(GL_INVALID_ENUM);
+        return;
+    }
+
     LIST_RECORD(glShadeModel, {}, mode)
 
     g_glstate.fpe_state.shade_model = mode;
@@ -419,7 +424,10 @@ void glLightfv(GLenum light, GLenum pname, const GLfloat* params) {
         break;
     }
     case GL_SPOT_DIRECTION: {
-        lightref.spot_direction = glm::make_vec3(params);
+        // Like GL_POSITION, spot directions are captured in eye coordinates
+        // using the upper 3x3 of the model-view current at call time.
+        const auto& mv = g_glstate.fpe_uniform.transformation.matrices[matrix_idx(GL_MODELVIEW)];
+        lightref.spot_direction = glm::mat3(mv) * glm::make_vec3(params);
         break;
     }
     default:

@@ -6,6 +6,7 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 // End of Source File Header
 
+#include <cmath>
 #include "types.h"
 #include "transformation.h"
 #include "../init.h"
@@ -30,9 +31,13 @@ void program_uniform_locations_t::initialize(GLuint program) {
     front_material_ambient = location("FrontMaterialAmbient");
     front_material_diffuse = location("FrontMaterialDiffuse");
     front_material_emission = location("FrontMaterialEmission");
+    front_material_specular = location("FrontMaterialSpecular");
+    front_material_shininess = location("FrontMaterialShininess");
     back_material_ambient = location("BackMaterialAmbient");
     back_material_diffuse = location("BackMaterialDiffuse");
     back_material_emission = location("BackMaterialEmission");
+    back_material_specular = location("BackMaterialSpecular");
+    back_material_shininess = location("BackMaterialShininess");
     fog_color = location("FogColor");
     fog_density = location("FogDensity");
     fog_start = location("FogStart");
@@ -43,7 +48,11 @@ void program_uniform_locations_t::initialize(GLuint program) {
     for (int i = 0; i < MAX_LIGHTS; ++i) {
         light_ambient[i] = location(std::format("Light{}Ambient", i));
         light_diffuse[i] = location(std::format("Light{}Diffuse", i));
+        light_specular[i] = location(std::format("Light{}Specular", i));
         light_position[i] = location(std::format("Light{}Position", i));
+        light_attenuation[i] = location(std::format("Light{}Attenuation", i));
+        light_spot_direction[i] = location(std::format("Light{}SpotDirection", i));
+        light_spot_params[i] = location(std::format("Light{}SpotParams", i));
     }
     for (int i = 0; i < MAX_TEX; ++i) {
         sampler[i] = location(std::format("Sampler{}", i));
@@ -103,17 +112,26 @@ void glstate_t::send_uniforms(program_t& program) {
         send_vec4(locations.light_model_ambient, fpe_uniform.light_model_ambient,
                   values.light_model_ambient);
 
-        const auto send_material = [&send_vec4](int index, GLint ambient, GLint diffuse, GLint emission,
-                                                const material_t& material, program_uniform_values_t& values) {
+        const auto send_material = [&send_vec4, first_upload](int index, GLint ambient, GLint diffuse,
+                                                              GLint emission, GLint specular, GLint shininess,
+                                                              const material_t& material,
+                                                              program_uniform_values_t& values) {
             send_vec4(ambient, material.ambient, values.material_ambient[index]);
             send_vec4(diffuse, material.diffuse, values.material_diffuse[index]);
             send_vec4(emission, material.emission, values.material_emission[index]);
+            send_vec4(specular, material.specular, values.material_specular[index]);
+            if ((first_upload || material.shininess != values.material_shininess[index]) && shininess >= 0) {
+                g_glFuncs.glUniform1f(shininess, material.shininess);
+                values.material_shininess[index] = material.shininess;
+            }
         };
         send_material(0, locations.front_material_ambient, locations.front_material_diffuse,
-                      locations.front_material_emission, fpe_uniform.materials[0], values);
+                      locations.front_material_emission, locations.front_material_specular,
+                      locations.front_material_shininess, fpe_uniform.materials[0], values);
         if (fpe_state.light_model_two_side) {
             send_material(1, locations.back_material_ambient, locations.back_material_diffuse,
-                          locations.back_material_emission, fpe_uniform.materials[1], values);
+                          locations.back_material_emission, locations.back_material_specular,
+                          locations.back_material_shininess, fpe_uniform.materials[1], values);
         }
 
         for (int i = 0; i < MAX_LIGHTS; ++i) {
@@ -122,7 +140,32 @@ void glstate_t::send_uniforms(program_t& program) {
             const auto& light = fpe_uniform.lights[i];
             send_vec4(locations.light_ambient[i], light.ambient, values.light_ambient[i]);
             send_vec4(locations.light_diffuse[i], light.diffuse, values.light_diffuse[i]);
+            send_vec4(locations.light_specular[i], light.specular, values.light_specular[i]);
             send_vec4(locations.light_position[i], light.position, values.light_position[i]);
+
+            const glm::vec4 attenuation(light.constant_attenuation, light.linear_attenuation,
+                                        light.quadratic_attenuation, 0.0f);
+            if (differs(attenuation, values.light_attenuation[i])) {
+                if (locations.light_attenuation[i] >= 0)
+                    g_glFuncs.glUniform3fv(locations.light_attenuation[i], 1, glm::value_ptr(attenuation));
+                values.light_attenuation[i] = attenuation;
+            }
+            const glm::vec4 spot_direction(light.spot_direction, 0.0f);
+            if (differs(spot_direction, values.light_spot_direction[i])) {
+                if (locations.light_spot_direction[i] >= 0)
+                    g_glFuncs.glUniform3fv(locations.light_spot_direction[i], 1, glm::value_ptr(spot_direction));
+                values.light_spot_direction[i] = spot_direction;
+            }
+            // cutoff 180 means "not a spotlight"; encode it as -2 so the
+            // shader's threshold test is immune to cos() rounding.
+            const glm::vec4 spot_params(
+                light.spot_cutoff >= 180.0f ? -2.0f : std::cos(glm::radians(light.spot_cutoff)),
+                light.spot_exp, 0.0f, 0.0f);
+            if (differs(spot_params, values.light_spot_params[i])) {
+                if (locations.light_spot_params[i] >= 0)
+                    g_glFuncs.glUniform2fv(locations.light_spot_params[i], 1, glm::value_ptr(spot_params));
+                values.light_spot_params[i] = spot_params;
+            }
         }
     }
 

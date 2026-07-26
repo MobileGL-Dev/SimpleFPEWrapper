@@ -285,12 +285,20 @@ struct program_uniform_locations_t {
     GLint front_material_ambient = -1;
     GLint front_material_diffuse = -1;
     GLint front_material_emission = -1;
+    GLint front_material_specular = -1;
+    GLint front_material_shininess = -1;
     GLint back_material_ambient = -1;
     GLint back_material_diffuse = -1;
     GLint back_material_emission = -1;
+    GLint back_material_specular = -1;
+    GLint back_material_shininess = -1;
     GLint light_ambient[MAX_LIGHTS] = {};
     GLint light_diffuse[MAX_LIGHTS] = {};
+    GLint light_specular[MAX_LIGHTS] = {};
     GLint light_position[MAX_LIGHTS] = {};
+    GLint light_attenuation[MAX_LIGHTS] = {};
+    GLint light_spot_direction[MAX_LIGHTS] = {};
+    GLint light_spot_params[MAX_LIGHTS] = {};
     GLint sampler[MAX_TEX] = {};
     GLint texture_matrix[MAX_TEX] = {};
     GLint texture_env_color[MAX_TEX] = {};
@@ -312,9 +320,15 @@ struct program_uniform_values_t {
     glm::vec4 material_ambient[2]{};
     glm::vec4 material_diffuse[2]{};
     glm::vec4 material_emission[2]{};
+    glm::vec4 material_specular[2]{};
+    GLfloat material_shininess[2]{};
     glm::vec4 light_ambient[MAX_LIGHTS]{};
     glm::vec4 light_diffuse[MAX_LIGHTS]{};
+    glm::vec4 light_specular[MAX_LIGHTS]{};
     glm::vec4 light_position[MAX_LIGHTS]{};
+    glm::vec4 light_attenuation[MAX_LIGHTS]{};   // xyz = kc, kl, kq
+    glm::vec4 light_spot_direction[MAX_LIGHTS]{};
+    glm::vec4 light_spot_params[MAX_LIGHTS]{};   // x = cos(cutoff) or -2, y = exponent
     glm::mat4 texture_matrix[MAX_TEX]{};
     glm::vec4 texture_env_color[MAX_TEX]{};
     glm::vec4 fog_color{};

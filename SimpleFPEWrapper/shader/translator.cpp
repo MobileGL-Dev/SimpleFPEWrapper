@@ -53,37 +53,62 @@ public:
                     maybe_get<spirv_cross::SPIRConstant>(var.initializer);
                 var.initializer = spirv_cross::ID(0);
                 if (constant == nullptr) return;
-
-                const auto& type = get_variable_data_type(var);
-                uniform_initializer_t init;
-                switch (type.basetype) {
-                case spirv_cross::SPIRType::Float:
-                    init.base = uniform_initializer_t::base_t::f32;
-                    break;
-                case spirv_cross::SPIRType::Int:
-                    init.base = uniform_initializer_t::base_t::i32;
-                    break;
-                case spirv_cross::SPIRType::UInt:
-                    init.base = uniform_initializer_t::base_t::u32;
-                    break;
-                case spirv_cross::SPIRType::Boolean:
-                    init.base = uniform_initializer_t::base_t::b32;
-                    break;
-                default:
-                    return; // structs/doubles: value dropped, output stays legal
-                }
-                if (!type.array.empty() && !type.array_size_literal.front()) return;
-                init.name = get_name(var.self);
-                init.columns = type.columns;
-                init.vecsize = type.vecsize;
-                init.array_size = type.array.empty() ? 1u : std::max(1u, type.array.front());
-                flatten(*constant, type, init);
-                scraped.push_back(std::move(init));
+                emit(get_name(var.self), get_variable_data_type(var), *constant, scraped);
             });
         return scraped;
     }
 
 private:
+    // Structs decompose into one entry per leaf member ("s.m", "s[2].m"):
+    // that matches both glGetUniformLocation naming and the one-call-per-
+    // member granularity of the glUniform* API.
+    void emit(const std::string& name, const spirv_cross::SPIRType& type,
+              const spirv_cross::SPIRConstant& c, std::vector<uniform_initializer_t>& out) {
+        if (name.empty() || type.array.size() > 1) return;
+        if (!type.array.empty() && !type.array_size_literal.front()) return;
+        const bool is_struct = type.basetype == spirv_cross::SPIRType::Struct;
+        if (!type.array.empty() && is_struct) {
+            const auto& elem = get<spirv_cross::SPIRType>(type.parent_type);
+            for (uint32_t i = 0; i < c.subconstants.size(); ++i) {
+                const auto* sc = maybe_get<spirv_cross::SPIRConstant>(c.subconstants[i]);
+                if (sc != nullptr) emit(name + "[" + std::to_string(i) + "]", elem, *sc, out);
+            }
+            return;
+        }
+        if (is_struct) {
+            for (uint32_t m = 0; m < type.member_types.size() && m < c.subconstants.size(); ++m) {
+                const std::string member = get_member_name(type.self, m);
+                const auto* sc = maybe_get<spirv_cross::SPIRConstant>(c.subconstants[m]);
+                if (member.empty() || sc == nullptr) continue;
+                emit(name + "." + member, get<spirv_cross::SPIRType>(type.member_types[m]), *sc,
+                     out);
+            }
+            return;
+        }
+        uniform_initializer_t init;
+        switch (type.basetype) {
+        case spirv_cross::SPIRType::Float:
+            init.base = uniform_initializer_t::base_t::f32;
+            break;
+        case spirv_cross::SPIRType::Int:
+            init.base = uniform_initializer_t::base_t::i32;
+            break;
+        case spirv_cross::SPIRType::UInt:
+            init.base = uniform_initializer_t::base_t::u32;
+            break;
+        case spirv_cross::SPIRType::Boolean:
+            init.base = uniform_initializer_t::base_t::b32;
+            break;
+        default:
+            return; // doubles etc.: value dropped, output stays legal
+        }
+        init.name = name;
+        init.columns = type.columns;
+        init.vecsize = type.vecsize;
+        init.array_size = type.array.empty() ? 1u : std::max(1u, type.array.front());
+        flatten(c, type, init);
+        out.push_back(std::move(init));
+    }
     void flatten(const spirv_cross::SPIRConstant& c, const spirv_cross::SPIRType& type,
                  uniform_initializer_t& out) {
         if (!c.subconstants.empty()) {

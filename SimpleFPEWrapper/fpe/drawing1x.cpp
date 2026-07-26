@@ -341,6 +341,191 @@ void flushPendingImmediateDraws() {
     batch.glyphCount = 0;
 }
 
+namespace {
+
+// One compiled glBegin/glEnd run (or several merged ones): the vertex stream
+// was baked at glEndList time by replaying the recorded vertex-data commands
+// into a clean collector, so replay is one upload + one draw instead of
+// re-executing thousands of per-vertex wrapper entries. Runs whose colors
+// must feed glColorMaterial at replay time fall back to the retained
+// original commands (material state mutates per glColor there).
+class compiled_immediate_run_cmd_t final : public GLCmd {
+public:
+    compiled_immediate_run_cmd_t(GLenum primitive, const fixed_function_draw_size_t& sizes,
+                                 std::vector<GLfloat>&& data, size_t vertexCount, bool hasColor,
+                                 std::vector<std::unique_ptr<GLCmd>>&& originals)
+        : primitive(primitive), sizes(sizes), data(std::move(data)), vertexCount(vertexCount),
+          hasColor(hasColor), originals(std::move(originals)) {}
+
+    void execute() const override {
+        if (hasColor && g_glstate_c.fpe_state.fpe_bools.color_material_enable) {
+            for (const auto& command : originals) command->execute();
+            return;
+        }
+        flushPendingImmediateDraws();
+        drawImmediateVertices(primitive, data.data(), data.size(), vertexCount, sizes);
+    }
+
+    bool appendRun(GLenum otherPrimitive, const fixed_function_draw_size_t& otherSizes,
+                   const std::vector<GLfloat>& otherData, size_t otherVertexCount,
+                   bool otherHasColor, DisplayList::iterator originalsBegin,
+                   DisplayList::iterator originalsEnd) {
+        if (otherPrimitive != primitive ||
+            std::memcmp(&otherSizes, &sizes, sizeof(sizes)) != 0) {
+            return false;
+        }
+        if (primitive != GL_TRIANGLES && primitive != GL_QUADS && primitive != GL_LINES &&
+            primitive != GL_POINTS) {
+            return false;
+        }
+        data.insert(data.end(), otherData.begin(), otherData.end());
+        vertexCount += otherVertexCount;
+        hasColor = hasColor || otherHasColor;
+        for (auto it = originalsBegin; it != originalsEnd; ++it)
+            originals.emplace_back(std::move(*it));
+        return true;
+    }
+
+private:
+    GLenum primitive;
+    fixed_function_draw_size_t sizes;
+    std::vector<GLfloat> data;
+    size_t vertexCount;
+    bool hasColor;
+    std::vector<std::unique_ptr<GLCmd>> originals;
+};
+
+} // namespace
+
+void sfpewCompileImmediateRuns(DisplayList& commands) {
+    using ic = GLCmd::immediate_class_t;
+
+    // Cheap scan first: nothing to do for lists without a Begin/End run.
+    bool sawBegin = false;
+    for (const auto& command : commands) {
+        if (command->immediateClass() == ic::begin) { sawBegin = true; break; }
+    }
+    if (!sawBegin) return;
+
+    auto& gs = g_glstate;
+    auto& draw = gs.fpe_state.fpe_draw;
+    // The compiler replays vertex-data commands through the live collector;
+    // glNewList/glEndList inside Begin/End is undefined, so the collector is
+    // idle here - but protect every piece of live state the replay touches:
+    // the collection buffer itself, the current attribute values/sizes, and
+    // color-material coupling (materials must not mutate at compile time).
+    fixed_function_draw_state_t saved_draw;
+    std::swap(saved_draw.primitive, draw.primitive);
+    std::swap(saved_draw.current_data, draw.current_data);
+    std::swap(saved_draw.vb, draw.vb);
+    std::swap(saved_draw.vertex_count, draw.vertex_count);
+    draw.current_data.sizes = {};
+    const bool saved_color_material = gs.fpe_state.fpe_bools.color_material_enable;
+    gs.fpe_state.fpe_bools.color_material_enable = false;
+    const GLboolean saved_disable_recording = disableRecording;
+    disableRecording = GL_TRUE;
+
+    DisplayList output;
+    output.reserve(commands.size());
+    compiled_immediate_run_cmd_t* previous_compiled = nullptr;
+
+    size_t i = 0;
+    while (i < commands.size()) {
+        if (commands[i]->immediateClass() != ic::begin) {
+            // Only a directly adjacent compiled run may merge; any other
+            // command is a potential state change and acts as a barrier.
+            previous_compiled = nullptr;
+            output.emplace_back(std::move(commands[i]));
+            ++i;
+            continue;
+        }
+
+        // Find the extent of the run: begin, vertex-data..., end. Any other
+        // command inside the run (glMaterial etc. are legal there) makes it
+        // uncompilable - leave those commands untouched.
+        size_t end_index = i + 1;
+        while (end_index < commands.size() &&
+               commands[end_index]->immediateClass() == ic::vertex_data) {
+            ++end_index;
+        }
+        const bool complete_run = end_index < commands.size() &&
+                                  commands[end_index]->immediateClass() == ic::end;
+        const GLenum mode = commands[i]->immediateBeginMode();
+        if (!complete_run || mode == GL_NONE || mode > GL_POLYGON) {
+            previous_compiled = nullptr;
+            for (size_t k = i; k < end_index; ++k) output.emplace_back(std::move(commands[k]));
+            i = end_index;
+            continue;
+        }
+
+        // Bake: replay the vertex-data commands into the clean collector.
+        // Sizes reset per run: attributes the run never sets stay out of the
+        // stream and resolve to runtime constants at draw, exactly like the
+        // live replay's constant-attribute path.
+        draw.reset();
+        draw.current_data.sizes = {};
+        draw.primitive = mode;
+        for (size_t k = i + 1; k < end_index; ++k) commands[k]->execute();
+
+        GLenum baked_mode = draw.primitive;
+        std::vector<GLfloat> baked = std::move(draw.vb);
+        size_t baked_vertices = draw.vertex_count;
+        fixed_function_draw_size_t baked_sizes = draw.current_data.sizes;
+        const bool has_color = baked_sizes.color_size > 0;
+        draw.reset();
+
+        if (baked_vertices == 0) {
+            // Empty Begin/End: keep the originals (they still flush pending
+            // glyph batches in order at replay time).
+            previous_compiled = nullptr;
+            for (size_t k = i; k <= end_index; ++k) output.emplace_back(std::move(commands[k]));
+            i = end_index + 1;
+            continue;
+        }
+
+        // Expand a 4-vertex strip (the glyph pattern) into triangles so
+        // adjacent glyph runs merge into one draw, mirroring the live path.
+        if (baked_mode == GL_TRIANGLE_STRIP && baked_vertices == 4 && baked.size() % 4u == 0) {
+            const size_t stride = baked.size() / 4u;
+            std::vector<GLfloat> expanded;
+            expanded.reserve(stride * 6u);
+            for (const size_t v : {(size_t)0, (size_t)1, (size_t)2, (size_t)2, (size_t)1, (size_t)3})
+                expanded.insert(expanded.end(), baked.begin() + v * stride,
+                                baked.begin() + (v + 1u) * stride);
+            baked = std::move(expanded);
+            baked_vertices = 6;
+            baked_mode = GL_TRIANGLES;
+        }
+
+        if (previous_compiled != nullptr &&
+            previous_compiled->appendRun(baked_mode, baked_sizes, baked, baked_vertices,
+                                         has_color, commands.begin() + (long)i,
+                                         commands.begin() + (long)end_index + 1)) {
+            i = end_index + 1;
+            continue;
+        }
+
+        std::vector<std::unique_ptr<GLCmd>> originals;
+        originals.reserve(end_index + 1 - i);
+        for (size_t k = i; k <= end_index; ++k) originals.emplace_back(std::move(commands[k]));
+        auto compiled = std::make_unique<compiled_immediate_run_cmd_t>(
+            baked_mode, baked_sizes, std::move(baked), baked_vertices, has_color,
+            std::move(originals));
+        previous_compiled = compiled.get();
+        output.emplace_back(std::move(compiled));
+        i = end_index + 1;
+    }
+
+    commands = std::move(output);
+
+    disableRecording = saved_disable_recording;
+    gs.fpe_state.fpe_bools.color_material_enable = saved_color_material;
+    std::swap(saved_draw.primitive, draw.primitive);
+    std::swap(saved_draw.current_data, draw.current_data);
+    std::swap(saved_draw.vb, draw.vb);
+    std::swap(saved_draw.vertex_count, draw.vertex_count);
+}
+
 void glBegin(GLenum mode) {
     // Entry strict resolve: pins the Begin/End batch (and every vertex-data
     // call inside it) to this context via the thread-local snapshot.

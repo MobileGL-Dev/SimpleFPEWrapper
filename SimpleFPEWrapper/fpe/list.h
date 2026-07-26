@@ -33,6 +33,10 @@ using unordered_map = std::unordered_map<K, V>;
 
 class GLCmd {
 public:
+    // Classification for the glEndList immediate-run compiler
+    // (sfpewCompileImmediateRuns in drawing1x.cpp).
+    enum class immediate_class_t : uint8_t { none, begin, end, vertex_data };
+
     virtual ~GLCmd() = default;
     GLCmd() = default;
     GLCmd(GLCmd&&) = default;
@@ -42,6 +46,8 @@ public:
     virtual bool isCapturedDraw() const { return false; }
     virtual bool bakePositionTranslation(const glm::vec3&) { return false; }
     virtual const GLCmd* capturedDrawForBatch(glm::mat4*) const { return nullptr; }
+    virtual immediate_class_t immediateClass() const { return immediate_class_t::none; }
+    virtual GLenum immediateBeginMode() const { return GL_NONE; }
 
     GLCmd(const GLCmd&) = delete;
     GLCmd& operator=(const GLCmd&) = delete;
@@ -49,6 +55,208 @@ public:
 using DisplayList = std::vector<std::unique_ptr<GLCmd>>;
 
 void optimizeDisplayListCommands(DisplayList& commands);
+void sfpewCompileImmediateRuns(DisplayList& commands);
+
+// ---- Immediate-run classification (compile-time, by recorded function) ----
+// One overload per recorded signature; pointer equality picks the immediate
+// family out of same-signature state entries. The variadic fallback returns
+// none for everything else.
+namespace sfpew_imm {
+using ic = GLCmd::immediate_class_t;
+constexpr ic classify(void (*f)(GLenum)) { return f == &glBegin ? ic::begin : ic::none; }
+constexpr ic classify(void (*f)()) { return f == &glEnd ? ic::end : ic::none; }
+// float scalar
+constexpr ic classify(void (*f)(GLfloat)) { return f == &glTexCoord1f ? ic::vertex_data : ic::none; }
+constexpr ic classify(void (*f)(GLfloat, GLfloat)) {
+    return f == &glVertex2f || f == &glTexCoord2f ? ic::vertex_data : ic::none;
+}
+constexpr ic classify(void (*f)(GLfloat, GLfloat, GLfloat)) {
+    return f == &glVertex3f || f == &glColor3f || f == &glNormal3f || f == &glTexCoord3f
+               ? ic::vertex_data
+               : ic::none;
+}
+constexpr ic classify(void (*f)(GLfloat, GLfloat, GLfloat, GLfloat)) {
+    return f == &glVertex4f || f == &glColor4f || f == &glTexCoord4f ? ic::vertex_data : ic::none;
+}
+// double scalar
+constexpr ic classify(void (*f)(GLdouble)) { return f == &glTexCoord1d ? ic::vertex_data : ic::none; }
+constexpr ic classify(void (*f)(GLdouble, GLdouble)) {
+    return f == &glVertex2d || f == &glTexCoord2d ? ic::vertex_data : ic::none;
+}
+constexpr ic classify(void (*f)(GLdouble, GLdouble, GLdouble)) {
+    return f == &glVertex3d || f == &glColor3d || f == &glNormal3d || f == &glTexCoord3d
+               ? ic::vertex_data
+               : ic::none;
+}
+constexpr ic classify(void (*f)(GLdouble, GLdouble, GLdouble, GLdouble)) {
+    return f == &glVertex4d || f == &glColor4d || f == &glTexCoord4d ? ic::vertex_data : ic::none;
+}
+// int / short / byte scalar
+constexpr ic classify(void (*f)(GLint)) { return f == &glTexCoord1i ? ic::vertex_data : ic::none; }
+constexpr ic classify(void (*f)(GLint, GLint)) {
+    return f == &glVertex2i || f == &glTexCoord2i ? ic::vertex_data : ic::none;
+}
+constexpr ic classify(void (*f)(GLint, GLint, GLint)) {
+    return f == &glVertex3i || f == &glColor3i || f == &glNormal3i || f == &glTexCoord3i
+               ? ic::vertex_data
+               : ic::none;
+}
+constexpr ic classify(void (*f)(GLint, GLint, GLint, GLint)) {
+    return f == &glVertex4i || f == &glColor4i || f == &glTexCoord4i ? ic::vertex_data : ic::none;
+}
+constexpr ic classify(void (*f)(GLshort)) { return f == &glTexCoord1s ? ic::vertex_data : ic::none; }
+constexpr ic classify(void (*f)(GLshort, GLshort)) {
+    return f == &glVertex2s || f == &glTexCoord2s ? ic::vertex_data : ic::none;
+}
+constexpr ic classify(void (*f)(GLshort, GLshort, GLshort)) {
+    return f == &glVertex3s || f == &glColor3s || f == &glNormal3s || f == &glTexCoord3s
+               ? ic::vertex_data
+               : ic::none;
+}
+constexpr ic classify(void (*f)(GLshort, GLshort, GLshort, GLshort)) {
+    return f == &glVertex4s || f == &glColor4s || f == &glTexCoord4s ? ic::vertex_data : ic::none;
+}
+constexpr ic classify(void (*f)(GLbyte, GLbyte, GLbyte)) {
+    return f == &glColor3b || f == &glNormal3b ? ic::vertex_data : ic::none;
+}
+constexpr ic classify(void (*f)(GLbyte, GLbyte, GLbyte, GLbyte)) {
+    return f == &glColor4b ? ic::vertex_data : ic::none;
+}
+constexpr ic classify(void (*f)(GLubyte, GLubyte, GLubyte)) {
+    return f == &glColor3ub ? ic::vertex_data : ic::none;
+}
+constexpr ic classify(void (*f)(GLubyte, GLubyte, GLubyte, GLubyte)) {
+    return f == &glColor4ub ? ic::vertex_data : ic::none;
+}
+constexpr ic classify(void (*f)(GLuint, GLuint, GLuint)) {
+    return f == &glColor3ui ? ic::vertex_data : ic::none;
+}
+constexpr ic classify(void (*f)(GLuint, GLuint, GLuint, GLuint)) {
+    return f == &glColor4ui ? ic::vertex_data : ic::none;
+}
+constexpr ic classify(void (*f)(GLushort, GLushort, GLushort)) {
+    return f == &glColor3us ? ic::vertex_data : ic::none;
+}
+constexpr ic classify(void (*f)(GLushort, GLushort, GLushort, GLushort)) {
+    return f == &glColor4us ? ic::vertex_data : ic::none;
+}
+// pointer variants
+constexpr ic classify(void (*f)(const GLfloat*)) {
+    return f == &glVertex2fv || f == &glVertex3fv || f == &glVertex4fv || f == &glColor3fv ||
+                   f == &glColor4fv || f == &glNormal3fv || f == &glTexCoord1fv ||
+                   f == &glTexCoord2fv || f == &glTexCoord3fv || f == &glTexCoord4fv
+               ? ic::vertex_data
+               : ic::none;
+}
+constexpr ic classify(void (*f)(const GLdouble*)) {
+    return f == &glVertex2dv || f == &glVertex3dv || f == &glVertex4dv || f == &glColor3dv ||
+                   f == &glColor4dv || f == &glNormal3dv || f == &glTexCoord1dv ||
+                   f == &glTexCoord2dv || f == &glTexCoord3dv || f == &glTexCoord4dv
+               ? ic::vertex_data
+               : ic::none;
+}
+constexpr ic classify(void (*f)(const GLint*)) {
+    return f == &glVertex2iv || f == &glVertex3iv || f == &glVertex4iv || f == &glColor3iv ||
+                   f == &glColor4iv || f == &glNormal3iv || f == &glTexCoord1iv ||
+                   f == &glTexCoord2iv || f == &glTexCoord3iv || f == &glTexCoord4iv
+               ? ic::vertex_data
+               : ic::none;
+}
+constexpr ic classify(void (*f)(const GLshort*)) {
+    return f == &glVertex2sv || f == &glVertex3sv || f == &glVertex4sv || f == &glColor3sv ||
+                   f == &glColor4sv || f == &glNormal3sv || f == &glTexCoord1sv ||
+                   f == &glTexCoord2sv || f == &glTexCoord3sv || f == &glTexCoord4sv
+               ? ic::vertex_data
+               : ic::none;
+}
+constexpr ic classify(void (*f)(const GLbyte*)) {
+    return f == &glColor3bv || f == &glNormal3bv ? ic::vertex_data : ic::none;
+}
+constexpr ic classify(void (*f)(const GLubyte*)) {
+    return f == &glColor3ubv || f == &glColor4ubv ? ic::vertex_data : ic::none;
+}
+constexpr ic classify(void (*f)(const GLuint*)) {
+    return f == &glColor3uiv || f == &glColor4uiv ? ic::vertex_data : ic::none;
+}
+constexpr ic classify(void (*f)(const GLushort*)) {
+    return f == &glColor3usv || f == &glColor4usv ? ic::vertex_data : ic::none;
+}
+// multitexcoord scalar + pointer
+constexpr ic classify(void (*f)(GLenum, GLfloat)) {
+    return f == &glMultiTexCoord1f ? ic::vertex_data : ic::none;
+}
+constexpr ic classify(void (*f)(GLenum, GLfloat, GLfloat)) {
+    return f == &glMultiTexCoord2f ? ic::vertex_data : ic::none;
+}
+constexpr ic classify(void (*f)(GLenum, GLfloat, GLfloat, GLfloat)) {
+    return f == &glMultiTexCoord3f ? ic::vertex_data : ic::none;
+}
+constexpr ic classify(void (*f)(GLenum, GLfloat, GLfloat, GLfloat, GLfloat)) {
+    return f == &glMultiTexCoord4f ? ic::vertex_data : ic::none;
+}
+constexpr ic classify(void (*f)(GLenum, GLdouble)) {
+    return f == &glMultiTexCoord1d ? ic::vertex_data : ic::none;
+}
+constexpr ic classify(void (*f)(GLenum, GLdouble, GLdouble)) {
+    return f == &glMultiTexCoord2d ? ic::vertex_data : ic::none;
+}
+constexpr ic classify(void (*f)(GLenum, GLdouble, GLdouble, GLdouble)) {
+    return f == &glMultiTexCoord3d ? ic::vertex_data : ic::none;
+}
+constexpr ic classify(void (*f)(GLenum, GLdouble, GLdouble, GLdouble, GLdouble)) {
+    return f == &glMultiTexCoord4d ? ic::vertex_data : ic::none;
+}
+constexpr ic classify(void (*f)(GLenum, GLint)) {
+    return f == &glMultiTexCoord1i ? ic::vertex_data : ic::none;
+}
+constexpr ic classify(void (*f)(GLenum, GLint, GLint)) {
+    return f == &glMultiTexCoord2i ? ic::vertex_data : ic::none;
+}
+constexpr ic classify(void (*f)(GLenum, GLint, GLint, GLint)) {
+    return f == &glMultiTexCoord3i ? ic::vertex_data : ic::none;
+}
+constexpr ic classify(void (*f)(GLenum, GLint, GLint, GLint, GLint)) {
+    return f == &glMultiTexCoord4i ? ic::vertex_data : ic::none;
+}
+constexpr ic classify(void (*f)(GLenum, GLshort)) {
+    return f == &glMultiTexCoord1s ? ic::vertex_data : ic::none;
+}
+constexpr ic classify(void (*f)(GLenum, GLshort, GLshort)) {
+    return f == &glMultiTexCoord2s ? ic::vertex_data : ic::none;
+}
+constexpr ic classify(void (*f)(GLenum, GLshort, GLshort, GLshort)) {
+    return f == &glMultiTexCoord3s ? ic::vertex_data : ic::none;
+}
+constexpr ic classify(void (*f)(GLenum, GLshort, GLshort, GLshort, GLshort)) {
+    return f == &glMultiTexCoord4s ? ic::vertex_data : ic::none;
+}
+constexpr ic classify(void (*f)(GLenum, const GLfloat*)) {
+    return f == &glMultiTexCoord1fv || f == &glMultiTexCoord2fv || f == &glMultiTexCoord3fv ||
+                   f == &glMultiTexCoord4fv
+               ? ic::vertex_data
+               : ic::none;
+}
+constexpr ic classify(void (*f)(GLenum, const GLdouble*)) {
+    return f == &glMultiTexCoord1dv || f == &glMultiTexCoord2dv || f == &glMultiTexCoord3dv ||
+                   f == &glMultiTexCoord4dv
+               ? ic::vertex_data
+               : ic::none;
+}
+constexpr ic classify(void (*f)(GLenum, const GLint*)) {
+    return f == &glMultiTexCoord1iv || f == &glMultiTexCoord2iv || f == &glMultiTexCoord3iv ||
+                   f == &glMultiTexCoord4iv
+               ? ic::vertex_data
+               : ic::none;
+}
+constexpr ic classify(void (*f)(GLenum, const GLshort*)) {
+    return f == &glMultiTexCoord1sv || f == &glMultiTexCoord2sv || f == &glMultiTexCoord3sv ||
+                   f == &glMultiTexCoord4sv
+               ? ic::vertex_data
+               : ic::none;
+}
+// everything else records as none
+template <typename F> constexpr ic classify(F) { return ic::none; }
+} // namespace sfpew_imm
 
 template <auto FuncPtr, typename... Args>
 class GLFuncCmd : public GLCmd {
@@ -56,12 +264,24 @@ class GLFuncCmd : public GLCmd {
     StoredArgs args;
     std::vector<std::vector<uint8_t>> argBuffers;
 
+    static constexpr immediate_class_t kImmediateClass = sfpew_imm::classify(FuncPtr);
+
 public:
     explicit GLFuncCmd(Args&&... processedArgs, std::vector<std::vector<uint8_t>>&& buffers)
         : args(std::forward<Args>(processedArgs)...), argBuffers(std::move(buffers)) {}
 
     void execute() const override {
         std::apply([](auto&&... args) { FuncPtr(std::forward<decltype(args)>(args)...); }, args);
+    }
+
+    immediate_class_t immediateClass() const override { return kImmediateClass; }
+
+    GLenum immediateBeginMode() const override {
+        if constexpr (kImmediateClass == immediate_class_t::begin && sizeof...(Args) >= 1) {
+            return static_cast<GLenum>(std::get<0>(args));
+        } else {
+            return GL_NONE;
+        }
     }
 };
 
@@ -122,7 +342,10 @@ public:
 
     static void endRecord() {
         auto it = lists.find(currentListID);
-        if (it != lists.end()) optimizeDisplayListCommands(it->second);
+        if (it != lists.end()) {
+            sfpewCompileImmediateRuns(it->second);
+            optimizeDisplayListCommands(it->second);
+        }
         bumpMutationGeneration();
         currentListID = 0;
         listMode = GL_COMPILE;

@@ -147,6 +147,14 @@ if(NOT ANDROID)
                         add_dependencies(smoke_translator ${CMAKE_PROJECT_NAME})
                         add_test(NAME smoke_translator COMMAND smoke_translator)
                         set_tests_properties(smoke_translator PROPERTIES SKIP_RETURN_CODE 77)
+
+                        add_executable(smoke_render tests/smoke_render.c)
+                        target_compile_definitions(smoke_render PRIVATE
+                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
+                        target_link_libraries(smoke_render PRIVATE dl ${SFPEW_TEST_EGL})
+                        add_dependencies(smoke_render ${CMAKE_PROJECT_NAME})
+                        add_test(NAME smoke_render COMMAND smoke_render)
+                        set_tests_properties(smoke_render PROPERTIES SKIP_RETURN_CODE 77)
                 endif()
 
                 # The committed API manifest must match what lookup.cpp

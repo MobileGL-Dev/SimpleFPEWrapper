@@ -267,6 +267,13 @@ void flushPendingImmediateDraws() {
 }
 
 void glBegin(GLenum mode) {
+    // GL_POINTS(0) .. GL_POLYGON(9); invalid modes are errors and are not
+    // recorded into display lists.
+    if (mode > GL_POLYGON) {
+        g_glstate.set_error(GL_INVALID_ENUM);
+        return;
+    }
+
     LIST_RECORD(glBegin, {}, mode)
 
     if (mode != GL_TRIANGLE_STRIP) flushPendingImmediateDraws();
@@ -278,6 +285,8 @@ void glBegin(GLenum mode) {
     auto& s = g_glstate.fpe_state.fpe_draw;
 
     if (s.primitive != GL_NONE) {
+        // Nested glBegin. Report it; keep collecting the outer primitive.
+        g_glstate.set_error(GL_INVALID_OPERATION);
         return;
     }
 
@@ -289,6 +298,11 @@ void glEnd() {
 
     auto& s = g_glstate.fpe_state.fpe_draw;
     if (s.primitive == GL_NONE) {
+        // glEnd without a matching glBegin. Also drop any stray vertices
+        // collected outside a Begin/End pair so they cannot leak into the
+        // next primitive.
+        g_glstate.set_error(GL_INVALID_OPERATION);
+        s.reset();
         return;
     }
 

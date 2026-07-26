@@ -90,20 +90,24 @@ class DisplayListManager {
 
 public:
     static GLuint genDisplayList(GLsizei range) {
+        // glGenLists: zero or negative ranges allocate nothing and return 0.
+        if (range <= 0) return 0;
         GLuint first = nextListId;
         nextListId += range;
-        for (GLuint i = first; i < first + range; ++i) {
-            lists[i] = std::vector<std::unique_ptr<GLCmd>>{};
+        for (GLsizei i = 0; i < range; ++i) {
+            lists[first + i] = std::vector<std::unique_ptr<GLCmd>>{};
         }
-        if (range > 0) bumpMutationGeneration();
+        bumpMutationGeneration();
         return first;
     }
 
     static void deleteDisplayList(GLuint list, GLsizei range) {
-        for (GLuint i = 0; i < range; ++i) {
+        // A negative range previously wrapped to ~2^32 iterations here.
+        if (range <= 0) return;
+        for (GLsizei i = 0; i < range; ++i) {
             lists.erase(list + i);
         }
-        if (range > 0) bumpMutationGeneration();
+        bumpMutationGeneration();
     }
 
     static GLboolean isDisplayList(GLuint list) { return lists.find(list) != lists.end() ? GL_TRUE : GL_FALSE; }

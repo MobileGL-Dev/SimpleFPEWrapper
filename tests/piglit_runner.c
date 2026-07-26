@@ -33,7 +33,7 @@ typedef char GLchar;
 typedef unsigned int GLbitfield;
 typedef long GLsizeiptr_local;
 
-#define WIN 64
+#define WIN 250 /* piglit shader_runner default window */
 
 static void* (*resolve)(const char*);
 
@@ -171,6 +171,7 @@ static GLuint compile_stage(GLenum stage, const char* src, const char* tag) {
 }
 
 static GLuint g_program;
+static GLint g_linked; // LINK_STATUS, for `link success` / `link error`
 static float g_ortho_w = 0.0f, g_ortho_h = 0.0f; // nonzero after `ortho`
 
 static int draw_rect(float x, float y, float w, float h) {
@@ -239,6 +240,19 @@ static int run_test_section(char* body) {
         } else if (sscanf(line, "probe all rgba %f %f %f %f", &a, &b, &c, &d) == 4) {
             const float exp4[4] = {a, b, c, d};
             if (!probe_pixels(0, 0, WIN, WIN, exp4, 4)) return 0;
+        } else if (sscanf(line, "probe all rgb %f %f %f", &a, &b, &c) == 3) {
+            const float exp3[4] = {a, b, c, 0};
+            if (!probe_pixels(0, 0, WIN, WIN, exp3, 3)) return 0;
+        } else if (strcmp(line, "link success") == 0) {
+            if (!g_linked) {
+                fprintf(stderr, "FAIL: expected link success\n");
+                return 0;
+            }
+        } else if (strcmp(line, "link error") == 0) {
+            if (g_linked) {
+                fprintf(stderr, "FAIL: expected link error, but the program linked\n");
+                return 0;
+            }
         } else if (sscanf(line, "probe rgba %f %f %f %f %f %f", &a, &b, &c, &d, &e, &f) == 6) {
             const float exp4[4] = {c, d, e, f};
             if (!probe_pixels((int)a, (int)b, 1, 1, exp4, 4)) return 0;
@@ -370,15 +384,18 @@ int main(int argc, char** argv) {
         }
     }
     pLinkProgram(g_program);
-    GLint linked = 0;
-    pGetProgramiv(g_program, 0x8B82 /* LINK_STATUS */, &linked);
-    if (!linked) {
+    pGetProgramiv(g_program, 0x8B82 /* LINK_STATUS */, &g_linked);
+    char* test = section_body(text, "test");
+    if (!test) return 1;
+    // `link error` tests assert the failure itself; anything else treats a
+    // failed link as fatal.
+    if (!g_linked && strstr(test, "link error") == NULL) {
         char info[4096] = {0};
         pGetProgramInfoLog(g_program, sizeof(info), NULL, info);
         fprintf(stderr, "FAIL: link:\n%s\n", info);
         return 1;
     }
-    pUseProgram(g_program);
+    if (g_linked) pUseProgram(g_program);
 
     GLuint vao = 0, vbo = 0;
     pGenVertexArrays(1, &vao);
@@ -386,8 +403,7 @@ int main(int argc, char** argv) {
     pGenBuffers(1, &vbo);
     pBindBuffer(0x8892, vbo);
 
-    char* test = section_body(text, "test");
-    if (!test || !run_test_section(test)) return 1;
+    if (!run_test_section(test)) return 1;
     printf("PASS: %s\n", argv[1]);
     return 0;
 }

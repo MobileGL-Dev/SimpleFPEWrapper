@@ -1,0 +1,277 @@
+// SimpleFPEWrapper - tests/smoke_mixed_pipeline.c
+// Copyright (c) 2026 MobileGL-Dev
+// Licensed under the GNU Lesser General Public License v3.0:
+//   https://www.gnu.org/licenses/gpl-3.0.txt
+//   https://www.gnu.org/licenses/lgpl-3.0.txt
+// SPDX-License-Identifier: LGPL-3.0-only
+// End of Source File Header
+
+// plans/09 S9 mixed pipeline (the OptiFine shader-pack shape, captured in
+// sfpew-bad-shaderpack.rdc): a USER program bound while geometry arrives
+// through FIXED-FUNCTION channels. The fragment shader swaps R<->B, so a
+// red input rendering BLUE proves the user shader really ran - the old
+// bug substituted the wrapper's internal FPE program (identity colors) or
+// dropped the draw entirely (GL_QUADS passthrough, unwired attributes).
+//   A: glVertexPointer/glColorPointer (independent client arrays) +
+//      glDrawArrays(GL_QUADS)
+//   B: glBegin/glEnd immediate quad
+//   C: glDrawElements(GL_QUADS, client ushort indices)
+//   D: glBindAttribLocation pinning a custom attribute (mc_Entity-style)
+//      must survive translation (no hardcoded layout(location) override).
+
+#include <dlfcn.h>
+#include <stdio.h>
+#include <string.h>
+
+#include <EGL/egl.h>
+
+typedef unsigned int GLenum;
+typedef unsigned int GLuint;
+typedef unsigned char GLubyte;
+typedef unsigned char GLboolean;
+typedef float GLfloat;
+typedef int GLint, GLsizei;
+typedef char GLchar;
+typedef unsigned int GLbitfield;
+
+#define GL_QUADS 0x0007
+#define GL_COLOR_BUFFER_BIT 0x00004000
+#define GL_VERTEX_ARRAY 0x8074
+#define GL_COLOR_ARRAY 0x8076
+#define GL_FLOAT 0x1406
+#define GL_UNSIGNED_SHORT 0x1403
+#define GL_RGBA 0x1908
+#define GL_UNSIGNED_BYTE 0x1401
+#define GL_COMPILE_STATUS 0x8B81
+#define GL_LINK_STATUS 0x8B82
+#define GL_VERTEX_SHADER 0x8B31
+#define GL_FRAGMENT_SHADER 0x8B30
+
+static void* (*resolve)(const char*);
+#define R(dst, name)                                                                               \
+    do {                                                                                           \
+        *(void**)(&dst) = resolve(name);                                                           \
+        if (!dst) {                                                                                \
+            fprintf(stderr, "FAIL: cannot resolve %s\n", name);                                    \
+            return 1;                                                                              \
+        }                                                                                          \
+    } while (0)
+
+static GLuint (*fCreateShader)(GLenum);
+static void (*fShaderSource)(GLuint, GLsizei, const GLchar* const*, const GLint*);
+static void (*fCompileShader)(GLuint);
+static void (*fGetShaderiv)(GLuint, GLenum, GLint*);
+static void (*fGetShaderInfoLog)(GLuint, GLsizei, GLsizei*, GLchar*);
+static GLuint (*fCreateProgram)(void);
+static void (*fAttachShader)(GLuint, GLuint);
+static void (*fLinkProgram)(GLuint);
+static void (*fGetProgramiv)(GLuint, GLenum, GLint*);
+static void (*fUseProgram)(GLuint);
+static void (*fBindAttribLocation)(GLuint, GLuint, const GLchar*);
+static void (*fVertexAttrib4f)(GLuint, GLfloat, GLfloat, GLfloat, GLfloat);
+static void (*fClearColor)(GLfloat, GLfloat, GLfloat, GLfloat);
+static void (*fClear)(GLbitfield);
+static void (*fEnableClientState)(GLenum);
+static void (*fDisableClientState)(GLenum);
+static void (*fVertexPointer)(GLint, GLenum, GLsizei, const void*);
+static void (*fColorPointer)(GLint, GLenum, GLsizei, const void*);
+static void (*fDrawArrays)(GLenum, GLint, GLsizei);
+static void (*fDrawElements)(GLenum, GLsizei, GLenum, const void*);
+static void (*fBegin)(GLenum);
+static void (*fEnd)(void);
+static void (*fColor4f)(GLfloat, GLfloat, GLfloat, GLfloat);
+static void (*fVertex2f)(GLfloat, GLfloat);
+static void (*fReadPixels)(GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, void*);
+static GLenum (*fGetError)(void);
+
+static GLuint compileStage(GLenum stage, const char* src, const char* tag) {
+    GLuint shader = fCreateShader(stage);
+    fShaderSource(shader, 1, &src, NULL);
+    fCompileShader(shader);
+    GLint ok = 0;
+    fGetShaderiv(shader, GL_COMPILE_STATUS, &ok);
+    if (!ok) {
+        char log[4096] = {0};
+        fGetShaderInfoLog(shader, sizeof(log), NULL, log);
+        fprintf(stderr, "FAIL: %s compile:\n%s\n", tag, log);
+        return 0;
+    }
+    return shader;
+}
+
+static int checkCenter(const char* tag, int r, int g, int b) {
+    GLubyte px[4] = {0, 0, 0, 0};
+    fReadPixels(128, 128, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, px);
+    const int tol = 8;
+    if (px[0] < r - tol || px[0] > r + tol || px[1] < g - tol || px[1] > g + tol ||
+        px[2] < b - tol || px[2] > b + tol) {
+        fprintf(stderr, "FAIL[%s]: center pixel (%u,%u,%u), expected (%d,%d,%d)\n", tag, px[0],
+                px[1], px[2], r, g, b);
+        return 0;
+    }
+    printf("OK: %s -> (%u,%u,%u)\n", tag, px[0], px[1], px[2]);
+    return 1;
+}
+
+int main(void) {
+    void* handle = dlopen(WRAPPER_LIB_PATH, RTLD_NOW | RTLD_LOCAL);
+    if (!handle) {
+        fprintf(stderr, "FAIL: dlopen: %s\n", dlerror());
+        return 1;
+    }
+    *(void**)(&resolve) = dlsym(handle, "eglGetProcAddress");
+    if (!resolve) return 1;
+
+    EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+    if (display == EGL_NO_DISPLAY || !eglInitialize(display, NULL, NULL)) {
+        printf("SKIP: no EGL display\n");
+        return 77;
+    }
+    static const EGLint config_attribs[] = {EGL_SURFACE_TYPE, EGL_PBUFFER_BIT, EGL_RENDERABLE_TYPE,
+                                            EGL_OPENGL_ES3_BIT, EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8,
+                                            EGL_BLUE_SIZE, 8, EGL_ALPHA_SIZE, 8, EGL_NONE};
+    EGLConfig config;
+    EGLint num_config = 0;
+    if (!eglChooseConfig(display, config_attribs, &config, 1, &num_config) || num_config == 0) {
+        printf("SKIP: no ES3 pbuffer config\n");
+        return 77;
+    }
+    static const EGLint pb[] = {EGL_WIDTH, 256, EGL_HEIGHT, 256, EGL_NONE};
+    EGLSurface surface = eglCreatePbufferSurface(display, config, pb);
+    eglBindAPI(EGL_OPENGL_ES_API);
+    static const EGLint ctx_attribs[] = {EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE};
+    EGLContext context = eglCreateContext(display, config, EGL_NO_CONTEXT, ctx_attribs);
+    if (surface == EGL_NO_SURFACE || context == EGL_NO_CONTEXT ||
+        !eglMakeCurrent(display, surface, surface, context)) {
+        printf("SKIP: no current ES3 context\n");
+        return 77;
+    }
+
+    R(fCreateShader, "glCreateShader");
+    R(fShaderSource, "glShaderSource");
+    R(fCompileShader, "glCompileShader");
+    R(fGetShaderiv, "glGetShaderiv");
+    R(fGetShaderInfoLog, "glGetShaderInfoLog");
+    R(fCreateProgram, "glCreateProgram");
+    R(fAttachShader, "glAttachShader");
+    R(fLinkProgram, "glLinkProgram");
+    R(fGetProgramiv, "glGetProgramiv");
+    R(fUseProgram, "glUseProgram");
+    R(fBindAttribLocation, "glBindAttribLocation");
+    R(fVertexAttrib4f, "glVertexAttrib4f");
+    R(fClearColor, "glClearColor");
+    R(fClear, "glClear");
+    R(fEnableClientState, "glEnableClientState");
+    R(fDisableClientState, "glDisableClientState");
+    R(fVertexPointer, "glVertexPointer");
+    R(fColorPointer, "glColorPointer");
+    R(fDrawArrays, "glDrawArrays");
+    R(fDrawElements, "glDrawElements");
+    R(fBegin, "glBegin");
+    R(fEnd, "glEnd");
+    R(fColor4f, "glColor4f");
+    R(fVertex2f, "glVertex2f");
+    R(fReadPixels, "glReadPixels");
+    R(fGetError, "glGetError");
+
+    // R<->B swapping shader pair: proves WHICH program produced the pixel.
+    static const char* kVS = "#version 120\n"
+                             "varying vec4 col;\n"
+                             "void main() { gl_Position = gl_Vertex; col = gl_Color; }\n";
+    static const char* kFS = "#version 120\n"
+                             "varying vec4 col;\n"
+                             "void main() { gl_FragColor = vec4(col.b, col.g, col.r, 1.0); }\n";
+    const GLuint vs = compileStage(GL_VERTEX_SHADER, kVS, "vs");
+    const GLuint fs = compileStage(GL_FRAGMENT_SHADER, kFS, "fs");
+    if (!vs || !fs) return 1;
+    GLuint prog = fCreateProgram();
+    fAttachShader(prog, vs);
+    fAttachShader(prog, fs);
+    fLinkProgram(prog);
+    GLint linked = 0;
+    fGetProgramiv(prog, GL_LINK_STATUS, &linked);
+    if (!linked) {
+        fprintf(stderr, "FAIL: link\n");
+        return 1;
+    }
+    fUseProgram(prog);
+
+    // --- A: user program + independent client arrays + GL_QUADS ----------
+    static const GLfloat quad_pos[8] = {-1, -1, 1, -1, 1, 1, -1, 1};
+    static const GLfloat quad_red[16] = {1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1};
+    fClearColor(0, 0, 0, 1);
+    fClear(GL_COLOR_BUFFER_BIT);
+    fEnableClientState(GL_VERTEX_ARRAY);
+    fEnableClientState(GL_COLOR_ARRAY);
+    fVertexPointer(2, GL_FLOAT, 0, quad_pos);
+    fColorPointer(4, GL_FLOAT, 0, quad_red);
+    fDrawArrays(GL_QUADS, 0, 4);
+    if (!checkCenter("A: client arrays + QUADS through user shader (red->blue)", 0, 0, 255))
+        return 1;
+
+    // --- C: same arrays via glDrawElements(GL_QUADS) ----------------------
+    static const unsigned short quad_idx[4] = {0, 1, 2, 3};
+    fClear(GL_COLOR_BUFFER_BIT);
+    fDrawElements(GL_QUADS, 4, GL_UNSIGNED_SHORT, quad_idx);
+    if (!checkCenter("C: client-index QUADS through user shader (red->blue)", 0, 0, 255)) return 1;
+    fDisableClientState(GL_VERTEX_ARRAY);
+    fDisableClientState(GL_COLOR_ARRAY);
+
+    // --- B: user program + immediate mode --------------------------------
+    fClear(GL_COLOR_BUFFER_BIT);
+    fColor4f(0.0f, 1.0f, 0.0f, 1.0f); // green: swap keeps green (control for
+    fBegin(GL_QUADS);                 // "did the draw happen at all")
+    fVertex2f(-1, -1);
+    fVertex2f(1, -1);
+    fVertex2f(1, 1);
+    fVertex2f(-1, 1);
+    fEnd();
+    if (!checkCenter("B1: immediate QUADS through user shader (green)", 0, 255, 0)) return 1;
+    fClear(GL_COLOR_BUFFER_BIT);
+    fColor4f(1.0f, 0.0f, 0.0f, 1.0f); // red -> must come out BLUE
+    fBegin(GL_QUADS);
+    fVertex2f(-1, -1);
+    fVertex2f(1, -1);
+    fVertex2f(1, 1);
+    fVertex2f(-1, 1);
+    fEnd();
+    if (!checkCenter("B2: immediate QUADS through user shader (red->blue)", 0, 0, 255)) return 1;
+
+    // --- D: glBindAttribLocation pinning must survive translation --------
+    static const char* kVSAttr =
+        "#version 120\n"
+        "attribute vec4 mc_Entity;\n"
+        "varying vec4 col;\n"
+        "void main() { gl_Position = gl_Vertex; col = mc_Entity; }\n";
+    static const char* kFSAttr = "#version 120\n"
+                                 "varying vec4 col;\n"
+                                 "void main() { gl_FragColor = col; }\n";
+    const GLuint vs2 = compileStage(GL_VERTEX_SHADER, kVSAttr, "vs-attr");
+    const GLuint fs2 = compileStage(GL_FRAGMENT_SHADER, kFSAttr, "fs-attr");
+    if (!vs2 || !fs2) return 1;
+    GLuint prog2 = fCreateProgram();
+    fAttachShader(prog2, vs2);
+    fAttachShader(prog2, fs2);
+    fBindAttribLocation(prog2, 11, "mc_Entity"); // the OptiFine pattern
+    fLinkProgram(prog2);
+    fGetProgramiv(prog2, GL_LINK_STATUS, &linked);
+    if (!linked) {
+        fprintf(stderr, "FAIL: attr-pin program link\n");
+        return 1;
+    }
+    fUseProgram(prog2);
+    fVertexAttrib4f(11, 0.0f, 1.0f, 1.0f, 1.0f); // cyan via the PINNED slot
+    fClear(GL_COLOR_BUFFER_BIT);
+    fEnableClientState(GL_VERTEX_ARRAY);
+    fVertexPointer(2, GL_FLOAT, 0, quad_pos);
+    fDrawArrays(GL_QUADS, 0, 4);
+    if (!checkCenter("D: glBindAttribLocation(11, mc_Entity) honored (cyan)", 0, 255, 255))
+        return 1;
+
+    if (fGetError() != 0) {
+        fprintf(stderr, "FAIL: GL error at end\n");
+        return 1;
+    }
+    printf("OK: mixed fixed-function/user-program pipeline verified\n");
+    return 0;
+}

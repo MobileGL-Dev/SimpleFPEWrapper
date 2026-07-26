@@ -318,6 +318,9 @@ SFPEW_APIENTRY __eglMustCastToProperFunctionPointerType eglGetProcAddress(const 
     }
     GETPROC(glPointSize, name)
     GETPROC(glPolygonMode, name)
+    GETPROC(glPolygonStipple, name)
+    GETPROC(glGetPolygonStipple, name)
+    GETPROC(glLineStipple, name)
     GETPROC(glTexGeni, name)
     GETPROC(glTexGenf, name)
     GETPROC(glTexGend, name)

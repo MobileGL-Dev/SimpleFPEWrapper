@@ -45,6 +45,7 @@ void program_uniform_locations_t::initialize(GLuint program) {
     alpha_ref = location("alpharef");
     point_size = location("PointSize");
     for (int i = 0; i < 6; ++i) clip_planes[i] = location(std::format("ClipPlane{}", i));
+    polygon_stipple_rows = location("PolygonStipple");
 
     for (int i = 0; i < MAX_LIGHTS; ++i) {
         light_ambient[i] = location(std::format("Light{}Ambient", i));
@@ -240,6 +241,14 @@ void glstate_t::send_uniforms(program_t& program) {
             g_glFuncs.glUniform4fv(locations.clip_planes[i], 1, glm::value_ptr(plane));
             values.clip_planes[i] = plane;
         }
+    }
+
+    if (fpe_state.fpe_bools.polygon_stipple_enable && locations.polygon_stipple_rows >= 0 &&
+        (first_upload || std::memcmp(fpe_uniform.polygon_stipple_rows, values.polygon_stipple_rows,
+                                     sizeof(values.polygon_stipple_rows)) != 0)) {
+        g_glFuncs.glUniform1uiv(locations.polygon_stipple_rows, 32, fpe_uniform.polygon_stipple_rows);
+        std::memcpy(values.polygon_stipple_rows, fpe_uniform.polygon_stipple_rows,
+                    sizeof(values.polygon_stipple_rows));
     }
 
     if ((first_upload || fpe_uniform.point_size != values.point_size) && locations.point_size >= 0) {

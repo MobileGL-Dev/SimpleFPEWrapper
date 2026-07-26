@@ -15,6 +15,7 @@
 #include "../init.h"
 
 #include <algorithm>
+#include <cstring>
 #include <limits>
 #include <type_traits>
 
@@ -120,6 +121,12 @@ bool hijack_fpe_states(GLenum cap, bool enable, fixed_function_bool_t* bools) {
     case GL_TEXTURE_GEN_R:
     case GL_TEXTURE_GEN_Q:
         bools->texture_gen_enable[active_texture_index()][cap - GL_TEXTURE_GEN_S] = enable;
+        return true;
+    case GL_POLYGON_STIPPLE:
+        bools->polygon_stipple_enable = enable;
+        return true;
+    case GL_LINE_STIPPLE:
+        bools->line_stipple_enable = enable;
         return true;
     case GL_CLIP_PLANE0:
     case GL_CLIP_PLANE0 + 1:
@@ -1135,6 +1142,43 @@ void glTexGendv(GLenum coord, GLenum pname, const GLdouble* params) {
     if (pname != GL_TEXTURE_GEN_MODE)
         for (int i = 1; i < 4; ++i) converted[i] = (GLfloat)params[i];
     SELF_CALL(glTexGenfv, coord, pname, converted)
+}
+
+void glPolygonStipple(const GLubyte* mask) {
+    flushPendingImmediateDraws();
+    if (mask == nullptr) return;
+    LIST_RECORD(glPolygonStipple, {{0, 128}}, mask)
+    auto& un = g_glstate.fpe_uniform;
+    std::memcpy(un.polygon_stipple, mask, 128);
+    // Repack rows for the shader: with default unpack state (LSB_FIRST
+    // false) window x0 sits in each byte's MSB; the shader tests bit
+    // (x & 31) LSB-first.
+    const bool lsb_first = g_glstate.pixel_store_unpack_lsb_first;
+    for (int row = 0; row < 32; ++row) {
+        GLuint packed = 0;
+        for (int x = 0; x < 32; ++x) {
+            const GLubyte byte = mask[row * 4 + x / 8];
+            const int bit = lsb_first ? (x % 8) : (7 - x % 8);
+            if ((byte >> bit) & 1u) packed |= 1u << x;
+        }
+        un.polygon_stipple_rows[row] = packed;
+    }
+}
+
+void glGetPolygonStipple(GLubyte* mask) {
+    if (mask == nullptr) return;
+    std::memcpy(mask, g_glstate.fpe_uniform.polygon_stipple, 128);
+}
+
+void glLineStipple(GLint factor, GLushort pattern) {
+    flushPendingImmediateDraws();
+    if (factor < 1) factor = 1;
+    if (factor > 256) factor = 256;
+    LIST_RECORD(glLineStipple, {}, factor, pattern)
+    g_glstate.fpe_uniform.line_stipple_factor = factor;
+    g_glstate.fpe_uniform.line_stipple_pattern = pattern;
+    // Line rendering consumption is the plans/08 screen-space
+    // approximation; state and queries are exact as of this commit.
 }
 
 namespace {

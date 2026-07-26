@@ -85,6 +85,8 @@ struct fixed_function_bool_t {      // glEnable/glDisable
     // Stored for the plans/08 shader consumption; participates in the
     // program hash via the aggregate but is not read by the generator yet.
     bool clip_plane_enable[6] = {false};
+    bool polygon_stipple_enable = false;
+    bool line_stipple_enable = false;
     // glEnable(GL_TEXTURE_GEN_S/T/R/Q) per unit; [unit][coord], coord order
     // S,T,R,Q. Shader consumption is the second half of plans/05 5.2.
     bool texture_gen_enable[MAX_TEX][4] = {};
@@ -252,6 +254,19 @@ struct fixed_function_state_t {
 };
 
 struct fixed_function_uniform_t {
+    fixed_function_uniform_t() {
+        // GL default stipple is all ones: nothing rejected.
+        for (auto& b : polygon_stipple) b = 0xFF;
+        for (auto& row : polygon_stipple_rows) row = 0xFFFFFFFFu;
+    }
+
+    // glPolygonStipple: raw 128-byte mask for GetPolygonStipple, plus a
+    // row-packed LSB-at-x0 form the fragment shader bit-tests directly.
+    GLubyte polygon_stipple[128];
+    GLuint polygon_stipple_rows[32];
+    GLint line_stipple_factor = 1;
+    GLushort line_stipple_pattern = 0xFFFF;
+
     // glAlphaFunc
     GLclampf alpha_ref = 0.0f;
 
@@ -329,6 +344,7 @@ struct program_uniform_locations_t {
     GLint texgen_obj_planes[MAX_TEX] = {};
     GLint texgen_eye_planes[MAX_TEX] = {};
     GLint clip_planes[6] = {};
+    GLint polygon_stipple_rows = -1;
     GLint fog_color = -1;
     GLint fog_density = -1;
     GLint fog_start = -1;
@@ -361,6 +377,7 @@ struct program_uniform_values_t {
     glm::vec4 texgen_obj_planes[MAX_TEX][4]{};
     glm::vec4 texgen_eye_planes[MAX_TEX][4]{};
     glm::vec4 clip_planes[6]{};
+    GLuint polygon_stipple_rows[32]{};
     glm::vec4 fog_color{};
     GLfloat fog_density = 0.0f;
     GLfloat fog_start = 0.0f;

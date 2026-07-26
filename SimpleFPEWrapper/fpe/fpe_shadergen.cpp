@@ -1678,6 +1678,7 @@ void add_vs_body(const fixed_function_state_t& state, scratch_t& scratch, std::s
 }
 
 void add_fs_uniforms(const fixed_function_state_t& state, [[maybe_unused]] scratch_t& scratch, std::string& fs) {
+    if (state.fpe_bools.polygon_stipple_enable) fs += "uniform uint PolygonStipple[32];\n";
     for (int i = 0; i < MAX_TEX; ++i) {
         if (state.fpe_bools.texture_2d_enable[i]) {
             fs += std::format("uniform sampler2D Sampler{};\n", i);
@@ -1791,6 +1792,10 @@ void add_fs_body(const fixed_function_state_t& state, scratch_t& scratch, std::s
     for (int i = 0; i < 6; ++i) {
         if (state.fpe_bools.clip_plane_enable[i])
             fs += std::format("    if (vClipDistance{} < 0.0) discard;\n", i);
+    }
+    if (state.fpe_bools.polygon_stipple_enable) {
+        fs += "    if ((PolygonStipple[int(gl_FragCoord.y) & 31] &\n"
+              "         (1u << (uint(gl_FragCoord.x) & 31u))) == 0u) discard;\n";
     }
 
     if (scratch.has_back_vertex_color)

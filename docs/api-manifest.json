@@ -1,6 +1,6 @@
 {
  "source": "lookup.cpp",
- "count": 358,
+ "count": 361,
  "entries": {
   "glActiveTexture": {
    "status": "resolvable",
@@ -382,6 +382,10 @@
    "status": "resolvable",
    "target": "glGetMaterialiv"
   },
+  "glGetPolygonStipple": {
+   "status": "resolvable",
+   "target": "glGetPolygonStipple"
+  },
   "glGetString": {
    "status": "resolvable",
    "target": "glGetString"
@@ -469,6 +473,10 @@
   "glLightiv": {
    "status": "resolvable",
    "target": "glLightiv"
+  },
+  "glLineStipple": {
+   "status": "resolvable",
+   "target": "glLineStipple"
   },
   "glLineWidth": {
    "status": "resolvable",
@@ -849,6 +857,10 @@
   "glPolygonOffset": {
    "status": "resolvable",
    "target": "glPolygonOffset"
+  },
+  "glPolygonStipple": {
+   "status": "resolvable",
+   "target": "glPolygonStipple"
   },
   "glPopAttrib": {
    "status": "resolvable",

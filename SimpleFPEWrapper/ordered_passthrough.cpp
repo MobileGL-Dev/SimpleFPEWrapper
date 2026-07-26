@@ -55,14 +55,59 @@ ORDERED_PASSTHROUGH(glStencilMask, (GLuint mask), (mask))
 ORDERED_PASSTHROUGH(glStencilOp, (GLenum fail, GLenum zfail, GLenum zpass),
                     (fail, zfail, zpass))
 
-ORDERED_PASSTHROUGH(glTexParameterf, (GLenum target, GLenum pname, GLfloat param),
-                    (target, pname, param))
-ORDERED_PASSTHROUGH(glTexParameterfv, (GLenum target, GLenum pname, const GLfloat* params),
-                    (target, pname, params))
-ORDERED_PASSTHROUGH(glTexParameteri, (GLenum target, GLenum pname, GLint param),
-                    (target, pname, param))
-ORDERED_PASSTHROUGH(glTexParameteriv, (GLenum target, GLenum pname, const GLint* params),
-                    (target, pname, params))
+namespace {
+
+bool isTextureWrapParameter(GLenum pname) {
+    return pname == GL_TEXTURE_WRAP_S || pname == GL_TEXTURE_WRAP_T || pname == GL_TEXTURE_WRAP_R;
+}
+
+GLint compatibleTextureParameter(GLenum pname, GLint param) {
+    // GL_CLAMP was removed from the programmable/core and GLES profiles used
+    // by SFPEW's backends.  Legacy games still use it for projected textures
+    // such as Minecraft's entity shadows.  Passing 0x2900 through produces
+    // GL_INVALID_ENUM and leaves the sampler at REPEAT, so out-of-range shadow
+    // UVs tile across the ground.  An edge clamp is the compatible behavior
+    // for these transparent-border textures.
+    return isTextureWrapParameter(pname) && param == GL_CLAMP ? GL_CLAMP_TO_EDGE : param;
+}
+
+} // namespace
+
+void glTexParameterf(GLenum target, GLenum pname, GLfloat param) {
+    flushPendingImmediateDraws();
+    if (g_glFuncs.glTexParameterf == nullptr) return;
+    if (isTextureWrapParameter(pname) && static_cast<GLint>(param) == GL_CLAMP)
+        param = static_cast<GLfloat>(GL_CLAMP_TO_EDGE);
+    g_glFuncs.glTexParameterf(target, pname, param);
+}
+
+void glTexParameterfv(GLenum target, GLenum pname, const GLfloat* params) {
+    flushPendingImmediateDraws();
+    if (g_glFuncs.glTexParameterfv == nullptr || params == nullptr) return;
+    if (isTextureWrapParameter(pname) && static_cast<GLint>(params[0]) == GL_CLAMP) {
+        const GLfloat compatible = static_cast<GLfloat>(GL_CLAMP_TO_EDGE);
+        g_glFuncs.glTexParameterfv(target, pname, &compatible);
+    } else {
+        g_glFuncs.glTexParameterfv(target, pname, params);
+    }
+}
+
+void glTexParameteri(GLenum target, GLenum pname, GLint param) {
+    flushPendingImmediateDraws();
+    if (g_glFuncs.glTexParameteri != nullptr)
+        g_glFuncs.glTexParameteri(target, pname, compatibleTextureParameter(pname, param));
+}
+
+void glTexParameteriv(GLenum target, GLenum pname, const GLint* params) {
+    flushPendingImmediateDraws();
+    if (g_glFuncs.glTexParameteriv == nullptr || params == nullptr) return;
+    if (isTextureWrapParameter(pname) && params[0] == GL_CLAMP) {
+        const GLint compatible = GL_CLAMP_TO_EDGE;
+        g_glFuncs.glTexParameteriv(target, pname, &compatible);
+    } else {
+        g_glFuncs.glTexParameteriv(target, pname, params);
+    }
+}
 ORDERED_PASSTHROUGH(glTexSubImage2D,
                     (GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width,
                      GLsizei height, GLenum format, GLenum type, const GLvoid* pixels),

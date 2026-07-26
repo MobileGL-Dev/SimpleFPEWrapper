@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-if(MACOS)
+if(APPLE)
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -w -fvisibility=default -funwind-tables -g -D_THREAD_SAFE -fPIC -stdlib=libc++")
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -w -g -std=gnu99 -funwind-tables -O3 -fvisibility=hidden")
         set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libstdc++")
@@ -22,7 +22,11 @@ else()
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -w -fvisibility=hidden -fno-semantic-interposition -funwind-tables -g -O3 -ffast-math -DNDEBUG -D_THREAD_SAFE -fPIC")
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -w -g -std=gnu99 -funwind-tables -O3 -fvisibility=hidden")
         set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libstdc++")
-        set(CMAKE_ANDROID_STL_TYPE c++_static)
+        if(ANDROID)
+                # Only meaningful for CMake's native Android support; AGP/NDK
+                # toolchains read ANDROID_STL from Gradle instead.
+                set(CMAKE_ANDROID_STL_TYPE c++_static)
+        endif()
 endif()
 
 # ThinLTO is Clang-specific; GCC only understands full LTO.

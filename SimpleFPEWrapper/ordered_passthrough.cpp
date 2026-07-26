@@ -150,11 +150,21 @@ GLint compatibleTextureParameter(GLenum pname, GLint param) {
     return isTextureWrapParameter(pname) && param == GL_CLAMP ? GL_CLAMP_TO_EDGE : param;
 }
 
+// GL_GENERATE_MIPMAP (GL 1.4): tracked per bound texture object; TexImage
+// uploads regenerate the chain via the ES3 glGenerateMipmap.
+bool sfpewHandleGenerateMipmapParam(GLenum target, GLenum pname, GLint param) {
+    if (pname != 0x8191 /* GL_GENERATE_MIPMAP */) return false;
+    if (target == GL_TEXTURE_1D) target = GL_TEXTURE_2D;
+    sfpewSetGenerateMipmap(target, sfpewLogicalTextureBinding(target), param != 0);
+    return true;
+}
+
 } // namespace
 
 void glTexParameterf(GLenum target, GLenum pname, GLfloat param) {
     flushPendingImmediateDraws();
     LIST_RECORD(glTexParameterf, {}, target, pname, param)
+    if (sfpewHandleGenerateMipmapParam(target, pname, (GLint)param)) return;
     if (g_glFuncs.glTexParameterf == nullptr) return;
     if (isTextureWrapParameter(pname) && static_cast<GLint>(param) == GL_CLAMP)
         param = static_cast<GLfloat>(GL_CLAMP_TO_EDGE);
@@ -178,6 +188,7 @@ void glTexParameterfv(GLenum target, GLenum pname, const GLfloat* params) {
 void glTexParameteri(GLenum target, GLenum pname, GLint param) {
     flushPendingImmediateDraws();
     LIST_RECORD(glTexParameteri, {}, target, pname, param)
+    if (sfpewHandleGenerateMipmapParam(target, pname, param)) return;
     if (g_glFuncs.glTexParameteri != nullptr)
         g_glFuncs.glTexParameteri(target, pname, compatibleTextureParameter(pname, param));
 }
@@ -224,6 +235,7 @@ void glTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, G
         type = GL_UNSIGNED_BYTE;
     }
     g_glFuncs.glTexSubImage2D(target, level, xoffset, yoffset, width, height, format, type, pixels);
+    sfpewMaybeGenerateMipmap(target);
 }
 
 // --- Desktop-only entry points GLES lacks (plans/03, 3.4) ---------------

@@ -29,6 +29,8 @@ GLuint sfpewLogicalArrayBufferBinding();
 // must pass through untouched then (plans/10 10.1).
 bool sfpewUnpackPboBound();
 bool sfpewPackPboBound();
+void sfpewSetGenerateMipmap(GLenum target, GLuint texture, bool enable);
+void sfpewMaybeGenerateMipmap(GLenum target);
 
 SFPEW_APIENTRY GLenum glGetError();
 SFPEW_APIENTRY GLuint glCreateShader(GLenum type);

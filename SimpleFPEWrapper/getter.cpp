@@ -242,6 +242,28 @@ bool getProxyTextureLevelParameter(GLint level, GLenum pname, GLint& value) {
 }
 } // namespace
 
+namespace {
+// Texture names with GL_GENERATE_MIPMAP enabled (per context via the
+// logical-bindings reset pattern; names are context/share scoped).
+thread_local std::unordered_map<GLuint, bool> generateMipmapTextures;
+} // namespace
+
+void sfpewSetGenerateMipmap(GLenum, GLuint texture, bool enable) {
+    if (texture == 0) return;
+    if (enable)
+        generateMipmapTextures[texture] = true;
+    else
+        generateMipmapTextures.erase(texture);
+}
+
+void sfpewMaybeGenerateMipmap(GLenum target) {
+    if (target == GL_TEXTURE_1D) target = GL_TEXTURE_2D;
+    if (target != GL_TEXTURE_2D || g_glFuncs.glGenerateMipmap == nullptr) return;
+    const GLuint bound = sfpewLogicalTextureBinding(GL_TEXTURE_2D);
+    if (bound != 0 && generateMipmapTextures.count(bound) != 0)
+        g_glFuncs.glGenerateMipmap(GL_TEXTURE_2D);
+}
+
 GLenum sfpewLogicalActiveTexture() {
     auto& state = getLogicalTextureBindings();
     return getLogicalActiveTexture(state);
@@ -1014,10 +1036,12 @@ void glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei widt
                                    upload_format, type, pixels);
             if (g_glFuncs.glTexParameteriv != nullptr)
                 g_glFuncs.glTexParameteriv(swizzleTargetFor(target), GL_TEXTURE_SWIZZLE_RGBA, mapping.swizzle);
+            sfpewMaybeGenerateMipmap(target);
             return;
         }
 
         g_glFuncs.glTexImage2D(target, level, internalformat, width, height, border, format, type, pixels);
+        sfpewMaybeGenerateMipmap(target);
         return;
     }
 

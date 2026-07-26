@@ -1418,6 +1418,15 @@ void add_vs_inout(const fixed_function_state_t& state, scratch_t& scratch, std::
         scratch.last_stage_linkage += std::format("{}in vec4 vertexBackColor;\n", flat_q);
         scratch.has_back_vertex_color = true;
     }
+    if (state.fpe_bools.lighting_enable && state.light_model_color_ctrl == GL_SEPARATE_SPECULAR_COLOR) {
+        // Specular rides its own varying and is added AFTER texturing.
+        vs += std::format("{}out vec3 vertexSpecular;\n", flat_q);
+        scratch.last_stage_linkage += std::format("{}in vec3 vertexSpecular;\n", flat_q);
+        if (state.light_model_two_side) {
+            vs += std::format("{}out vec3 vertexBackSpecular;\n", flat_q);
+            scratch.last_stage_linkage += std::format("{}in vec3 vertexBackSpecular;\n", flat_q);
+        }
+    }
 
     // Units fed purely by texgen still need their varying.
     for (int i = 0; i < MAX_TEX; ++i) {
@@ -1527,7 +1536,9 @@ void add_color_material(const fixed_function_state_t& state, GLenum face, const 
 void add_lighting_calculation(const fixed_function_state_t& state, const std::string& prefix,
                               const std::string& normal, const std::string& output, std::string& vs) {
     vs += std::format(
-        "    vec3 {0}Lit = ({0}Emission + LightModelAmbient * {0}Ambient).rgb;\n", prefix);
+        "    vec3 {0}Lit = ({0}Emission + LightModelAmbient * {0}Ambient).rgb;\n"
+        "    vec3 {0}SpecularSum = vec3(0.0);\n",
+        prefix);
     // Viewer direction for the Blinn half-vector: the spec's non-local
     // viewer is the constant (0,0,1); local viewer looks at the eye origin.
     vs += std::format("    vec3 {}EyeDir = {};\n", prefix,
@@ -1557,14 +1568,20 @@ void add_lighting_calculation(const fixed_function_state_t& state, const std::st
             "    float {2}DiffuseFactor{0} = max(dot({1}, {2}LightDirection{0}), 0.0);\n"
             "    {2}Lit += {2}Attenuation{0} * (Light{0}Ambient * {2}Ambient).rgb;\n"
             "    {2}Lit += {2}Attenuation{0} * {2}DiffuseFactor{0} * (Light{0}Diffuse * {2}Diffuse).rgb;\n"
-            "    if ({2}DiffuseFactor{0} > 0.0 && FrontMaterialShininess >= 0.0) {{\n"
+            "    if ({2}DiffuseFactor{0} > 0.0) {{\n"
             "        vec3 {2}Half{0} = normalize({2}LightDirection{0} + {2}EyeDir);\n"
             "        float {2}NdotH{0} = max(dot({1}, {2}Half{0}), 0.0);\n"
-            "        {2}Lit += {2}Attenuation{0} * pow({2}NdotH{0}, max({3}, 1e-4)) *\n"
-            "                  (Light{0}Specular * {2}Specular).rgb;\n"
+            "        {2}SpecularSum += {2}Attenuation{0} * pow({2}NdotH{0}, max({3}, 1e-4)) *\n"
+            "                          (Light{0}Specular * {2}Specular).rgb;\n"
             "    }}\n",
             i, normal, prefix,
             prefix == std::string("front") ? "FrontMaterialShininess" : "BackMaterialShininess");
+    }
+    if (state.light_model_color_ctrl == GL_SEPARATE_SPECULAR_COLOR) {
+        vs += std::format("    vertex{}Specular = clamp({}SpecularSum, 0.0, 1.0);\n",
+                          prefix == std::string("front") ? "" : "Back", prefix);
+    } else {
+        vs += std::format("    {0}Lit += {0}SpecularSum;\n", prefix);
     }
     vs += std::format("    {} = vec4(clamp({}Lit, 0.0, 1.0), clamp({}Diffuse.a, 0.0, 1.0));\n",
                       output, prefix, prefix);
@@ -1861,6 +1878,14 @@ void add_fs_body(const fixed_function_state_t& state, scratch_t& scratch, std::s
             fs += std::format("    color *= texcolor{};\n", i);
             break;
         }
+    }
+
+    if (state.fpe_bools.lighting_enable &&
+        state.light_model_color_ctrl == GL_SEPARATE_SPECULAR_COLOR) {
+        if (state.light_model_two_side)
+            fs += "    color.rgb += gl_FrontFacing ? vertexSpecular : vertexBackSpecular;\n";
+        else
+            fs += "    color.rgb += vertexSpecular;\n";
     }
 
     // Alpha test

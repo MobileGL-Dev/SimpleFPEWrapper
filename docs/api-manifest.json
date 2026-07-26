@@ -1,6 +1,6 @@
 {
  "source": "lookup.cpp",
- "count": 425,
+ "count": 429,
  "entries": {
   "glAccum": {
    "status": "resolvable",
@@ -466,6 +466,14 @@
    "status": "resolvable",
    "target": "glGetAttachedShaders"
   },
+  "glGetAttribLocation": {
+   "status": "resolvable",
+   "target": "glGetAttribLocation"
+  },
+  "glGetAttribLocationARB": {
+   "status": "alias",
+   "target": "glGetAttribLocation"
+  },
   "glGetBooleanv": {
    "status": "resolvable",
    "target": "glGetBooleanv"
@@ -585,6 +593,14 @@
   "glGetTexLevelParameteriv": {
    "status": "resolvable",
    "target": "glGetTexLevelParameteriv"
+  },
+  "glGetUniformLocation": {
+   "status": "resolvable",
+   "target": "glGetUniformLocation"
+  },
+  "glGetUniformLocationARB": {
+   "status": "alias",
+   "target": "glGetUniformLocation"
   },
   "glHint": {
    "status": "resolvable",

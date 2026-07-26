@@ -50,6 +50,8 @@ SFPEW_APIENTRY void glGetShaderiv(GLuint shader, GLenum pname, GLint* params);
 SFPEW_APIENTRY void glGetProgramiv(GLuint program, GLenum pname, GLint* params);
 SFPEW_APIENTRY void glGetAttachedShaders(GLuint program, GLsizei maxCount, GLsizei* count, GLuint* shaders);
 SFPEW_APIENTRY void glGetProgramInfoLog(GLuint program, GLsizei bufSize, GLsizei* length, GLchar* infoLog);
+SFPEW_APIENTRY GLint glGetUniformLocation(GLuint program, const GLchar* name);
+SFPEW_APIENTRY GLint glGetAttribLocation(GLuint program, const GLchar* name);
 void sfpewForgetUserProgram(GLuint program);
 extern "C" {
 GLuint sfpewCreateShaderObjectARB(GLenum type);

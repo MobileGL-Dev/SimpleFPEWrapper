@@ -69,6 +69,14 @@ SFPEW_APIENTRY __eglMustCastToProperFunctionPointerType eglGetProcAddress(const 
     GETPROC(glGetProgramiv, name)
     GETPROC(glGetAttachedShaders, name)
     GETPROC(glGetProgramInfoLog, name)
+    GETPROC(glGetUniformLocation, name)
+    GETPROC(glGetAttribLocation, name)
+    if (std::strcmp("glGetUniformLocationARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glGetUniformLocation;
+    }
+    if (std::strcmp("glGetAttribLocationARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glGetAttribLocation;
+    }
     if (std::strcmp("glGetShaderSourceARB", name) == 0) {
         return (__eglMustCastToProperFunctionPointerType)glGetShaderSource;
     }

@@ -24,6 +24,8 @@
 #include "../fpe/drawing1x.h"
 
 #include <algorithm>
+#include <cctype>
+#include <cstring>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -268,6 +270,32 @@ void appendUnique(std::vector<SFPEW::Shader::uniform_initializer_t>& all,
 
 int stageIndex(GLenum stage) { return stage == GL_VERTEX_SHADER ? 0 : 1; }
 
+// Comment-insensitive token search (GL 2.1 requires a link error when the
+// vertex stage never writes gl_Position; GLES does not check).
+bool mentionsToken(const std::string& src, const char* token) {
+    const size_t token_len = std::strlen(token);
+    for (size_t i = 0; i < src.size();) {
+        if (src[i] == '/' && i + 1 < src.size() && (src[i + 1] == '/' || src[i + 1] == '*')) {
+            if (src[i + 1] == '/') {
+                i = src.find('\n', i);
+            } else {
+                i = src.find("*/", i + 2);
+                if (i != std::string::npos) i += 2;
+            }
+            if (i == std::string::npos) break;
+            continue;
+        }
+        if (std::strncmp(src.c_str() + i, token, token_len) == 0 &&
+            (i == 0 || !(std::isalnum((unsigned char)src[i - 1]) || src[i - 1] == '_')) &&
+            (i + token_len >= src.size() ||
+             !(std::isalnum((unsigned char)src[i + token_len]) || src[i + token_len] == '_'))) {
+            return true;
+        }
+        ++i;
+    }
+    return false;
+}
+
 } // namespace
 
 void glAttachShader(GLuint program, GLuint shader) {
@@ -351,6 +379,17 @@ void glLinkProgram(GLuint program) {
                 w.needs_combined = w.needs_combined || sit->second.deferred;
             }
             for (auto& w : work) w.needs_combined = w.needs_combined || w.tus.size() > 1;
+            // GL 2.1: a program with a vertex stage whose shaders never
+            // write gl_Position must fail to link. GLES never checks.
+            if (!work[0].sources.empty()) {
+                bool writes_position = false;
+                for (const auto& src : work[0].sources)
+                    writes_position = writes_position || mentionsToken(src, "gl_Position");
+                if (!writes_position) {
+                    rec.force_link_fail = true;
+                    rec.link_log += "[SFPEW] vertex shaders never write gl_Position\n";
+                }
+            }
         }
     }
 
@@ -466,6 +505,26 @@ void glGetAttachedShaders(GLuint program, GLsizei maxCount, GLsizei* count, GLui
         }
     }
     g_glFuncs.glGetAttachedShaders(program, maxCount, count, shaders);
+}
+
+// SPIRV-Cross prefixes identifiers that collide with target-language
+// keywords or builtins with '_' (a GLSL 1.20 shader may legally name a
+// uniform "step"). The app still asks for the original name; retry with
+// the prefixed spelling before reporting a miss.
+GLint glGetUniformLocation(GLuint program, const GLchar* name) {
+    if (!sfpewEnsureBackend() || g_glFuncs.glGetUniformLocation == nullptr) return -1;
+    const GLint loc = g_glFuncs.glGetUniformLocation(program, name);
+    if (loc >= 0 || name == nullptr || name[0] == '\0') return loc;
+    const std::string prefixed = "_" + std::string(name);
+    return g_glFuncs.glGetUniformLocation(program, prefixed.c_str());
+}
+
+GLint glGetAttribLocation(GLuint program, const GLchar* name) {
+    if (!sfpewEnsureBackend() || g_glFuncs.glGetAttribLocation == nullptr) return -1;
+    const GLint loc = g_glFuncs.glGetAttribLocation(program, name);
+    if (loc >= 0 || name == nullptr || name[0] == '\0') return loc;
+    const std::string prefixed = "_" + std::string(name);
+    return g_glFuncs.glGetAttribLocation(program, prefixed.c_str());
 }
 
 void glGetProgramInfoLog(GLuint program, GLsizei bufSize, GLsizei* length, GLchar* infoLog) {

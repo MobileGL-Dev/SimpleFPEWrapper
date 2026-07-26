@@ -7,14 +7,46 @@
 // End of Source File Header
 
 #include "fpe.hpp"
+#include <memory>
+#include <mutex>
 #include <glm/gtc/type_ptr.hpp>
 #include <limits>
 
 #define DEBUG 0
 
 glstate_t& glstate_t::get_instance() {
-    static glstate_t s_glstate;
-    return s_glstate;
+    // Per-EGL-context FPE state (plans/07). The wrapper cannot intercept
+    // eglMakeCurrent (apps talk to libEGL directly), so the current context
+    // is resolved lazily on access with a thread-local one-entry cache -
+    // the same reconciliation pattern the logical shadows already use.
+    // eglGetCurrentContext is a TLS read on every relevant platform.
+    //
+    // Known limits (documented in plans/07): contexts cannot be observed
+    // being destroyed, so their CPU-side state objects persist for the
+    // process lifetime (the GL objects inside die with the context); and
+    // share-group relationships are invisible, so display-list DEFINITIONS
+    // stay process-global in DisplayListManager.
+    static std::unordered_map<void*, std::unique_ptr<glstate_t>> instances;
+    static std::mutex instances_mutex;
+    static glstate_t no_context_state; // keeps backend-less calls crash-free
+
+    const EGLContext context =
+        g_eglFuncs.eglGetCurrentContext ? g_eglFuncs.eglGetCurrentContext() : EGL_NO_CONTEXT;
+
+    thread_local EGLContext cached_context = (EGLContext)(intptr_t)-1;
+    thread_local glstate_t* cached_state = nullptr;
+    if (context == cached_context && cached_state != nullptr) return *cached_state;
+
+    glstate_t* state = &no_context_state;
+    if (context != EGL_NO_CONTEXT) {
+        std::lock_guard<std::mutex> lock(instances_mutex);
+        auto& slot = instances[context];
+        if (!slot) slot = std::make_unique<glstate_t>();
+        state = slot.get();
+    }
+    cached_context = context;
+    cached_state = state;
+    return *state;
 }
 
 GLsizei type_size(GLenum type) {

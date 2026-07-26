@@ -14,6 +14,7 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <unordered_map>
 #include <vector>
+#include <memory>
 #include <cstddef>
 #include "fpe_shadergen.h"
 #include "vertexpointer_utils.h"
@@ -486,6 +487,11 @@ struct glstate_t {
 
     const char* fpe_vtx_shader_src;
     const char* fpe_frag_shader_src;
+
+    // Attribute stack storage (defined in attribstack.cpp); lives here so
+    // it is per-context like everything else on this aggregate. shared_ptr
+    // erases the deleter, so the incomplete type is fine in this header.
+    std::shared_ptr<struct attrib_stacks_t> attrib_stacks;
 
     static glstate_t& get_instance();
 

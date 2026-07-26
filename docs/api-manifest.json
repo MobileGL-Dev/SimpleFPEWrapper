@@ -1,0 +1,1174 @@
+{
+ "source": "lookup.cpp",
+ "count": 292,
+ "entries": {
+  "glActiveTexture": {
+   "status": "resolvable",
+   "target": "glActiveTexture"
+  },
+  "glActiveTextureARB": {
+   "status": "alias",
+   "target": "glActiveTexture"
+  },
+  "glAlphaFunc": {
+   "status": "resolvable",
+   "target": "glAlphaFunc"
+  },
+  "glBegin": {
+   "status": "resolvable",
+   "target": "glBegin"
+  },
+  "glBindBuffer": {
+   "status": "resolvable",
+   "target": "glBindBuffer"
+  },
+  "glBindBufferARB": {
+   "status": "alias",
+   "target": "glBindBuffer"
+  },
+  "glBindFramebuffer": {
+   "status": "resolvable",
+   "target": "glBindFramebuffer"
+  },
+  "glBindFramebufferEXT": {
+   "status": "alias",
+   "target": "glBindFramebuffer"
+  },
+  "glBindTexture": {
+   "status": "resolvable",
+   "target": "glBindTexture"
+  },
+  "glBlendColor": {
+   "status": "resolvable",
+   "target": "glBlendColor"
+  },
+  "glBlendEquation": {
+   "status": "resolvable",
+   "target": "glBlendEquation"
+  },
+  "glBlendEquationSeparate": {
+   "status": "resolvable",
+   "target": "glBlendEquationSeparate"
+  },
+  "glBlendFunc": {
+   "status": "resolvable",
+   "target": "glBlendFunc"
+  },
+  "glBlendFuncSeparate": {
+   "status": "resolvable",
+   "target": "glBlendFuncSeparate"
+  },
+  "glCallList": {
+   "status": "resolvable",
+   "target": "glCallList"
+  },
+  "glCallLists": {
+   "status": "resolvable",
+   "target": "glCallLists"
+  },
+  "glClear": {
+   "status": "resolvable",
+   "target": "glClear"
+  },
+  "glClientActiveTexture": {
+   "status": "resolvable",
+   "target": "glClientActiveTexture"
+  },
+  "glClientActiveTextureARB": {
+   "status": "alias",
+   "target": "glClientActiveTexture"
+  },
+  "glColor3b": {
+   "status": "resolvable",
+   "target": "glColor3b"
+  },
+  "glColor3bv": {
+   "status": "resolvable",
+   "target": "glColor3bv"
+  },
+  "glColor3d": {
+   "status": "resolvable",
+   "target": "glColor3d"
+  },
+  "glColor3dv": {
+   "status": "resolvable",
+   "target": "glColor3dv"
+  },
+  "glColor3f": {
+   "status": "resolvable",
+   "target": "glColor3f"
+  },
+  "glColor3fv": {
+   "status": "resolvable",
+   "target": "glColor3fv"
+  },
+  "glColor3i": {
+   "status": "resolvable",
+   "target": "glColor3i"
+  },
+  "glColor3iv": {
+   "status": "resolvable",
+   "target": "glColor3iv"
+  },
+  "glColor3s": {
+   "status": "resolvable",
+   "target": "glColor3s"
+  },
+  "glColor3sv": {
+   "status": "resolvable",
+   "target": "glColor3sv"
+  },
+  "glColor3ub": {
+   "status": "resolvable",
+   "target": "glColor3ub"
+  },
+  "glColor3ubv": {
+   "status": "resolvable",
+   "target": "glColor3ubv"
+  },
+  "glColor3ui": {
+   "status": "resolvable",
+   "target": "glColor3ui"
+  },
+  "glColor3uiv": {
+   "status": "resolvable",
+   "target": "glColor3uiv"
+  },
+  "glColor3us": {
+   "status": "resolvable",
+   "target": "glColor3us"
+  },
+  "glColor3usv": {
+   "status": "resolvable",
+   "target": "glColor3usv"
+  },
+  "glColor4b": {
+   "status": "resolvable",
+   "target": "glColor4b"
+  },
+  "glColor4bv": {
+   "status": "resolvable",
+   "target": "glColor4bv"
+  },
+  "glColor4d": {
+   "status": "resolvable",
+   "target": "glColor4d"
+  },
+  "glColor4dv": {
+   "status": "resolvable",
+   "target": "glColor4dv"
+  },
+  "glColor4f": {
+   "status": "resolvable",
+   "target": "glColor4f"
+  },
+  "glColor4fv": {
+   "status": "resolvable",
+   "target": "glColor4fv"
+  },
+  "glColor4i": {
+   "status": "resolvable",
+   "target": "glColor4i"
+  },
+  "glColor4iv": {
+   "status": "resolvable",
+   "target": "glColor4iv"
+  },
+  "glColor4s": {
+   "status": "resolvable",
+   "target": "glColor4s"
+  },
+  "glColor4sv": {
+   "status": "resolvable",
+   "target": "glColor4sv"
+  },
+  "glColor4ub": {
+   "status": "resolvable",
+   "target": "glColor4ub"
+  },
+  "glColor4ubv": {
+   "status": "resolvable",
+   "target": "glColor4ubv"
+  },
+  "glColor4ui": {
+   "status": "resolvable",
+   "target": "glColor4ui"
+  },
+  "glColor4uiv": {
+   "status": "resolvable",
+   "target": "glColor4uiv"
+  },
+  "glColor4us": {
+   "status": "resolvable",
+   "target": "glColor4us"
+  },
+  "glColor4usv": {
+   "status": "resolvable",
+   "target": "glColor4usv"
+  },
+  "glColorMask": {
+   "status": "resolvable",
+   "target": "glColorMask"
+  },
+  "glColorMaterial": {
+   "status": "resolvable",
+   "target": "glColorMaterial"
+  },
+  "glColorPointer": {
+   "status": "resolvable",
+   "target": "glColorPointer"
+  },
+  "glCullFace": {
+   "status": "resolvable",
+   "target": "glCullFace"
+  },
+  "glDeleteBuffers": {
+   "status": "resolvable",
+   "target": "glDeleteBuffers"
+  },
+  "glDeleteBuffersARB": {
+   "status": "alias",
+   "target": "glDeleteBuffers"
+  },
+  "glDeleteLists": {
+   "status": "resolvable",
+   "target": "glDeleteLists"
+  },
+  "glDeleteTextures": {
+   "status": "resolvable",
+   "target": "glDeleteTextures"
+  },
+  "glDepthFunc": {
+   "status": "resolvable",
+   "target": "glDepthFunc"
+  },
+  "glDepthMask": {
+   "status": "resolvable",
+   "target": "glDepthMask"
+  },
+  "glDepthRange": {
+   "status": "resolvable",
+   "target": "glDepthRange"
+  },
+  "glDisable": {
+   "status": "resolvable",
+   "target": "glDisable"
+  },
+  "glDisableClientState": {
+   "status": "resolvable",
+   "target": "glDisableClientState"
+  },
+  "glDrawArrays": {
+   "status": "resolvable",
+   "target": "glDrawArrays"
+  },
+  "glDrawElements": {
+   "status": "resolvable",
+   "target": "glDrawElements"
+  },
+  "glEnable": {
+   "status": "resolvable",
+   "target": "glEnable"
+  },
+  "glEnableClientState": {
+   "status": "resolvable",
+   "target": "glEnableClientState"
+  },
+  "glEnd": {
+   "status": "resolvable",
+   "target": "glEnd"
+  },
+  "glEndList": {
+   "status": "resolvable",
+   "target": "glEndList"
+  },
+  "glFinish": {
+   "status": "resolvable",
+   "target": "glFinish"
+  },
+  "glFlush": {
+   "status": "resolvable",
+   "target": "glFlush"
+  },
+  "glFogf": {
+   "status": "resolvable",
+   "target": "glFogf"
+  },
+  "glFogfv": {
+   "status": "resolvable",
+   "target": "glFogfv"
+  },
+  "glFogi": {
+   "status": "resolvable",
+   "target": "glFogi"
+  },
+  "glFogiv": {
+   "status": "resolvable",
+   "target": "glFogiv"
+  },
+  "glFrontFace": {
+   "status": "resolvable",
+   "target": "glFrontFace"
+  },
+  "glFrustum": {
+   "status": "resolvable",
+   "target": "glFrustum"
+  },
+  "glFrustumf": {
+   "status": "resolvable",
+   "target": "glFrustumf"
+  },
+  "glGenLists": {
+   "status": "resolvable",
+   "target": "glGenLists"
+  },
+  "glGetBooleanv": {
+   "status": "resolvable",
+   "target": "glGetBooleanv"
+  },
+  "glGetDoublev": {
+   "status": "resolvable",
+   "target": "glGetDoublev"
+  },
+  "glGetError": {
+   "status": "resolvable",
+   "target": "glGetError"
+  },
+  "glGetFloatv": {
+   "status": "resolvable",
+   "target": "glGetFloatv"
+  },
+  "glGetIntegerv": {
+   "status": "resolvable",
+   "target": "glGetIntegerv"
+  },
+  "glGetLightfv": {
+   "status": "resolvable",
+   "target": "glGetLightfv"
+  },
+  "glGetLightiv": {
+   "status": "resolvable",
+   "target": "glGetLightiv"
+  },
+  "glGetMaterialfv": {
+   "status": "resolvable",
+   "target": "glGetMaterialfv"
+  },
+  "glGetMaterialiv": {
+   "status": "resolvable",
+   "target": "glGetMaterialiv"
+  },
+  "glGetString": {
+   "status": "resolvable",
+   "target": "glGetString"
+  },
+  "glGetStringi": {
+   "status": "resolvable",
+   "target": "glGetStringi"
+  },
+  "glGetTexEnvfv": {
+   "status": "resolvable",
+   "target": "glGetTexEnvfv"
+  },
+  "glGetTexEnviv": {
+   "status": "resolvable",
+   "target": "glGetTexEnviv"
+  },
+  "glGetTexLevelParameterfv": {
+   "status": "resolvable",
+   "target": "glGetTexLevelParameterfv"
+  },
+  "glGetTexLevelParameteriv": {
+   "status": "resolvable",
+   "target": "glGetTexLevelParameteriv"
+  },
+  "glHint": {
+   "status": "resolvable",
+   "target": "glHint"
+  },
+  "glIndexPointer": {
+   "status": "resolvable",
+   "target": "glIndexPointer"
+  },
+  "glIsEnabled": {
+   "status": "resolvable",
+   "target": "glIsEnabled"
+  },
+  "glIsList": {
+   "status": "resolvable",
+   "target": "glIsList"
+  },
+  "glLightModelf": {
+   "status": "resolvable",
+   "target": "glLightModelf"
+  },
+  "glLightModelfv": {
+   "status": "resolvable",
+   "target": "glLightModelfv"
+  },
+  "glLightModeli": {
+   "status": "resolvable",
+   "target": "glLightModeli"
+  },
+  "glLightModeliv": {
+   "status": "resolvable",
+   "target": "glLightModeliv"
+  },
+  "glLightf": {
+   "status": "resolvable",
+   "target": "glLightf"
+  },
+  "glLightfv": {
+   "status": "resolvable",
+   "target": "glLightfv"
+  },
+  "glLighti": {
+   "status": "resolvable",
+   "target": "glLighti"
+  },
+  "glLightiv": {
+   "status": "resolvable",
+   "target": "glLightiv"
+  },
+  "glLineWidth": {
+   "status": "resolvable",
+   "target": "glLineWidth"
+  },
+  "glListBase": {
+   "status": "resolvable",
+   "target": "glListBase"
+  },
+  "glLoadIdentity": {
+   "status": "resolvable",
+   "target": "glLoadIdentity"
+  },
+  "glLoadMatrixd": {
+   "status": "resolvable",
+   "target": "glLoadMatrixd"
+  },
+  "glLoadMatrixf": {
+   "status": "resolvable",
+   "target": "glLoadMatrixf"
+  },
+  "glMaterialf": {
+   "status": "resolvable",
+   "target": "glMaterialf"
+  },
+  "glMaterialfv": {
+   "status": "resolvable",
+   "target": "glMaterialfv"
+  },
+  "glMateriali": {
+   "status": "resolvable",
+   "target": "glMateriali"
+  },
+  "glMaterialiv": {
+   "status": "resolvable",
+   "target": "glMaterialiv"
+  },
+  "glMatrixMode": {
+   "status": "resolvable",
+   "target": "glMatrixMode"
+  },
+  "glMultMatrixd": {
+   "status": "resolvable",
+   "target": "glMultMatrixd"
+  },
+  "glMultMatrixf": {
+   "status": "resolvable",
+   "target": "glMultMatrixf"
+  },
+  "glMultiTexCoord1d": {
+   "status": "resolvable",
+   "target": "glMultiTexCoord1d"
+  },
+  "glMultiTexCoord1dARB": {
+   "status": "alias",
+   "target": "glMultiTexCoord1d"
+  },
+  "glMultiTexCoord1dv": {
+   "status": "resolvable",
+   "target": "glMultiTexCoord1dv"
+  },
+  "glMultiTexCoord1dvARB": {
+   "status": "alias",
+   "target": "glMultiTexCoord1dv"
+  },
+  "glMultiTexCoord1f": {
+   "status": "resolvable",
+   "target": "glMultiTexCoord1f"
+  },
+  "glMultiTexCoord1fARB": {
+   "status": "alias",
+   "target": "glMultiTexCoord1f"
+  },
+  "glMultiTexCoord1fv": {
+   "status": "resolvable",
+   "target": "glMultiTexCoord1fv"
+  },
+  "glMultiTexCoord1fvARB": {
+   "status": "alias",
+   "target": "glMultiTexCoord1fv"
+  },
+  "glMultiTexCoord1i": {
+   "status": "resolvable",
+   "target": "glMultiTexCoord1i"
+  },
+  "glMultiTexCoord1iARB": {
+   "status": "alias",
+   "target": "glMultiTexCoord1i"
+  },
+  "glMultiTexCoord1iv": {
+   "status": "resolvable",
+   "target": "glMultiTexCoord1iv"
+  },
+  "glMultiTexCoord1ivARB": {
+   "status": "alias",
+   "target": "glMultiTexCoord1iv"
+  },
+  "glMultiTexCoord1s": {
+   "status": "resolvable",
+   "target": "glMultiTexCoord1s"
+  },
+  "glMultiTexCoord1sARB": {
+   "status": "alias",
+   "target": "glMultiTexCoord1s"
+  },
+  "glMultiTexCoord1sv": {
+   "status": "resolvable",
+   "target": "glMultiTexCoord1sv"
+  },
+  "glMultiTexCoord1svARB": {
+   "status": "alias",
+   "target": "glMultiTexCoord1sv"
+  },
+  "glMultiTexCoord2d": {
+   "status": "resolvable",
+   "target": "glMultiTexCoord2d"
+  },
+  "glMultiTexCoord2dARB": {
+   "status": "alias",
+   "target": "glMultiTexCoord2d"
+  },
+  "glMultiTexCoord2dv": {
+   "status": "resolvable",
+   "target": "glMultiTexCoord2dv"
+  },
+  "glMultiTexCoord2dvARB": {
+   "status": "alias",
+   "target": "glMultiTexCoord2dv"
+  },
+  "glMultiTexCoord2f": {
+   "status": "resolvable",
+   "target": "glMultiTexCoord2f"
+  },
+  "glMultiTexCoord2fARB": {
+   "status": "alias",
+   "target": "glMultiTexCoord2f"
+  },
+  "glMultiTexCoord2fv": {
+   "status": "resolvable",
+   "target": "glMultiTexCoord2fv"
+  },
+  "glMultiTexCoord2fvARB": {
+   "status": "alias",
+   "target": "glMultiTexCoord2fv"
+  },
+  "glMultiTexCoord2i": {
+   "status": "resolvable",
+   "target": "glMultiTexCoord2i"
+  },
+  "glMultiTexCoord2iARB": {
+   "status": "alias",
+   "target": "glMultiTexCoord2i"
+  },
+  "glMultiTexCoord2iv": {
+   "status": "resolvable",
+   "target": "glMultiTexCoord2iv"
+  },
+  "glMultiTexCoord2ivARB": {
+   "status": "alias",
+   "target": "glMultiTexCoord2iv"
+  },
+  "glMultiTexCoord2s": {
+   "status": "resolvable",
+   "target": "glMultiTexCoord2s"
+  },
+  "glMultiTexCoord2sARB": {
+   "status": "alias",
+   "target": "glMultiTexCoord2s"
+  },
+  "glMultiTexCoord2sv": {
+   "status": "resolvable",
+   "target": "glMultiTexCoord2sv"
+  },
+  "glMultiTexCoord2svARB": {
+   "status": "alias",
+   "target": "glMultiTexCoord2sv"
+  },
+  "glMultiTexCoord3d": {
+   "status": "resolvable",
+   "target": "glMultiTexCoord3d"
+  },
+  "glMultiTexCoord3dARB": {
+   "status": "alias",
+   "target": "glMultiTexCoord3d"
+  },
+  "glMultiTexCoord3dv": {
+   "status": "resolvable",
+   "target": "glMultiTexCoord3dv"
+  },
+  "glMultiTexCoord3dvARB": {
+   "status": "alias",
+   "target": "glMultiTexCoord3dv"
+  },
+  "glMultiTexCoord3f": {
+   "status": "resolvable",
+   "target": "glMultiTexCoord3f"
+  },
+  "glMultiTexCoord3fARB": {
+   "status": "alias",
+   "target": "glMultiTexCoord3f"
+  },
+  "glMultiTexCoord3fv": {
+   "status": "resolvable",
+   "target": "glMultiTexCoord3fv"
+  },
+  "glMultiTexCoord3fvARB": {
+   "status": "alias",
+   "target": "glMultiTexCoord3fv"
+  },
+  "glMultiTexCoord3i": {
+   "status": "resolvable",
+   "target": "glMultiTexCoord3i"
+  },
+  "glMultiTexCoord3iARB": {
+   "status": "alias",
+   "target": "glMultiTexCoord3i"
+  },
+  "glMultiTexCoord3iv": {
+   "status": "resolvable",
+   "target": "glMultiTexCoord3iv"
+  },
+  "glMultiTexCoord3ivARB": {
+   "status": "alias",
+   "target": "glMultiTexCoord3iv"
+  },
+  "glMultiTexCoord3s": {
+   "status": "resolvable",
+   "target": "glMultiTexCoord3s"
+  },
+  "glMultiTexCoord3sARB": {
+   "status": "alias",
+   "target": "glMultiTexCoord3s"
+  },
+  "glMultiTexCoord3sv": {
+   "status": "resolvable",
+   "target": "glMultiTexCoord3sv"
+  },
+  "glMultiTexCoord3svARB": {
+   "status": "alias",
+   "target": "glMultiTexCoord3sv"
+  },
+  "glMultiTexCoord4d": {
+   "status": "resolvable",
+   "target": "glMultiTexCoord4d"
+  },
+  "glMultiTexCoord4dARB": {
+   "status": "alias",
+   "target": "glMultiTexCoord4d"
+  },
+  "glMultiTexCoord4dv": {
+   "status": "resolvable",
+   "target": "glMultiTexCoord4dv"
+  },
+  "glMultiTexCoord4dvARB": {
+   "status": "alias",
+   "target": "glMultiTexCoord4dv"
+  },
+  "glMultiTexCoord4f": {
+   "status": "resolvable",
+   "target": "glMultiTexCoord4f"
+  },
+  "glMultiTexCoord4fARB": {
+   "status": "alias",
+   "target": "glMultiTexCoord4f"
+  },
+  "glMultiTexCoord4fv": {
+   "status": "resolvable",
+   "target": "glMultiTexCoord4fv"
+  },
+  "glMultiTexCoord4fvARB": {
+   "status": "alias",
+   "target": "glMultiTexCoord4fv"
+  },
+  "glMultiTexCoord4i": {
+   "status": "resolvable",
+   "target": "glMultiTexCoord4i"
+  },
+  "glMultiTexCoord4iARB": {
+   "status": "alias",
+   "target": "glMultiTexCoord4i"
+  },
+  "glMultiTexCoord4iv": {
+   "status": "resolvable",
+   "target": "glMultiTexCoord4iv"
+  },
+  "glMultiTexCoord4ivARB": {
+   "status": "alias",
+   "target": "glMultiTexCoord4iv"
+  },
+  "glMultiTexCoord4s": {
+   "status": "resolvable",
+   "target": "glMultiTexCoord4s"
+  },
+  "glMultiTexCoord4sARB": {
+   "status": "alias",
+   "target": "glMultiTexCoord4s"
+  },
+  "glMultiTexCoord4sv": {
+   "status": "resolvable",
+   "target": "glMultiTexCoord4sv"
+  },
+  "glMultiTexCoord4svARB": {
+   "status": "alias",
+   "target": "glMultiTexCoord4sv"
+  },
+  "glNewList": {
+   "status": "resolvable",
+   "target": "glNewList"
+  },
+  "glNormal3b": {
+   "status": "resolvable",
+   "target": "glNormal3b"
+  },
+  "glNormal3bv": {
+   "status": "resolvable",
+   "target": "glNormal3bv"
+  },
+  "glNormal3d": {
+   "status": "resolvable",
+   "target": "glNormal3d"
+  },
+  "glNormal3dv": {
+   "status": "resolvable",
+   "target": "glNormal3dv"
+  },
+  "glNormal3f": {
+   "status": "resolvable",
+   "target": "glNormal3f"
+  },
+  "glNormal3fv": {
+   "status": "resolvable",
+   "target": "glNormal3fv"
+  },
+  "glNormal3i": {
+   "status": "resolvable",
+   "target": "glNormal3i"
+  },
+  "glNormal3iv": {
+   "status": "resolvable",
+   "target": "glNormal3iv"
+  },
+  "glNormal3s": {
+   "status": "resolvable",
+   "target": "glNormal3s"
+  },
+  "glNormal3sv": {
+   "status": "resolvable",
+   "target": "glNormal3sv"
+  },
+  "glNormalPointer": {
+   "status": "resolvable",
+   "target": "glNormalPointer"
+  },
+  "glOrtho": {
+   "status": "resolvable",
+   "target": "glOrtho"
+  },
+  "glOrthof": {
+   "status": "resolvable",
+   "target": "glOrthof"
+  },
+  "glPixelStoref": {
+   "status": "resolvable",
+   "target": "glPixelStoref"
+  },
+  "glPixelStorei": {
+   "status": "resolvable",
+   "target": "glPixelStorei"
+  },
+  "glPolygonOffset": {
+   "status": "resolvable",
+   "target": "glPolygonOffset"
+  },
+  "glPopMatrix": {
+   "status": "resolvable",
+   "target": "glPopMatrix"
+  },
+  "glPushMatrix": {
+   "status": "resolvable",
+   "target": "glPushMatrix"
+  },
+  "glReadPixels": {
+   "status": "resolvable",
+   "target": "glReadPixels"
+  },
+  "glRectd": {
+   "status": "resolvable",
+   "target": "glRectd"
+  },
+  "glRectdv": {
+   "status": "resolvable",
+   "target": "glRectdv"
+  },
+  "glRectf": {
+   "status": "resolvable",
+   "target": "glRectf"
+  },
+  "glRectfv": {
+   "status": "resolvable",
+   "target": "glRectfv"
+  },
+  "glRecti": {
+   "status": "resolvable",
+   "target": "glRecti"
+  },
+  "glRectiv": {
+   "status": "resolvable",
+   "target": "glRectiv"
+  },
+  "glRects": {
+   "status": "resolvable",
+   "target": "glRects"
+  },
+  "glRectsv": {
+   "status": "resolvable",
+   "target": "glRectsv"
+  },
+  "glRotated": {
+   "status": "resolvable",
+   "target": "glRotated"
+  },
+  "glRotatef": {
+   "status": "resolvable",
+   "target": "glRotatef"
+  },
+  "glScaled": {
+   "status": "resolvable",
+   "target": "glScaled"
+  },
+  "glScalef": {
+   "status": "resolvable",
+   "target": "glScalef"
+  },
+  "glScissor": {
+   "status": "resolvable",
+   "target": "glScissor"
+  },
+  "glShadeModel": {
+   "status": "resolvable",
+   "target": "glShadeModel"
+  },
+  "glStencilFunc": {
+   "status": "resolvable",
+   "target": "glStencilFunc"
+  },
+  "glStencilMask": {
+   "status": "resolvable",
+   "target": "glStencilMask"
+  },
+  "glStencilOp": {
+   "status": "resolvable",
+   "target": "glStencilOp"
+  },
+  "glTexCoord1d": {
+   "status": "resolvable",
+   "target": "glTexCoord1d"
+  },
+  "glTexCoord1dv": {
+   "status": "resolvable",
+   "target": "glTexCoord1dv"
+  },
+  "glTexCoord1f": {
+   "status": "resolvable",
+   "target": "glTexCoord1f"
+  },
+  "glTexCoord1fv": {
+   "status": "resolvable",
+   "target": "glTexCoord1fv"
+  },
+  "glTexCoord1i": {
+   "status": "resolvable",
+   "target": "glTexCoord1i"
+  },
+  "glTexCoord1iv": {
+   "status": "resolvable",
+   "target": "glTexCoord1iv"
+  },
+  "glTexCoord1s": {
+   "status": "resolvable",
+   "target": "glTexCoord1s"
+  },
+  "glTexCoord1sv": {
+   "status": "resolvable",
+   "target": "glTexCoord1sv"
+  },
+  "glTexCoord2d": {
+   "status": "resolvable",
+   "target": "glTexCoord2d"
+  },
+  "glTexCoord2dv": {
+   "status": "resolvable",
+   "target": "glTexCoord2dv"
+  },
+  "glTexCoord2f": {
+   "status": "resolvable",
+   "target": "glTexCoord2f"
+  },
+  "glTexCoord2fv": {
+   "status": "resolvable",
+   "target": "glTexCoord2fv"
+  },
+  "glTexCoord2i": {
+   "status": "resolvable",
+   "target": "glTexCoord2i"
+  },
+  "glTexCoord2iv": {
+   "status": "resolvable",
+   "target": "glTexCoord2iv"
+  },
+  "glTexCoord2s": {
+   "status": "resolvable",
+   "target": "glTexCoord2s"
+  },
+  "glTexCoord2sv": {
+   "status": "resolvable",
+   "target": "glTexCoord2sv"
+  },
+  "glTexCoord3d": {
+   "status": "resolvable",
+   "target": "glTexCoord3d"
+  },
+  "glTexCoord3dv": {
+   "status": "resolvable",
+   "target": "glTexCoord3dv"
+  },
+  "glTexCoord3f": {
+   "status": "resolvable",
+   "target": "glTexCoord3f"
+  },
+  "glTexCoord3fv": {
+   "status": "resolvable",
+   "target": "glTexCoord3fv"
+  },
+  "glTexCoord3i": {
+   "status": "resolvable",
+   "target": "glTexCoord3i"
+  },
+  "glTexCoord3iv": {
+   "status": "resolvable",
+   "target": "glTexCoord3iv"
+  },
+  "glTexCoord3s": {
+   "status": "resolvable",
+   "target": "glTexCoord3s"
+  },
+  "glTexCoord3sv": {
+   "status": "resolvable",
+   "target": "glTexCoord3sv"
+  },
+  "glTexCoord4d": {
+   "status": "resolvable",
+   "target": "glTexCoord4d"
+  },
+  "glTexCoord4dv": {
+   "status": "resolvable",
+   "target": "glTexCoord4dv"
+  },
+  "glTexCoord4f": {
+   "status": "resolvable",
+   "target": "glTexCoord4f"
+  },
+  "glTexCoord4fv": {
+   "status": "resolvable",
+   "target": "glTexCoord4fv"
+  },
+  "glTexCoord4i": {
+   "status": "resolvable",
+   "target": "glTexCoord4i"
+  },
+  "glTexCoord4iv": {
+   "status": "resolvable",
+   "target": "glTexCoord4iv"
+  },
+  "glTexCoord4s": {
+   "status": "resolvable",
+   "target": "glTexCoord4s"
+  },
+  "glTexCoord4sv": {
+   "status": "resolvable",
+   "target": "glTexCoord4sv"
+  },
+  "glTexCoordPointer": {
+   "status": "resolvable",
+   "target": "glTexCoordPointer"
+  },
+  "glTexEnvf": {
+   "status": "resolvable",
+   "target": "glTexEnvf"
+  },
+  "glTexEnvfv": {
+   "status": "resolvable",
+   "target": "glTexEnvfv"
+  },
+  "glTexEnvi": {
+   "status": "resolvable",
+   "target": "glTexEnvi"
+  },
+  "glTexEnviv": {
+   "status": "resolvable",
+   "target": "glTexEnviv"
+  },
+  "glTexImage2D": {
+   "status": "resolvable",
+   "target": "glTexImage2D"
+  },
+  "glTexParameterf": {
+   "status": "resolvable",
+   "target": "glTexParameterf"
+  },
+  "glTexParameterfv": {
+   "status": "resolvable",
+   "target": "glTexParameterfv"
+  },
+  "glTexParameteri": {
+   "status": "resolvable",
+   "target": "glTexParameteri"
+  },
+  "glTexParameteriv": {
+   "status": "resolvable",
+   "target": "glTexParameteriv"
+  },
+  "glTexSubImage2D": {
+   "status": "resolvable",
+   "target": "glTexSubImage2D"
+  },
+  "glTranslated": {
+   "status": "resolvable",
+   "target": "glTranslated"
+  },
+  "glTranslatef": {
+   "status": "resolvable",
+   "target": "glTranslatef"
+  },
+  "glUseProgram": {
+   "status": "resolvable",
+   "target": "glUseProgram"
+  },
+  "glVertex2d": {
+   "status": "resolvable",
+   "target": "glVertex2d"
+  },
+  "glVertex2dv": {
+   "status": "resolvable",
+   "target": "glVertex2dv"
+  },
+  "glVertex2f": {
+   "status": "resolvable",
+   "target": "glVertex2f"
+  },
+  "glVertex2fv": {
+   "status": "resolvable",
+   "target": "glVertex2fv"
+  },
+  "glVertex2i": {
+   "status": "resolvable",
+   "target": "glVertex2i"
+  },
+  "glVertex2iv": {
+   "status": "resolvable",
+   "target": "glVertex2iv"
+  },
+  "glVertex2s": {
+   "status": "resolvable",
+   "target": "glVertex2s"
+  },
+  "glVertex2sv": {
+   "status": "resolvable",
+   "target": "glVertex2sv"
+  },
+  "glVertex3d": {
+   "status": "resolvable",
+   "target": "glVertex3d"
+  },
+  "glVertex3dv": {
+   "status": "resolvable",
+   "target": "glVertex3dv"
+  },
+  "glVertex3f": {
+   "status": "resolvable",
+   "target": "glVertex3f"
+  },
+  "glVertex3fv": {
+   "status": "resolvable",
+   "target": "glVertex3fv"
+  },
+  "glVertex3i": {
+   "status": "resolvable",
+   "target": "glVertex3i"
+  },
+  "glVertex3iv": {
+   "status": "resolvable",
+   "target": "glVertex3iv"
+  },
+  "glVertex3s": {
+   "status": "resolvable",
+   "target": "glVertex3s"
+  },
+  "glVertex3sv": {
+   "status": "resolvable",
+   "target": "glVertex3sv"
+  },
+  "glVertex4d": {
+   "status": "resolvable",
+   "target": "glVertex4d"
+  },
+  "glVertex4dv": {
+   "status": "resolvable",
+   "target": "glVertex4dv"
+  },
+  "glVertex4f": {
+   "status": "resolvable",
+   "target": "glVertex4f"
+  },
+  "glVertex4fv": {
+   "status": "resolvable",
+   "target": "glVertex4fv"
+  },
+  "glVertex4i": {
+   "status": "resolvable",
+   "target": "glVertex4i"
+  },
+  "glVertex4iv": {
+   "status": "resolvable",
+   "target": "glVertex4iv"
+  },
+  "glVertex4s": {
+   "status": "resolvable",
+   "target": "glVertex4s"
+  },
+  "glVertex4sv": {
+   "status": "resolvable",
+   "target": "glVertex4sv"
+  },
+  "glVertexPointer": {
+   "status": "resolvable",
+   "target": "glVertexPointer"
+  },
+  "glViewport": {
+   "status": "resolvable",
+   "target": "glViewport"
+  }
+ }
+}

@@ -95,5 +95,17 @@ if(NOT ANDROID)
                         add_dependencies(${t} ${CMAKE_PROJECT_NAME})
                         add_test(NAME ${t} COMMAND ${t})
                 endforeach()
+
+                # The committed API manifest must match what lookup.cpp
+                # actually resolves (plans/03, 3.5).
+                find_package(Python3 COMPONENTS Interpreter)
+                if(Python3_FOUND)
+                        add_test(NAME api_manifest_current
+                                COMMAND ${CMAKE_COMMAND}
+                                        -DPY=${Python3_EXECUTABLE}
+                                        -DSRC=${CMAKE_SOURCE_DIR}
+                                        -DBIN=${CMAKE_BINARY_DIR}
+                                        -P ${CMAKE_SOURCE_DIR}/tests/check_manifest.cmake)
+                endif()
         endif()
 endif()

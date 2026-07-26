@@ -10,6 +10,7 @@
 #include "init.h"
 #include <glm/gtc/type_ptr.hpp>
 #include <cstdint>
+#include <algorithm>
 #include <unordered_map>
 #include "fpe/fpe.hpp"
 #include "fpe/drawing1x.h"
@@ -51,6 +52,7 @@ LogicalTextureBindings& getLogicalTextureBindings() {
 
 GLenum getLogicalActiveTexture(LogicalTextureBindings& state) {
     if (!state.activeTextureKnown) {
+        if (!sfpewEnsureBackend() || g_glFuncs.glGetIntegerv == nullptr) return GL_TEXTURE0;
         GLint active = GL_TEXTURE0;
         g_glFuncs.glGetIntegerv(GL_ACTIVE_TEXTURE, &active);
         state.activeTexture = static_cast<GLenum>(active);
@@ -381,6 +383,47 @@ void glGetIntegerv(GLenum pname, GLint* params) {
     case GL_ARRAY_BUFFER_BINDING:
         *params = static_cast<GLint>(sfpewLogicalArrayBufferBinding());
         break;
+
+    // Fixed-function capacity and matrix-state queries. These pnames do not
+    // exist on the GLES backend (passthrough returned GL_INVALID_ENUM and
+    // left the out-param untouched), yet they are the first things legacy
+    // apps ask for.
+    case GL_MAX_LIGHTS:
+        *params = MAX_LIGHTS;
+        break;
+    case GL_MAX_TEXTURE_UNITS: // == GL_MAX_TEXTURE_COORDS consumers
+    case GL_MAX_TEXTURE_COORDS:
+        // Report the conventional fixed-function unit count, not MAX_TEX:
+        // plans/03 keeps the advertised surface at the well-tested subset.
+        *params = 8;
+        break;
+    case GL_MATRIX_MODE:
+        *params = static_cast<GLint>(g_glstate.fpe_uniform.transformation.matrix_mode);
+        break;
+    case GL_MAX_MODELVIEW_STACK_DEPTH:
+        *params = MAX_MODELVIEW_STACK_DEPTH;
+        break;
+    case GL_MAX_PROJECTION_STACK_DEPTH:
+        *params = MAX_PROJECTION_STACK_DEPTH;
+        break;
+    case GL_MAX_TEXTURE_STACK_DEPTH:
+        *params = MAX_TEXTURE_STACK_DEPTH;
+        break;
+    // Stack depth includes the current (unpushed) matrix per GL spec.
+    case GL_MODELVIEW_STACK_DEPTH:
+        *params = static_cast<GLint>(
+            g_glstate.fpe_uniform.transformation.matrices_stack[matrix_idx(GL_MODELVIEW)].size() + 1);
+        break;
+    case GL_PROJECTION_STACK_DEPTH:
+        *params = static_cast<GLint>(
+            g_glstate.fpe_uniform.transformation.matrices_stack[matrix_idx(GL_PROJECTION)].size() + 1);
+        break;
+    case GL_TEXTURE_STACK_DEPTH: {
+        const int unit = std::clamp(static_cast<int>(sfpewLogicalActiveTexture() - GL_TEXTURE0), 0, MAX_TEX - 1);
+        *params = static_cast<GLint>(
+            g_glstate.fpe_uniform.transformation.texture_matrices_stack[unit].size() + 1);
+        break;
+    }
     default:
         g_glFuncs.glGetIntegerv(pname, params);
         break;
@@ -397,6 +440,17 @@ void glGetFloatv(GLenum pname, GLfloat* params) {
     }
     case GL_PROJECTION_MATRIX: {
         auto* ptr = glm::value_ptr(g_glstate.fpe_uniform.transformation.matrices[matrix_idx(GL_PROJECTION)]);
+        memcpy(params, ptr, sizeof(GLfloat) * 16);
+        break;
+    }
+    case GL_TEXTURE_MATRIX: {
+        const int unit = std::clamp(static_cast<int>(sfpewLogicalActiveTexture() - GL_TEXTURE0), 0, MAX_TEX - 1);
+        auto* ptr = glm::value_ptr(g_glstate.fpe_uniform.transformation.texture_matrices[unit]);
+        memcpy(params, ptr, sizeof(GLfloat) * 16);
+        break;
+    }
+    case GL_COLOR_MATRIX: {
+        auto* ptr = glm::value_ptr(g_glstate.fpe_uniform.transformation.matrices[matrix_idx(GL_COLOR)]);
         memcpy(params, ptr, sizeof(GLfloat) * 16);
         break;
     }

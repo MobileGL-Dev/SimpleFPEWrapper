@@ -27,8 +27,9 @@
 namespace {
 
 int active_texture_index() {
-    GLint active = GL_TEXTURE0;
-    g_glFuncs.glGetIntegerv(GL_ACTIVE_TEXTURE, &active);
+    // The glActiveTexture wrapper maintains a thread-local shadow; a
+    // synchronous backend round-trip per call is unnecessary.
+    const GLint active = (GLint)sfpewLogicalActiveTexture();
     return std::clamp(active - (GLint)GL_TEXTURE0, 0, MAX_TEX - 1);
 }
 

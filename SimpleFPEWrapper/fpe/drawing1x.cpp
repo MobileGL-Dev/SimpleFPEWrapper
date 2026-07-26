@@ -271,7 +271,7 @@ void glBegin(GLenum mode) {
 
     if (mode != GL_TRIANGLE_STRIP) flushPendingImmediateDraws();
 
-    if (!fpe_inited) {
+    if (!g_glstate.fpe_ready) {
         if (init_fpe() != 0) return;
     }
 

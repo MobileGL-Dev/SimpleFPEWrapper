@@ -477,7 +477,7 @@ private:
     }
 
     bool bindStaticVertexBuffer(GLuint* selectedBuffer, GLint* drawFirst) const {
-        if (!fpe_inited && init_fpe() != 0) return false;
+        if (!g_glstate.fpe_ready && init_fpe() != 0) return false;
 
         if (displayListVertexArena.isCurrent(arenaAllocation)) {
             *drawFirst = static_cast<GLint>(arenaAllocation.offset / static_cast<size_t>(layout.stride));
@@ -495,7 +495,7 @@ private:
         }
 
         if (vertexBuffer == 0) {
-            if ((!fpe_inited && init_fpe() != 0) || g_glFuncs.glGenBuffers == nullptr ||
+            if ((!g_glstate.fpe_ready && init_fpe() != 0) || g_glFuncs.glGenBuffers == nullptr ||
                 g_glFuncs.glBufferData == nullptr) {
                 return false;
             }

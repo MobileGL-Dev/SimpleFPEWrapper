@@ -130,11 +130,10 @@ void log_vtx_attrib_data(const void* ptr, GLenum type, int size, int stride, int
 }
 #endif
 
-bool fpe_inited = false;
 int init_fpe() {
     // LOG_I("Initializing fixed-function pipeline...")
 
-    if (fpe_inited) return 0;
+    if (g_glstate.fpe_ready) return 0;
 
     if (g_eglFuncs.eglGetCurrentContext == nullptr || g_eglFuncs.eglGetCurrentContext() == EGL_NO_CONTEXT) {
         return -1;
@@ -187,14 +186,14 @@ int init_fpe() {
         return -1;
     }
 
-    fpe_inited = true;
+    g_glstate.fpe_ready = true;
     return 0;
 }
 
 int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint previous_array_buffer) {
     // LOG()
 
-    if (!fpe_inited) {
+    if (!g_glstate.fpe_ready) {
         if (init_fpe() != 0) return -1;
     }
 

@@ -352,9 +352,17 @@ struct program_hash_cache_t {
     GLenum texture_env_mode[MAX_TEX]{};
 };
 
+// glstate_t is THE aggregate for all context-scoped FPE state. It is a
+// process-wide singleton today (glstate_t::get_instance()); plans/07 turns
+// that accessor into a per-EGL-context lookup. New context-scoped state must
+// live in here — never in file-scope globals.
 struct glstate_t {
     template <typename K, typename V>
     using unordered_map = std::unordered_map<K, V>;
+
+    // Set once init_fpe() has created the FPE-owned GL objects for this
+    // context (previously the file-scope global fpe_inited).
+    bool fpe_ready = false;
 
     // States that can led to layout change / shader recompile
     struct fixed_function_state_t fpe_state;

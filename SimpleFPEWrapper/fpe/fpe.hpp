@@ -22,8 +22,6 @@
 
 #define g_glstate glstate_t::get_instance()
 
-extern bool fpe_inited;
-
 int init_fpe();
 bool prepare_quad_indices(GLsizei count, GLuint first = 0);
 const void* quad_index_data();

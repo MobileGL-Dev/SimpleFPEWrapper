@@ -213,6 +213,9 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint p
     auto& prog = g_glstate.get_or_generate_program(key);
     int prog_id = prog.get_program();
     if (prog_id <= 0) {
+        // Generated program failed to compile/link: the draw is dropped, and
+        // per the error contract that must be observable, not silent.
+        g_glstate.set_error(GL_INVALID_OPERATION);
         vpa.reset();
         return -1;
     }

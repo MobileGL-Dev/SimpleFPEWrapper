@@ -161,7 +161,10 @@ void drawImmediateVertices(GLenum primitive, const GLfloat* vertices, size_t flo
     auto key = g_glstate.program_hash();
     auto& program = g_glstate.get_or_generate_program(key);
     const int programId = program.get_program();
-    if (programId <= 0) return;
+    if (programId <= 0) {
+        g_glstate.set_error(GL_INVALID_OPERATION);
+        return;
+    }
 
     g_glFuncs.glUseProgram(programId);
     g_glFuncs.glBindVertexArray(state.fpe_vao);
@@ -351,7 +354,10 @@ void glMultiTexCoord2f(GLenum target, GLfloat s, GLfloat t) {
     // Runtime bounds check (asserts are compiled out by NDEBUG): an
     // out-of-range unit would index past texcoord[MAX_TEX]. Invalid enums
     // are also not recorded into display lists.
-    if (target < GL_TEXTURE0 || target - GL_TEXTURE0 >= MAX_TEX) return;
+    if (target < GL_TEXTURE0 || target - GL_TEXTURE0 >= MAX_TEX) {
+        g_glstate.set_error(GL_INVALID_ENUM);
+        return;
+    }
 
     LIST_RECORD(glMultiTexCoord2f, {}, target, s, t)
 
@@ -362,7 +368,10 @@ void glMultiTexCoord4f(GLenum target, GLfloat s, GLfloat t, GLfloat r, GLfloat q
     // LOG()
     //  LOG_D("glMultiTexCoord4f(%s, %.2f, %.2f, %.2f, %.2f)", glEnumToString(target), s, t, r, q)
 
-    if (target < GL_TEXTURE0 || target - GL_TEXTURE0 >= MAX_TEX) return;
+    if (target < GL_TEXTURE0 || target - GL_TEXTURE0 >= MAX_TEX) {
+        g_glstate.set_error(GL_INVALID_ENUM);
+        return;
+    }
 
     LIST_RECORD(glMultiTexCoord4f, {}, target, s, t, r, q)
 

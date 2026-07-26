@@ -11,6 +11,7 @@
 #include <GL/gl.h>
 #include <glm/mat4x4.hpp>
 #include <glm/vec3.hpp>
+#include <cstdint>
 #include <unordered_map>
 
 #include <vector>
@@ -65,14 +66,24 @@ class DisplayListManager {
     inline static GLuint nextListId = 1;
     inline static GLenum listMode = GL_COMPILE;
     inline static GLuint callingDepth = 0;
+    inline static uint64_t mutationGeneration = 1;
 
     inline static unordered_map<GLuint, DisplayList> lists;
     inline static GLuint currentListID = 0;
 
     template <auto Func, typename... ProcessedArgs>
     void recordImpl(std::vector<std::vector<uint8_t>>&& buffers, ProcessedArgs&&... args) {
+        bumpMutationGeneration();
         lists[currentListID].emplace_back(std::make_unique<GLFuncCmd<Func, ProcessedArgs...>>(
             std::forward<ProcessedArgs>(args)..., std::move(buffers)));
+    }
+
+    static void bumpMutationGeneration() {
+        ++mutationGeneration;
+        // Zero is reserved for an uninitialised consumer cache. Unsigned
+        // wraparound is defined, so skip it if this process lives long enough
+        // to rebuild 2^64 display-list commands.
+        if (mutationGeneration == 0) ++mutationGeneration;
     }
 
 public:
@@ -82,6 +93,7 @@ public:
         for (GLuint i = first; i < first + range; ++i) {
             lists[i] = std::vector<std::unique_ptr<GLCmd>>{};
         }
+        if (range > 0) bumpMutationGeneration();
         return first;
     }
 
@@ -89,11 +101,13 @@ public:
         for (GLuint i = 0; i < range; ++i) {
             lists.erase(list + i);
         }
+        if (range > 0) bumpMutationGeneration();
     }
 
     static GLboolean isDisplayList(GLuint list) { return lists.find(list) != lists.end() ? GL_TRUE : GL_FALSE; }
 
     static void startRecord(GLuint listID, GLenum mode) {
+        bumpMutationGeneration();
         currentListID = listID;
         listMode = mode;
         lists.try_emplace(listID).first->second.clear();
@@ -102,6 +116,7 @@ public:
     static void endRecord() {
         auto it = lists.find(currentListID);
         if (it != lists.end()) optimizeDisplayListCommands(it->second);
+        bumpMutationGeneration();
         currentListID = 0;
         listMode = GL_COMPILE;
     }
@@ -151,6 +166,7 @@ public:
 
     void recordCommand(std::unique_ptr<GLCmd> command) {
         if (command == nullptr) return;
+        bumpMutationGeneration();
         auto& commands = lists[currentListID];
         // A command may fold an immediately adjacent command only when it can
         // prove that doing so preserves the display-list state boundary.
@@ -173,6 +189,8 @@ public:
         const auto it = lists.find(listID);
         return it == lists.end() ? nullptr : &it->second;
     }
+
+    static uint64_t generation() { return mutationGeneration; }
 };
 
 inline DisplayListManager displayListManager;

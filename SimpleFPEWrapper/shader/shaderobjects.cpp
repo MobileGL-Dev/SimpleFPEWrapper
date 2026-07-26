@@ -515,8 +515,15 @@ GLint glGetUniformLocation(GLuint program, const GLchar* name) {
     if (!sfpewEnsureBackend() || g_glFuncs.glGetUniformLocation == nullptr) return -1;
     const GLint loc = g_glFuncs.glGetUniformLocation(program, name);
     if (loc >= 0 || name == nullptr || name[0] == '\0') return loc;
-    const std::string prefixed = "_" + std::string(name);
-    return g_glFuncs.glGetUniformLocation(program, prefixed.c_str());
+    const std::string original(name);
+    const std::string prefixed = "_" + original;
+    const GLint ploc = g_glFuncs.glGetUniformLocation(program, prefixed.c_str());
+    if (ploc >= 0) return ploc;
+    // Struct MEMBERS get the same treatment ("tex.mix" -> "tex._mix").
+    const size_t dot = original.rfind('.');
+    if (dot == std::string::npos) return -1;
+    const std::string member = original.substr(0, dot + 1) + "_" + original.substr(dot + 1);
+    return g_glFuncs.glGetUniformLocation(program, member.c_str());
 }
 
 GLint glGetAttribLocation(GLuint program, const GLchar* name) {

@@ -194,6 +194,164 @@ int main(void) {
         return 1;
     }
     printf("OK: phase 3 GL_MODULATE texturing renders green\n");
+    fDisable(0x0DE1); // GL_TEXTURE_2D off for the array phases
+
+    // --- Phase 4: client vertex arrays via glDrawArrays (the Minecraft
+    // chunk path: program 0 + enabled arrays + client memory).
+    void (*fEnableClientState)(GLenum) = (void (*)(GLenum))resolve("glEnableClientState");
+    void (*fDisableClientState)(GLenum) = (void (*)(GLenum))resolve("glDisableClientState");
+    void (*fVertexPointer)(GLint, GLenum, GLsizei, const void*) =
+        (void (*)(GLint, GLenum, GLsizei, const void*))resolve("glVertexPointer");
+    void (*fColorPointer)(GLint, GLenum, GLsizei, const void*) =
+        (void (*)(GLint, GLenum, GLsizei, const void*))resolve("glColorPointer");
+    void (*fDrawArrays)(GLenum, GLint, GLsizei) =
+        (void (*)(GLenum, GLint, GLsizei))resolve("glDrawArrays");
+    void (*fDrawElements)(GLenum, GLsizei, GLenum, const void*) =
+        (void (*)(GLenum, GLsizei, GLenum, const void*))resolve("glDrawElements");
+    if (!fEnableClientState || !fDisableClientState || !fVertexPointer || !fColorPointer ||
+        !fDrawArrays || !fDrawElements) {
+        fprintf(stderr, "FAIL: array entry points missing\n");
+        return 1;
+    }
+
+    // Interleaved x,y + r,g,b,a floats for a full-screen magenta quad
+    // as two triangles.
+    static const GLfloat verts[] = {-1, -1, 1, -1, 1, 1, -1, -1, 1, 1, -1, 1};
+    static const GLfloat colors[] = {1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1,
+                                     1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1};
+    fClearColor(0.0f, 0.0f, 1.0f, 1.0f);
+    fClear(GL_COLOR_BUFFER_BIT);
+    fEnableClientState(0x8074 /* GL_VERTEX_ARRAY */);
+    fEnableClientState(0x8076 /* GL_COLOR_ARRAY */);
+    fVertexPointer(2, 0x1406 /* GL_FLOAT */, 0, verts);
+    fColorPointer(4, 0x1406, 0, colors);
+    fDrawArrays(0x0004 /* GL_TRIANGLES */, 0, 6);
+    fReadPixels(32, 32, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+    if (fGetError() != 0 || pixel[0] < 200 || pixel[1] > 50 || pixel[2] < 200) {
+        fprintf(stderr, "FAIL: phase 4 array draw pixel (%u,%u,%u)\n", pixel[0], pixel[1], pixel[2]);
+        return 1;
+    }
+    printf("OK: phase 4 client vertex arrays render magenta\n");
+
+    // --- Phase 5: glDrawElements with client-memory indices.
+    static const GLfloat quad_verts[] = {-1, -1, 1, -1, 1, 1, -1, 1};
+    static const GLfloat yellow[] = {1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1};
+    static const unsigned short tri_idx[] = {0, 1, 2, 0, 2, 3};
+    fClearColor(0.0f, 0.0f, 1.0f, 1.0f);
+    fClear(GL_COLOR_BUFFER_BIT);
+    fVertexPointer(2, 0x1406, 0, quad_verts);
+    fColorPointer(4, 0x1406, 0, yellow);
+    fDrawElements(0x0004, 6, 0x1403 /* GL_UNSIGNED_SHORT */, tri_idx);
+    fReadPixels(32, 32, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+    if (fGetError() != 0 || pixel[0] < 200 || pixel[1] < 200 || pixel[2] > 50) {
+        fprintf(stderr, "FAIL: phase 5 DrawElements pixel (%u,%u,%u)\n", pixel[0], pixel[1],
+                pixel[2]);
+        return 1;
+    }
+    printf("OK: phase 5 client-index glDrawElements renders yellow\n");
+
+    // --- Phase 6: indexed GL_QUADS (the S2 rewrite path).
+    static const unsigned short quad_idx[] = {0, 1, 2, 3};
+    fClearColor(0.0f, 0.0f, 1.0f, 1.0f);
+    fClear(GL_COLOR_BUFFER_BIT);
+    fDrawElements(GL_QUADS, 4, 0x1403, quad_idx);
+    fReadPixels(32, 32, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+    if (fGetError() != 0 || pixel[0] < 200 || pixel[1] < 200 || pixel[2] > 50) {
+        fprintf(stderr, "FAIL: phase 6 indexed QUADS pixel (%u,%u,%u)\n", pixel[0], pixel[1],
+                pixel[2]);
+        return 1;
+    }
+    printf("OK: phase 6 indexed GL_QUADS rewrite renders yellow\n");
+    fDisableClientState(0x8074);
+    fDisableClientState(0x8076);
+
+    // --- Phase 7: display-list replay must reproduce the immediate image.
+    GLuint (*fGenLists)(GLsizei) = (GLuint(*)(GLsizei))resolve("glGenLists");
+    void (*fNewList)(GLuint, GLenum) = (void (*)(GLuint, GLenum))resolve("glNewList");
+    void (*fEndList)(void) = (void (*)(void))resolve("glEndList");
+    void (*fCallList)(GLuint) = (void (*)(GLuint))resolve("glCallList");
+    if (!fGenLists || !fNewList || !fEndList || !fCallList) return 1;
+
+    const GLuint list = fGenLists(1);
+    fNewList(list, 0x1300 /* GL_COMPILE */);
+    fBegin(GL_QUADS);
+    fColor3f(0.0f, 1.0f, 1.0f); // cyan
+    fVertex2f(-1.0f, -1.0f);
+    fVertex2f(1.0f, -1.0f);
+    fVertex2f(1.0f, 1.0f);
+    fVertex2f(-1.0f, 1.0f);
+    fEnd();
+    fEndList();
+
+    fClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    fClear(GL_COLOR_BUFFER_BIT);
+    fReadPixels(32, 32, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+    if (pixel[1] > 50) {
+        fprintf(stderr, "FAIL: phase 7 GL_COMPILE executed the draw\n");
+        return 1;
+    }
+    fCallList(list);
+    fReadPixels(32, 32, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+    if (fGetError() != 0 || pixel[1] < 200 || pixel[2] < 200 || pixel[0] > 50) {
+        fprintf(stderr, "FAIL: phase 7 replay pixel (%u,%u,%u), expected cyan\n", pixel[0],
+                pixel[1], pixel[2]);
+        return 1;
+    }
+    printf("OK: phase 7 display-list compile defers and replay renders cyan\n");
+
+    // --- Phase 8: matrix transforms. Translate a half-screen quad right:
+    // the left edge region must stay background.
+    void (*fTranslatef)(GLfloat, GLfloat, GLfloat) =
+        (void (*)(GLfloat, GLfloat, GLfloat))resolve("glTranslatef");
+    void (*fLoadIdentity)(void) = (void (*)(void))resolve("glLoadIdentity");
+    if (!fTranslatef || !fLoadIdentity) return 1;
+    fClearColor(0.0f, 0.0f, 1.0f, 1.0f);
+    fClear(GL_COLOR_BUFFER_BIT);
+    fTranslatef(1.0f, 0.0f, 0.0f); // shift the left-half quad into the right half
+    fBegin(GL_QUADS);
+    fColor3f(1.0f, 0.0f, 0.0f);
+    fVertex2f(-1.0f, -1.0f);
+    fVertex2f(0.0f, -1.0f);
+    fVertex2f(0.0f, 1.0f);
+    fVertex2f(-1.0f, 1.0f);
+    fEnd();
+    fLoadIdentity();
+    GLubyte left[4], right[4];
+    fReadPixels(8, 32, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, left);
+    fReadPixels(48, 32, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, right);
+    if (fGetError() != 0 || right[0] < 200 || left[2] < 200 || left[0] > 50) {
+        fprintf(stderr, "FAIL: phase 8 transform left=(%u,%u,%u) right=(%u,%u,%u)\n", left[0],
+                left[1], left[2], right[0], right[1], right[2]);
+        return 1;
+    }
+    printf("OK: phase 8 glTranslatef moves geometry correctly\n");
+
+    // --- Phase 9: alpha test. A quad with alpha 0.25 under GL_GREATER 0.5
+    // must be fully discarded.
+    void (*fAlphaFunc)(GLenum, GLfloat) = (void (*)(GLenum, GLfloat))resolve("glAlphaFunc");
+    void (*fColor4f)(GLfloat, GLfloat, GLfloat, GLfloat) =
+        (void (*)(GLfloat, GLfloat, GLfloat, GLfloat))resolve("glColor4f");
+    if (!fAlphaFunc || !fColor4f) return 1;
+    fClearColor(0.0f, 0.0f, 1.0f, 1.0f);
+    fClear(GL_COLOR_BUFFER_BIT);
+    fEnable(0x0BC0 /* GL_ALPHA_TEST */);
+    fAlphaFunc(0x0204 /* GL_GREATER */, 0.5f);
+    fBegin(GL_QUADS);
+    fColor4f(1.0f, 0.0f, 0.0f, 0.25f);
+    fVertex2f(-1.0f, -1.0f);
+    fVertex2f(1.0f, -1.0f);
+    fVertex2f(1.0f, 1.0f);
+    fVertex2f(-1.0f, 1.0f);
+    fEnd();
+    fDisable(0x0BC0);
+    fReadPixels(32, 32, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+    if (fGetError() != 0 || pixel[2] < 200 || pixel[0] > 50) {
+        fprintf(stderr, "FAIL: phase 9 alpha test pixel (%u,%u,%u), expected background blue\n",
+                pixel[0], pixel[1], pixel[2]);
+        return 1;
+    }
+    printf("OK: phase 9 alpha test discards low-alpha fragments\n");
+
     printf("OK: all FPE render phases passed on the real GLES3 device\n");
     return 0;
 }

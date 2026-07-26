@@ -11,6 +11,8 @@
 #include <mutex>
 #include <glm/gtc/type_ptr.hpp>
 #include <limits>
+#include <cstring>
+#include <vector>
 
 #define DEBUG 0
 
@@ -222,6 +224,57 @@ int init_fpe() {
     return 0;
 }
 
+namespace {
+
+// Multiple INDEPENDENT client-memory arrays (classic GL 1.1: separate
+// glVertexPointer/glColorPointer allocations) cannot be expressed by
+// normalize()'s single interleave stride. Gather them into one interleaved
+// stream instead; correctness first, the copy is bounded by the draw size.
+bool gather_client_arrays(const vertex_pointer_array_t& raw, GLint first, GLsizei count,
+                          vertex_pointer_array_t* out) {
+    if (count <= 0 || first < 0) return false;
+    int enabled_count = 0;
+    size_t element_bytes[VERTEX_POINTER_COUNT] = {};
+    size_t total_stride = 0;
+    for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
+        if (!((raw.enabled_pointers >> i) & 1u)) continue;
+        const auto& attr = raw.attributes[i];
+        if (getClientArrayBufferBinding(i) != 0) return false; // VBO mix: original path
+        if (attr.pointer == nullptr || attr.size <= 0 || type_size(attr.type) == 0) return false;
+        ++enabled_count;
+        element_bytes[i] = (size_t)attr.size * (size_t)type_size(attr.type);
+        total_stride += element_bytes[i];
+    }
+    if (enabled_count < 2 || total_stride == 0) return false;
+
+    static thread_local std::vector<uint8_t> gathered;
+    const size_t total_size = (size_t)count * total_stride;
+    if (total_size > (size_t)std::numeric_limits<GLsizei>::max()) return false;
+    gathered.resize(total_size);
+
+    *out = raw;
+    size_t attribute_offset = 0;
+    for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
+        if (!((raw.enabled_pointers >> i) & 1u)) continue;
+        const auto& attr = raw.attributes[i];
+        const size_t src_stride =
+            attr.stride != 0 ? (size_t)attr.stride : element_bytes[i];
+        const auto* src = static_cast<const uint8_t*>(attr.pointer) + (size_t)first * src_stride;
+        uint8_t* dst = gathered.data() + attribute_offset;
+        for (GLsizei v = 0; v < count; ++v)
+            std::memcpy(dst + (size_t)v * total_stride, src + (size_t)v * src_stride,
+                        element_bytes[i]);
+        out->attributes[i].pointer = (const void*)attribute_offset;
+        out->attributes[i].stride = (GLsizei)total_stride;
+        attribute_offset += element_bytes[i];
+    }
+    out->starting_pointer = gathered.data();
+    out->stride = (GLsizei)total_stride;
+    return true;
+}
+
+} // namespace
+
 int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint previous_array_buffer) {
     // LOG()
 
@@ -232,7 +285,11 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint p
     // Need to generate_compressed_index first (shadergen will use that)
     auto& raw_vpa = g_glstate.fpe_state.vertexpointer_array;
     auto& vpa = g_glstate.fpe_state.normalized_vpa;
-    vpa = raw_vpa.normalize();
+    if (gather_client_arrays(raw_vpa, *first, *count, &vpa)) {
+        *first = 0; // the gather already applied the base offset
+    } else {
+        vpa = raw_vpa.normalize();
+    }
     vpa.generate_compressed_index(g_glstate.fpe_state.fpe_draw.current_data.sizes.data);
     // kinda cursed...
     raw_vpa.generate_compressed_index(g_glstate.fpe_state.fpe_draw.current_data.sizes.data);

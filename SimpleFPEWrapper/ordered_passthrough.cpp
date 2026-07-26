@@ -8,6 +8,8 @@
 
 #include "init.h"
 #include "fpe/drawing1x.h"
+#include <vector>
+#include <cstdint>
 #include "fpe/fpe.hpp"
 
 namespace {
@@ -153,10 +155,36 @@ void glTexParameteriv(GLenum target, GLenum pname, const GLint* params) {
         g_glFuncs.glTexParameteriv(target, pname, params);
     }
 }
-ORDERED_PASSTHROUGH(glTexSubImage2D,
-                    (GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width,
-                     GLsizei height, GLenum format, GLenum type, const GLvoid* pixels),
-                    (target, level, xoffset, yoffset, width, height, format, type, pixels))
+void glTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width,
+                     GLsizei height, GLenum format, GLenum type, const GLvoid* pixels) {
+    if (!sfpewEnsureBackend() || g_glFuncs.glTexSubImage2D == nullptr) return;
+    flushPendingImmediateDraws();
+    // Legacy formats must match the RED/RG storage glTexImage2D allocated
+    // for them; BGRA is swapped on the CPU (tight rows assumed, mirroring
+    // the allocation path in getter.cpp).
+    if (format == GL_ALPHA || format == GL_LUMINANCE) {
+        format = GL_RED;
+    } else if (format == GL_LUMINANCE_ALPHA) {
+        format = GL_RG;
+    } else if (format == GL_BGRA && pixels != nullptr &&
+               (type == GL_UNSIGNED_BYTE || type == GL_UNSIGNED_INT_8_8_8_8 ||
+                type == GL_UNSIGNED_INT_8_8_8_8_REV)) {
+        thread_local std::vector<uint8_t> scratch;
+        const size_t count = (size_t)width * (size_t)height * 4u;
+        scratch.resize(count);
+        const auto* src = static_cast<const uint8_t*>(pixels);
+        for (size_t px = 0; px < count; px += 4) {
+            scratch[px + 0] = src[px + 2];
+            scratch[px + 1] = src[px + 1];
+            scratch[px + 2] = src[px + 0];
+            scratch[px + 3] = src[px + 3];
+        }
+        pixels = scratch.data();
+        format = GL_RGBA;
+        type = GL_UNSIGNED_BYTE;
+    }
+    g_glFuncs.glTexSubImage2D(target, level, xoffset, yoffset, width, height, format, type, pixels);
+}
 
 // --- Desktop-only entry points GLES lacks (plans/03, 3.4) ---------------
 

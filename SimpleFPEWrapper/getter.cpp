@@ -8,10 +8,12 @@
 
 #include "GL/gl.h"
 #include "init.h"
+#include "log.h"
 #include <glm/gtc/type_ptr.hpp>
 #include <cstdint>
 #include <algorithm>
 #include <unordered_map>
+#include <vector>
 #include "fpe/fpe.hpp"
 #include "fpe/drawing1x.h"
 
@@ -774,11 +776,124 @@ void glDeleteTextures(GLsizei n, const GLuint* textures) {
     }
 }
 
+namespace {
+
+// Legacy desktop internalformats have no GLES3 equivalent. Map them onto
+// R8/RG8 storage plus a texture swizzle that reproduces the fixed-function
+// sampling semantics (plans/05, 5.3).
+struct legacy_format_mapping_t {
+    GLint internalformat;
+    GLenum format;
+    GLint swizzle[4];
+};
+
+bool mapLegacyInternalFormat(GLint internalformat, legacy_format_mapping_t& out) {
+    switch (internalformat) {
+    case GL_ALPHA:
+    case GL_ALPHA4:
+    case GL_ALPHA8:
+    case GL_ALPHA12:
+    case GL_ALPHA16:
+        out = {GL_R8, GL_RED, {GL_ZERO, GL_ZERO, GL_ZERO, GL_RED}};
+        return true;
+    case GL_LUMINANCE:
+    case GL_LUMINANCE4:
+    case GL_LUMINANCE8:
+    case GL_LUMINANCE12:
+    case GL_LUMINANCE16:
+    case 1:
+        out = {GL_R8, GL_RED, {GL_RED, GL_RED, GL_RED, GL_ONE}};
+        return true;
+    case GL_LUMINANCE_ALPHA:
+    case GL_LUMINANCE4_ALPHA4:
+    case GL_LUMINANCE6_ALPHA2:
+    case GL_LUMINANCE8_ALPHA8:
+    case GL_LUMINANCE12_ALPHA4:
+    case GL_LUMINANCE12_ALPHA12:
+    case GL_LUMINANCE16_ALPHA16:
+    case 2:
+        out = {GL_RG8, GL_RG, {GL_RED, GL_RED, GL_RED, GL_GREEN}};
+        return true;
+    case GL_INTENSITY:
+    case GL_INTENSITY4:
+    case GL_INTENSITY8:
+    case GL_INTENSITY12:
+    case GL_INTENSITY16:
+        out = {GL_R8, GL_RED, {GL_RED, GL_RED, GL_RED, GL_RED}};
+        return true;
+    case 3:
+        out = {GL_RGB8, GL_RGB, {GL_RED, GL_GREEN, GL_BLUE, GL_ONE}};
+        return true;
+    case 4:
+        out = {GL_RGBA8, GL_RGBA, {GL_RED, GL_GREEN, GL_BLUE, GL_ALPHA}};
+        return true;
+    default:
+        return false;
+    }
+}
+
+GLenum swizzleTargetFor(GLenum target) {
+    if (target >= GL_TEXTURE_CUBE_MAP_POSITIVE_X && target <= GL_TEXTURE_CUBE_MAP_NEGATIVE_Z)
+        return GL_TEXTURE_CUBE_MAP;
+    return target;
+}
+
+// GL_BGRA uploads: GLES3 has no core BGRA path; swap on the CPU.
+// Tightly-packed rows are assumed (the common LWJGL/awt case); exotic
+// unpack state falls back to passthrough with a log line.
+const void* swapBgraPixels(GLsizei width, GLsizei height, GLenum type, const GLvoid* pixels,
+                           std::vector<uint8_t>& scratch) {
+    if (pixels == nullptr) return nullptr;
+    if (type != GL_UNSIGNED_BYTE && type != GL_UNSIGNED_INT_8_8_8_8 && type != GL_UNSIGNED_INT_8_8_8_8_REV) {
+        return nullptr;
+    }
+    const size_t count = (size_t)width * (size_t)height * 4u;
+    scratch.resize(count);
+    const auto* src = static_cast<const uint8_t*>(pixels);
+    for (size_t px = 0; px < count; px += 4) {
+        scratch[px + 0] = src[px + 2];
+        scratch[px + 1] = src[px + 1];
+        scratch[px + 2] = src[px + 0];
+        scratch[px + 3] = src[px + 3];
+    }
+    return scratch.data();
+}
+
+} // namespace
+
 void glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height, GLint border,
                   GLenum format, GLenum type, const GLvoid* pixels) {
     if (!sfpewEnsureBackend() || g_glFuncs.glTexImage2D == nullptr || g_glFuncs.glGetIntegerv == nullptr) return;
     flushPendingImmediateDraws();
     if (target != GL_PROXY_TEXTURE_2D) {
+        thread_local std::vector<uint8_t> bgraScratch;
+        if (format == GL_BGRA) {
+            const void* swapped = swapBgraPixels(width, height, type, pixels, bgraScratch);
+            if (swapped != nullptr || pixels == nullptr) {
+                pixels = swapped;
+                format = GL_RGBA;
+                type = GL_UNSIGNED_BYTE;
+                if (internalformat == GL_BGRA) internalformat = GL_RGBA8;
+            } else {
+                SFPEW_LOGW("glTexImage2D: unsupported GL_BGRA type 0x%x passed through", type);
+            }
+        }
+
+        legacy_format_mapping_t mapping{};
+        if (mapLegacyInternalFormat(internalformat, mapping)) {
+            // Rewrite the caller's legacy format pair too: GL_ALPHA/
+            // GL_LUMINANCE* client data is single/dual channel and GLES3
+            // only accepts it through RED/RG uploads.
+            GLenum upload_format = format;
+            if (format == GL_ALPHA || format == GL_LUMINANCE) upload_format = GL_RED;
+            else if (format == GL_LUMINANCE_ALPHA) upload_format = GL_RG;
+            g_glFuncs.glTexImage2D(target, level, mapping.internalformat, width, height, border,
+                                   upload_format, type, pixels);
+            if (g_glFuncs.glTexParameteriv != nullptr)
+                g_glFuncs.glTexParameteriv(swizzleTargetFor(target), GL_TEXTURE_SWIZZLE_RGBA, mapping.swizzle);
+            return;
+        }
+
         g_glFuncs.glTexImage2D(target, level, internalformat, width, height, border, format, type, pixels);
         return;
     }

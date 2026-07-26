@@ -299,6 +299,7 @@ bool gather_client_arrays(const vertex_pointer_array_t& raw, GLint first, GLsize
     size_t element_bytes[VERTEX_POINTER_COUNT] = {};
     size_t total_stride = 0;
     GLsizei shared_stride = -1;
+    bool all_explicit_stride = true;
     uintptr_t window_begin = UINTPTR_MAX;
     uintptr_t window_end = 0;
     for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
@@ -309,6 +310,7 @@ bool gather_client_arrays(const vertex_pointer_array_t& raw, GLint first, GLsize
         ++enabled_count;
         element_bytes[i] = (size_t)attr.size * (size_t)type_size(attr.type);
         total_stride += element_bytes[i];
+        if (attr.stride == 0) all_explicit_stride = false;
         const GLsizei effective_stride =
             attr.stride != 0 ? attr.stride : (GLsizei)element_bytes[i];
         if (shared_stride < 0) shared_stride = effective_stride;
@@ -320,10 +322,12 @@ bool gather_client_arrays(const vertex_pointer_array_t& raw, GLint first, GLsize
     if (enabled_count < 2 || total_stride == 0) return false;
 
     // Already-interleaved layout (the Minecraft chunk shape): every enabled
-    // attribute shares one stride and lives inside a single stride window,
-    // so normalize()'s single-block zero-copy path covers it. The gather
-    // would only re-pack identical data element by element.
-    if (shared_stride > 0 && window_end - window_begin <= (uintptr_t)shared_stride) {
+    // attribute declares the SAME explicit stride and lives inside a single
+    // stride window, so normalize()'s single-block zero-copy path covers it.
+    // Tight (stride 0) arrays stay on the gather - normalize's rebase logic
+    // does not handle aliased or adjacent tight arrays.
+    if (all_explicit_stride && shared_stride > 0 &&
+        window_end - window_begin <= (uintptr_t)shared_stride) {
         return false;
     }
 
@@ -400,10 +404,23 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint p
 
     if (client_memory_draw) {
         // 64-bit size math: GLsizei * GLsizei overflowed for large draws,
-        // handing the upload a negative or wrapped size.
-        const int64_t upload_size = (int64_t)*count * (int64_t)vpa.stride;
+        // handing the upload a negative or wrapped size. The final row is
+        // trimmed to its last attribute byte: reading a full stride past the
+        // last vertex would over-read the client allocation when the row has
+        // tail padding (interleaved layouts with window < stride).
+        int64_t row_tail = 0;
+        for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
+            if (!((vpa.enabled_pointers >> i) & 1u)) continue;
+            const auto& attr = vpa.attributes[i];
+            const int64_t tail = (int64_t)(uintptr_t)attr.pointer +
+                                 (int64_t)attr.size * (int64_t)type_size(attr.type);
+            row_tail = std::max(row_tail, tail);
+        }
+        if (row_tail <= 0 || row_tail > (int64_t)vpa.stride) row_tail = (int64_t)vpa.stride;
+        const int64_t upload_size = (int64_t)(*count - 1) * (int64_t)vpa.stride + row_tail;
         const int64_t skip = (int64_t)*first * (int64_t)vpa.stride;
-        if (upload_size <= 0 || upload_size > (int64_t)std::numeric_limits<GLsizei>::max() || skip < 0) {
+        if (*count <= 0 || upload_size <= 0 ||
+            upload_size > (int64_t)std::numeric_limits<GLsizei>::max() || skip < 0) {
             g_glstate_c.set_error(GL_INVALID_VALUE);
             vpa.reset();
             return -1;

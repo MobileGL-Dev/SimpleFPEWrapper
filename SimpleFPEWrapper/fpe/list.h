@@ -170,7 +170,7 @@ constexpr ic classify(void (*f)(const GLshort*)) {
                : ic::none;
 }
 constexpr ic classify(void (*f)(const GLbyte*)) {
-    return f == &glColor3bv || f == &glNormal3bv ? ic::vertex_data : ic::none;
+    return f == &glColor3bv || f == &glColor4bv || f == &glNormal3bv ? ic::vertex_data : ic::none;
 }
 constexpr ic classify(void (*f)(const GLubyte*)) {
     return f == &glColor3ubv || f == &glColor4ubv ? ic::vertex_data : ic::none;

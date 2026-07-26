@@ -125,4 +125,15 @@ thread's shadows are thread-local.
    plus a dispatch mutex), which otherwise dominates high-frequency
    entries (matrix ops ~450ns → ~25ns/call, getters ~430ns → ~8ns).
    With the promise violated, context switches go unobserved and state
-   lands on the wrong context. Default: off.
+   lands on the wrong context. This includes the glyph batcher's
+   drop-on-switch check: in relaxed mode a batch collected before the
+   thread released its context is still drawn against the frozen snapshot
+   (calls without a current context are undefined; limit 3). Default: off.
+6. **Backend binding shadows assume wrapper-mediated binds.** The draw
+   guard restores VAO/element bindings from shadows updated by wrapper
+   code (`sfpewBackendBindVertexArray`/`ElementBuffer`) and self-heals
+   with a real query every 256 draws. A VAO bound directly on the backend
+   (JNI dispatch bypassing the wrapper) is reverted by the next FPE
+   draw's restore before the heal can observe it — the same exposure
+   class as the logical program shadow, accepted because the wrapper does
+   not export VAO entry points and GL 2.1-era apps have no VAOs.

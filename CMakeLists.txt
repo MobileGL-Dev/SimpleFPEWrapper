@@ -164,6 +164,14 @@ if(NOT ANDROID)
                         add_dependencies(smoke_render ${CMAKE_PROJECT_NAME})
                         add_test(NAME smoke_render COMMAND smoke_render)
                         set_tests_properties(smoke_render PROPERTIES SKIP_RETURN_CODE 77)
+
+                        add_executable(smoke_list_current_attr tests/smoke_list_current_attr.c)
+                        target_compile_definitions(smoke_list_current_attr PRIVATE
+                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
+                        target_link_libraries(smoke_list_current_attr PRIVATE dl ${SFPEW_TEST_EGL})
+                        add_dependencies(smoke_list_current_attr ${CMAKE_PROJECT_NAME})
+                        add_test(NAME smoke_list_current_attr COMMAND smoke_list_current_attr)
+                        set_tests_properties(smoke_list_current_attr PROPERTIES SKIP_RETURN_CODE 77)
                 endif()
 
                 # Vendored piglit shader_test subset through the mini-runner

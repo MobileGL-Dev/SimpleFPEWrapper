@@ -186,6 +186,12 @@ struct fixed_function_draw_state_t {
     size_t packed_floats = 0;
     fixed_function_draw_size_t packed_layout_sizes;
 
+    // Set when set_attribute_size had to repack already-collected vertices
+    // (an attribute introduced mid-primitive). The display-list compiler
+    // bails on such runs: the repack backfill would freeze compile-time
+    // values where a live replay uses replay-time current values.
+    bool repacked = false;
+
     void reset();
 
     // Put one vertex into vb, from current draw state

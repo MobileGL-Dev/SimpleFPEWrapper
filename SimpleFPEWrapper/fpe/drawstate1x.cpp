@@ -15,6 +15,7 @@ void fixed_function_draw_state_t::reset() {
     primitive = GL_NONE;
     vertex_count = 0;
     vb.clear();
+    repacked = false;
 }
 
 void fixed_function_draw_state_t::set_attribute_size(int slot, GLint requested) {
@@ -52,8 +53,9 @@ void fixed_function_draw_state_t::set_attribute_size(int slot, GLint requested) 
         previous_value = glm::value_ptr(current_data.texcoord[slot - 7]);
     static constexpr GLfloat kComponentDefaults[4] = {0.0f, 0.0f, 0.0f, 1.0f};
 
-    std::vector<GLfloat> repacked;
-    repacked.reserve((old_stride + (size_t)(requested - stored)) * vertex_count);
+    repacked = true;
+    std::vector<GLfloat> repacked_vb;
+    repacked_vb.reserve((old_stride + (size_t)(requested - stored)) * vertex_count);
     for (size_t v = 0; v < vertex_count; ++v) {
         const GLfloat* src = vb.data() + v * old_stride;
         size_t consumed = 0;
@@ -62,19 +64,19 @@ void fixed_function_draw_state_t::set_attribute_size(int slot, GLint requested) 
             if (s == slot) {
                 for (GLint c = 0; c < requested; ++c) {
                     if (c < sz)
-                        repacked.push_back(src[consumed + c]);
+                        repacked_vb.push_back(src[consumed + c]);
                     else if (sz == 0)
-                        repacked.push_back(previous_value[c]);
+                        repacked_vb.push_back(previous_value[c]);
                     else
-                        repacked.push_back(kComponentDefaults[c]);
+                        repacked_vb.push_back(kComponentDefaults[c]);
                 }
             } else {
-                for (GLint c = 0; c < sz; ++c) repacked.push_back(src[consumed + c]);
+                for (GLint c = 0; c < sz; ++c) repacked_vb.push_back(src[consumed + c]);
             }
             consumed += (size_t)sz;
         }
     }
-    vb = std::move(repacked);
+    vb = std::move(repacked_vb);
     stored = requested;
 }
 

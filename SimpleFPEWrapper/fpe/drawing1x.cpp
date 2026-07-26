@@ -102,8 +102,15 @@ GLintptr sfpewUploadImmediateVertexData(const void* data, size_t size) {
                            g_glFuncs.glClientWaitSync != nullptr && g_glFuncs.glDeleteSync != nullptr;
     const size_t segment_size = state.fpe_immediate_vbo_capacity / 4u;
     if (have_sync && segment_size != 0) {
-        const size_t previous_segment =
-            std::min<size_t>(state.fpe_immediate_vbo_offset / segment_size, 3u);
+        // fpe_immediate_vbo_offset is one-past-the-end of the previous
+        // upload: derive the previous segment from its LAST byte, or an
+        // upload ending exactly on a quarter boundary would make the next
+        // upload's segment compare equal and skip the fence entirely.
+        const size_t previous_segment = std::min<size_t>(
+            state.fpe_immediate_vbo_offset == 0
+                ? 0
+                : (state.fpe_immediate_vbo_offset - 1u) / segment_size,
+            3u);
         const size_t first_segment = offset / segment_size;
         const size_t last_segment = std::min<size_t>((offset + size - 1u) / segment_size, 3u);
         if (first_segment != previous_segment || offset == 0) {
@@ -173,8 +180,15 @@ struct pending_glyph_batch_t {
 
 thread_local pending_glyph_batch_t pendingGlyphBatch;
 
+// `sizes` describes the interleaved STREAM layout. `constant_sizes`, when
+// non-null, additionally declares slots whose data is NOT in the stream but
+// must still reach the shader as constant attributes (glVertexAttrib4fv from
+// the live current values) - compiled display-list runs use this to inherit
+// the caller's sticky current color/normal/texcoord exactly like a live
+// replay would. The live glEnd path passes nullptr (stream == constants).
 void drawImmediateVertices(GLenum primitive, const GLfloat* vertices, size_t floatCount,
-                           size_t vertexCount, const fixed_function_draw_size_t& sizes) {
+                           size_t vertexCount, const fixed_function_draw_size_t& sizes,
+                           const fixed_function_draw_size_t* constant_sizes = nullptr) {
     if (vertices == nullptr || floatCount == 0 || vertexCount == 0 ||
         vertexCount > static_cast<size_t>(std::numeric_limits<GLsizei>::max())) {
         return;
@@ -193,6 +207,12 @@ void drawImmediateVertices(GLenum primitive, const GLfloat* vertices, size_t flo
         return;
     }
 
+    // Compiled display-list replay reaches this without ever passing
+    // through glBegin (which used to be the only init_fpe caller on the
+    // immediate path): a fresh context calling glCallList first would
+    // otherwise draw with fpe_vao == 0 and no ring buffer.
+    if (!gs.fpe_ready && init_fpe() != 0) return;
+
     fpe_backend_draw_state_guard_t backendState(
         sfpewLogicalProgram(), static_cast<GLint>(sfpewLogicalArrayBufferBinding()));
     // glBegin/glEnd uses temporary interleaved data. Preserve the caller's
@@ -202,7 +222,8 @@ void drawImmediateVertices(GLenum primitive, const GLfloat* vertices, size_t flo
     immediate_draw_sizes_guard_t drawSizes;
 
     auto& state = gs.fpe_state;
-    state.fpe_draw.current_data.sizes = sizes;
+    const fixed_function_draw_size_t& shader_sizes = constant_sizes ? *constant_sizes : sizes;
+    state.fpe_draw.current_data.sizes = shader_sizes;
 
     fixed_function_draw_state_t layoutState;
     layoutState.current_data.sizes = sizes;
@@ -211,8 +232,9 @@ void drawImmediateVertices(GLenum primitive, const GLfloat* vertices, size_t flo
     auto& va = state.normalized_vpa;
     va = state.vertexpointer_array.normalize();
     // generate_compressed_index only reads the size array, but its legacy
-    // declaration is not const-correct.
-    auto mutableSizes = sizes;
+    // declaration is not const-correct. It must see the shader's view
+    // (stream + constant slots) so attribute indices line up.
+    auto mutableSizes = shader_sizes;
     va.generate_compressed_index(mutableSizes.data);
 
     auto key = gs.program_hash();
@@ -353,34 +375,68 @@ class compiled_immediate_run_cmd_t final : public GLCmd {
 public:
     compiled_immediate_run_cmd_t(GLenum primitive, const fixed_function_draw_size_t& sizes,
                                  std::vector<GLfloat>&& data, size_t vertexCount, bool hasColor,
+                                 const fixed_function_draw_data_t& finalData,
                                  std::vector<std::unique_ptr<GLCmd>>&& originals)
         : primitive(primitive), sizes(sizes), data(std::move(data)), vertexCount(vertexCount),
-          hasColor(hasColor), originals(std::move(originals)) {}
+          hasColor(hasColor), finalData(finalData), originals(std::move(originals)) {}
 
     void execute() const override {
-        if (hasColor && g_glstate_c.fpe_state.fpe_bools.color_material_enable) {
+        auto& gs = g_glstate_c;
+        if (hasColor && gs.fpe_state.fpe_bools.color_material_enable) {
             for (const auto& command : originals) command->execute();
             return;
         }
         flushPendingImmediateDraws();
-        drawImmediateVertices(primitive, data.data(), data.size(), vertexCount, sizes);
+
+        // Slots the run never set inherit the caller's sticky sizes and
+        // reach the shader as constant attributes from the live current
+        // values - exactly what a live replay of the recorded commands
+        // produces (GL: current state at glCallList time applies).
+        auto& live = gs.fpe_state.fpe_draw.current_data;
+        fixed_function_draw_size_t shader_sizes = sizes;
+        for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
+            if (shader_sizes.data[i] <= 0) shader_sizes.data[i] = live.sizes.data[i];
+        }
+        drawImmediateVertices(primitive, data.data(), data.size(), vertexCount, sizes,
+                              &shader_sizes);
+
+        // GL: attribute setters executed FROM the list update the current
+        // state, and that state persists after glCallList returns. Apply the
+        // run's final values for every slot it set.
+        for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
+            if (sizes.data[i] <= 0) continue;
+            live.sizes.data[i] = sizes.data[i];
+            if (i == 0) live.vertex = finalData.vertex;
+            else if (i == 1) live.normal = finalData.normal;
+            else if (i == 2) live.color = finalData.color;
+            else if (i >= 7) live.texcoord[i - 7] = finalData.texcoord[i - 7];
+        }
     }
 
     bool appendRun(GLenum otherPrimitive, const fixed_function_draw_size_t& otherSizes,
                    const std::vector<GLfloat>& otherData, size_t otherVertexCount,
-                   bool otherHasColor, DisplayList::iterator originalsBegin,
-                   DisplayList::iterator originalsEnd) {
+                   bool otherHasColor, const fixed_function_draw_data_t& otherFinalData,
+                   DisplayList::iterator originalsBegin, DisplayList::iterator originalsEnd) {
         if (otherPrimitive != primitive ||
             std::memcmp(&otherSizes, &sizes, sizeof(sizes)) != 0) {
             return false;
         }
-        if (primitive != GL_TRIANGLES && primitive != GL_QUADS && primitive != GL_LINES &&
-            primitive != GL_POINTS) {
-            return false;
+        // Merge only complete primitive groups: GL drops an incomplete final
+        // group per Begin/End, so concatenation must never weld leftovers
+        // onto the next run's vertices.
+        size_t group = 1;
+        switch (primitive) {
+        case GL_TRIANGLES: group = 3; break;
+        case GL_QUADS: group = 4; break;
+        case GL_LINES: group = 2; break;
+        case GL_POINTS: group = 1; break;
+        default: return false;
         }
+        if (vertexCount % group != 0 || otherVertexCount % group != 0) return false;
         data.insert(data.end(), otherData.begin(), otherData.end());
         vertexCount += otherVertexCount;
         hasColor = hasColor || otherHasColor;
+        finalData = otherFinalData;
         for (auto it = originalsBegin; it != originalsEnd; ++it)
             originals.emplace_back(std::move(*it));
         return true;
@@ -392,6 +448,7 @@ private:
     std::vector<GLfloat> data;
     size_t vertexCount;
     bool hasColor;
+    fixed_function_draw_data_t finalData;
     std::vector<std::unique_ptr<GLCmd>> originals;
 };
 
@@ -450,8 +507,10 @@ void sfpewCompileImmediateRuns(DisplayList& commands) {
         }
         const bool complete_run = end_index < commands.size() &&
                                   commands[end_index]->immediateClass() == ic::end;
+        // commands[i] is a recorded glBegin, so the mode is the genuine enum;
+        // GL_POINTS == 0 must not be confused with a missing-mode sentinel.
         const GLenum mode = commands[i]->immediateBeginMode();
-        if (!complete_run || mode == GL_NONE || mode > GL_POLYGON) {
+        if (!complete_run || mode > GL_POLYGON) {
             previous_compiled = nullptr;
             for (size_t k = i; k < end_index; ++k) output.emplace_back(std::move(commands[k]));
             i = end_index;
@@ -472,7 +531,19 @@ void sfpewCompileImmediateRuns(DisplayList& commands) {
         size_t baked_vertices = draw.vertex_count;
         fixed_function_draw_size_t baked_sizes = draw.current_data.sizes;
         const bool has_color = baked_sizes.color_size > 0;
+        const bool was_repacked = draw.repacked;
+        const fixed_function_draw_data_t final_data = draw.current_data;
         draw.reset();
+
+        if (was_repacked) {
+            // An attribute was introduced after vertices were collected: the
+            // repack backfilled with compile-time values where a live replay
+            // backfills with replay-time current values. Keep the originals.
+            previous_compiled = nullptr;
+            for (size_t k = i; k <= end_index; ++k) output.emplace_back(std::move(commands[k]));
+            i = end_index + 1;
+            continue;
+        }
 
         if (baked_vertices == 0) {
             // Empty Begin/End: keep the originals (they still flush pending
@@ -499,7 +570,7 @@ void sfpewCompileImmediateRuns(DisplayList& commands) {
 
         if (previous_compiled != nullptr &&
             previous_compiled->appendRun(baked_mode, baked_sizes, baked, baked_vertices,
-                                         has_color, commands.begin() + (long)i,
+                                         has_color, final_data, commands.begin() + (long)i,
                                          commands.begin() + (long)end_index + 1)) {
             i = end_index + 1;
             continue;
@@ -509,7 +580,7 @@ void sfpewCompileImmediateRuns(DisplayList& commands) {
         originals.reserve(end_index + 1 - i);
         for (size_t k = i; k <= end_index; ++k) originals.emplace_back(std::move(commands[k]));
         auto compiled = std::make_unique<compiled_immediate_run_cmd_t>(
-            baked_mode, baked_sizes, std::move(baked), baked_vertices, has_color,
+            baked_mode, baked_sizes, std::move(baked), baked_vertices, has_color, final_data,
             std::move(originals));
         previous_compiled = compiled.get();
         output.emplace_back(std::move(compiled));

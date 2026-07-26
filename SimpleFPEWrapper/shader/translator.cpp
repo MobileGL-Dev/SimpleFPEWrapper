@@ -851,14 +851,17 @@ translation_result_t translate(GLenum stage, const std::vector<std::string>& sou
 
     {
         std::lock_guard<std::mutex> lock(cache_mutex);
-        const size_t entry_bytes = key.size() + result.essl.size() + result.log.size() +
-                                   result.preprocessed.size() + 256;
+        size_t entry_bytes = key.size() + result.essl.size() + result.log.size() +
+                             result.preprocessed.size() + 256;
+        for (const auto& initializer : result.uniform_initializers)
+            entry_bytes += sizeof(initializer) + initializer.name.size();
         if (cache_bytes + entry_bytes > kCacheByteLimit) {
             cache.clear();
             cache_bytes = 0;
         }
-        cache_bytes += entry_bytes;
-        cache.emplace(std::move(key), result);
+        // Concurrent misses on the same key both translate; only the thread
+        // whose emplace actually inserts may account the bytes.
+        if (cache.emplace(std::move(key), result).second) cache_bytes += entry_bytes;
     }
     return result;
 }

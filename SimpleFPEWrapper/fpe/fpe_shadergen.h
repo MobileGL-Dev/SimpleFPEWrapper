@@ -12,6 +12,7 @@
 #include "defines.h"
 
 struct scratch_t {
+    bool texgen_no_input[16] = {}; // units whose coords come only from texgen
     bool primary_color_saved = false;
     std::string last_stage_linkage;
     std::string vs_body;

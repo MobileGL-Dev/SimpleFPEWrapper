@@ -58,6 +58,8 @@ void program_uniform_locations_t::initialize(GLuint program) {
         sampler[i] = location(std::format("Sampler{}", i));
         texture_matrix[i] = location(std::format("TexMat{}", i));
         texture_env_color[i] = location(std::format("TexEnvColor{}", i));
+        texgen_obj_planes[i] = location(std::format("TexGen{}ObjPlanes", i));
+        texgen_eye_planes[i] = location(std::format("TexGen{}EyePlanes", i));
     }
 }
 
@@ -189,6 +191,23 @@ void glstate_t::send_uniforms(program_t& program) {
                 g_glFuncs.glUniform4fv(locations.texture_env_color[i], 1, glm::value_ptr(env_color));
             values.texture_env_color[i] = env_color;
         }
+
+        if (locations.texgen_obj_planes[i] >= 0 &&
+            (first_upload || std::memcmp(fpe_uniform.texgen_object_plane[i], values.texgen_obj_planes[i],
+                                         sizeof(values.texgen_obj_planes[i])) != 0)) {
+            g_glFuncs.glUniform4fv(locations.texgen_obj_planes[i], 4,
+                                   glm::value_ptr(fpe_uniform.texgen_object_plane[i][0]));
+            std::memcpy(values.texgen_obj_planes[i], fpe_uniform.texgen_object_plane[i],
+                        sizeof(values.texgen_obj_planes[i]));
+        }
+        if (locations.texgen_eye_planes[i] >= 0 &&
+            (first_upload || std::memcmp(fpe_uniform.texgen_eye_plane[i], values.texgen_eye_planes[i],
+                                         sizeof(values.texgen_eye_planes[i])) != 0)) {
+            g_glFuncs.glUniform4fv(locations.texgen_eye_planes[i], 4,
+                                   glm::value_ptr(fpe_uniform.texgen_eye_plane[i][0]));
+            std::memcpy(values.texgen_eye_planes[i], fpe_uniform.texgen_eye_plane[i],
+                        sizeof(values.texgen_eye_planes[i]));
+        }
     }
 
     if (fpe_state.fpe_bools.fog_enable) {
@@ -293,6 +312,14 @@ program_key_t glstate_t::program_hash() {
                 matches = false;
                 break;
             }
+            // texgen modes are likewise baked into the source but not
+            // mirrored in this cache.
+            if (bools.texture_2d_enable[i] &&
+                (bools.texture_gen_enable[i][0] || bools.texture_gen_enable[i][1] ||
+                 bools.texture_gen_enable[i][2] || bools.texture_gen_enable[i][3])) {
+                matches = false;
+                break;
+            }
         }
     }
     if (matches) return cache.hash;
@@ -345,6 +372,7 @@ program_key_t glstate_t::program_hash() {
 
     hash.add(&fpe_state.fpe_bools, sizeof(fpe_state.fpe_bools));
     hash.add(&fpe_state.texture_env_mode, sizeof(fpe_state.texture_env_mode));
+    hash.add(&fpe_state.texture_gen_mode, sizeof(fpe_state.texture_gen_mode));
 
     for (int i = 0; i < MAX_TEX; ++i) {
         if (!fpe_state.fpe_bools.texture_2d_enable[i] || fpe_state.texture_env_mode[i] != GL_COMBINE)

@@ -1280,6 +1280,49 @@ int texture_unit_from_attribute(int attribute_index) {
     return unit >= 0 && unit < MAX_TEX ? unit : -1;
 }
 
+
+// Any texgen coordinate live on a textured unit?
+bool unit_uses_texgen(const fixed_function_state_t& state, int unit) {
+    if (!state.fpe_bools.texture_2d_enable[unit]) return false;
+    for (int c = 0; c < 4; ++c)
+        if (state.fpe_bools.texture_gen_enable[unit][c]) return true;
+    return false;
+}
+
+bool any_texgen(const fixed_function_state_t& state) {
+    for (int i = 0; i < MAX_TEX; ++i)
+        if (unit_uses_texgen(state, i)) return true;
+    return false;
+}
+
+// Do any live texgen coords need eye-space data / the normal?
+bool texgen_needs_eye(const fixed_function_state_t& state) {
+    for (int i = 0; i < MAX_TEX; ++i) {
+        if (!state.fpe_bools.texture_2d_enable[i]) continue;
+        for (int c = 0; c < 4; ++c) {
+            if (!state.fpe_bools.texture_gen_enable[i][c]) continue;
+            const GLenum mode = state.texture_gen_mode[i][c];
+            if (mode == GL_EYE_LINEAR || mode == GL_SPHERE_MAP || mode == GL_NORMAL_MAP ||
+                mode == GL_REFLECTION_MAP)
+                return true;
+        }
+    }
+    return false;
+}
+
+bool texgen_needs_normal(const fixed_function_state_t& state) {
+    for (int i = 0; i < MAX_TEX; ++i) {
+        if (!state.fpe_bools.texture_2d_enable[i]) continue;
+        for (int c = 0; c < 4; ++c) {
+            if (!state.fpe_bools.texture_gen_enable[i][c]) continue;
+            const GLenum mode = state.texture_gen_mode[i][c];
+            if (mode == GL_SPHERE_MAP || mode == GL_NORMAL_MAP || mode == GL_REFLECTION_MAP)
+                return true;
+        }
+    }
+    return false;
+}
+
 void add_vs_inout(const fixed_function_state_t& state, scratch_t& scratch, std::string& vs) {
     auto& vpa = state.normalized_vpa;
     // LOG_D("[shadergen] enabled_ptr: 0x%x", vpa.enabled_pointers)
@@ -1370,6 +1413,15 @@ void add_vs_inout(const fixed_function_state_t& state, scratch_t& scratch, std::
         scratch.has_back_vertex_color = true;
     }
 
+    // Units fed purely by texgen still need their varying.
+    for (int i = 0; i < MAX_TEX; ++i) {
+        if (!unit_uses_texgen(state, i) || scratch.has_texcoord[i]) continue;
+        vs += std::format("out vec4 texCoord{};\n", i);
+        scratch.last_stage_linkage += std::format("in vec4 texCoord{};\n", i);
+        scratch.has_texcoord[i] = true;
+        scratch.texgen_no_input[i] = true; // the texgen body block writes it
+    }
+
     if (state.fpe_bools.fog_enable) {
         vs += "out vec3 vViewPosition;\n";
     }
@@ -1379,8 +1431,17 @@ void add_vs_uniforms(const fixed_function_state_t& state, scratch_t& scratch, st
     // Transformation matrix
     vs += "uniform mat4 ModelViewProjMat;\n";
     vs += "uniform float PointSize;\n"; // GLES has no glPointSize state
-    if (state.fpe_bools.fog_enable || state.fpe_bools.lighting_enable) {
+    if (state.fpe_bools.fog_enable || state.fpe_bools.lighting_enable || texgen_needs_eye(state)) {
         vs += "uniform mat4 ModelViewMat;\n"; // eye-space position source
+    }
+    if (!state.fpe_bools.lighting_enable && texgen_needs_normal(state)) {
+        vs += "uniform mat3 NormalMat;\n"; // sphere/normal/reflection maps
+    }
+    for (int i = 0; i < MAX_TEX; ++i) {
+        if (!unit_uses_texgen(state, i)) continue;
+        vs += std::format("uniform vec4 TexGen{0}ObjPlanes[4];\n"
+                          "uniform vec4 TexGen{0}EyePlanes[4];\n",
+                          i);
     }
     if (state.fpe_bools.lighting_enable) {
         vs += "uniform mat3 NormalMat;\n"
@@ -1499,13 +1560,71 @@ void add_vs_body(const fixed_function_state_t& state, scratch_t& scratch, std::s
           //            "   gl_Position = ProjMat * ModelViewMat * vec4(Position, 1.0);\n";
           "    gl_Position = ModelViewProjMat * Position;\n"
           "    gl_PointSize = PointSize;\n";
-    if (state.fpe_bools.fog_enable || state.fpe_bools.lighting_enable) {
+    if (state.fpe_bools.fog_enable || state.fpe_bools.lighting_enable || texgen_needs_eye(state)) {
         vs += "    vec4 eyePosition = ModelViewMat * Position;\n";
     }
     if (state.fpe_bools.fog_enable) {
         vs += "    vViewPosition = eyePosition.xyz;\n";
     }
     vs += scratch.vs_body;
+
+    if (any_texgen(state)) {
+        if (texgen_needs_normal(state)) {
+            vs += scratch.has_normal_input ? "    vec3 texgenNormal = normalize(NormalMat * Normal);\n"
+                                           : "    vec3 texgenNormal = normalize(NormalMat * vec3(0.0, 0.0, 1.0));\n";
+        }
+        if (texgen_needs_eye(state)) {
+            vs += "    vec3 texgenU = normalize(eyePosition.xyz);\n";
+        }
+        for (int i = 0; i < MAX_TEX; ++i) {
+            if (!unit_uses_texgen(state, i)) continue;
+            // Generation happens BEFORE the texture matrix; rebuild the
+            // source coordinate, splice generated components in, then apply
+            // TexMat (overwriting the pass-through assignment above).
+            vs += std::format("    vec4 tgsrc{0} = {1};\n", i,
+                              scratch.texgen_no_input[i] ? std::string("vec4(0.0, 0.0, 0.0, 1.0)")
+                                                         : std::format("UV{}", i));
+            bool needs_reflect = false, needs_sphere = false;
+            for (int c = 0; c < 4; ++c) {
+                if (!state.fpe_bools.texture_gen_enable[i][c]) continue;
+                const GLenum mode = state.texture_gen_mode[i][c];
+                if (mode == GL_SPHERE_MAP) needs_sphere = true;
+                if (mode == GL_SPHERE_MAP || mode == GL_REFLECTION_MAP) needs_reflect = true;
+            }
+            if (needs_reflect)
+                vs += std::format("    vec3 tgR{0} = reflect(texgenU, texgenNormal);\n", i);
+            if (needs_sphere)
+                vs += std::format("    float tgM{0} = 2.0 * sqrt(tgR{0}.x * tgR{0}.x + tgR{0}.y * tgR{0}.y +\n"
+                                  "                              (tgR{0}.z + 1.0) * (tgR{0}.z + 1.0));\n",
+                                  i);
+            static const char* comp = "xyzw";
+            for (int c = 0; c < 4; ++c) {
+                if (!state.fpe_bools.texture_gen_enable[i][c]) continue;
+                const GLenum mode = state.texture_gen_mode[i][c];
+                std::string value;
+                switch (mode) {
+                case GL_OBJECT_LINEAR:
+                    value = std::format("dot(TexGen{}ObjPlanes[{}], Position)", i, c);
+                    break;
+                case GL_EYE_LINEAR:
+                    value = std::format("dot(TexGen{}EyePlanes[{}], eyePosition)", i, c);
+                    break;
+                case GL_SPHERE_MAP:
+                    value = std::format("tgR{0}.{1} / max(tgM{0}, 1e-6) + 0.5", i, comp[c]);
+                    break;
+                case GL_NORMAL_MAP:
+                    value = c < 3 ? std::format("texgenNormal.{}", comp[c]) : std::string("1.0");
+                    break;
+                case GL_REFLECTION_MAP:
+                default:
+                    value = c < 3 ? std::format("tgR{}.{}", i, comp[c]) : std::string("1.0");
+                    break;
+                }
+                vs += std::format("    tgsrc{}.{} = {};\n", i, comp[c], value);
+            }
+            vs += std::format("    texCoord{0} = TexMat{0} * tgsrc{0};\n", i);
+        }
+    }
 
     if (state.fpe_bools.lighting_enable) {
         vs += scratch.has_color_input ? "    vec4 incomingColor = Color;\n"

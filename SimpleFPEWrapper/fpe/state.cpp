@@ -1022,3 +1022,25 @@ DEFINE_MULTITEXCOORD_VECTOR_ALL(d, GLdouble)
 DEFINE_MULTITEXCOORD_VECTOR_ALL(f, GLfloat)
 DEFINE_MULTITEXCOORD_VECTOR_ALL(i, GLint)
 DEFINE_MULTITEXCOORD_VECTOR_ALL(s, GLshort)
+
+// glRect: GL 2.1 defines it as the equivalent Begin/Vertex2/End sequence.
+// Delegating to the public entry points keeps display-list recording and
+// glyph batching semantics identical to the expanded form.
+#define DEFINE_RECT(SUFFIX, TYPE)                                                                                      \
+    void glRect##SUFFIX(TYPE x1, TYPE y1, TYPE x2, TYPE y2) {                                                          \
+        glBegin(GL_QUADS);                                                                                             \
+        glVertex2##SUFFIX(x1, y1);                                                                                     \
+        glVertex2##SUFFIX(x2, y1);                                                                                     \
+        glVertex2##SUFFIX(x2, y2);                                                                                     \
+        glVertex2##SUFFIX(x1, y2);                                                                                     \
+        glEnd();                                                                                                       \
+    }                                                                                                                  \
+    void glRect##SUFFIX##v(const TYPE* v1, const TYPE* v2) {                                                           \
+        if (!v1 || !v2) return;                                                                                        \
+        glRect##SUFFIX(v1[0], v1[1], v2[0], v2[1]);                                                                    \
+    }
+
+DEFINE_RECT(d, GLdouble)
+DEFINE_RECT(f, GLfloat)
+DEFINE_RECT(i, GLint)
+DEFINE_RECT(s, GLshort)

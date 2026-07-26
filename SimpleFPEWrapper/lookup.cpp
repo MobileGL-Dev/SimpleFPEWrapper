@@ -302,6 +302,14 @@ SFPEW_APIENTRY __eglMustCastToProperFunctionPointerType eglGetProcAddress(const 
     if (std::strcmp("glMultiTexCoord4svARB", name) == 0) {
         return (__eglMustCastToProperFunctionPointerType)glMultiTexCoord4sv;
     }
+    GETPROC(glRectd, name)
+    GETPROC(glRectf, name)
+    GETPROC(glRecti, name)
+    GETPROC(glRects, name)
+    GETPROC(glRectdv, name)
+    GETPROC(glRectfv, name)
+    GETPROC(glRectiv, name)
+    GETPROC(glRectsv, name)
     GETPROC(glGenLists, name)
     GETPROC(glDeleteLists, name)
     GETPROC(glIsList, name)

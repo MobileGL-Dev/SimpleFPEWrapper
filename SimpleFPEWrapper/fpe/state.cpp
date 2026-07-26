@@ -201,7 +201,7 @@ void glFogf(GLenum pname, GLfloat param) {
         return;
 
     default:
-        // LOG_D("ERROR: Invalid %s pname: %s", __func__, pname)
+        g_glstate.set_error(GL_INVALID_ENUM);
         break;
     }
 }
@@ -241,7 +241,7 @@ void glFogi(GLenum pname, GLint param) {
         SELF_CALL(glFogf, pname, (GLfloat)param)
         return;
     default:
-        // LOG_D("ERROR: Invalid %s pname: %s", __func__, pname)
+        g_glstate.set_error(GL_INVALID_ENUM);
         break;
     }
 }
@@ -273,7 +273,7 @@ void glFogfv(GLenum pname, const GLfloat* params) {
         break;
     }
     default:
-        // LOG_D("ERROR: Invalid %s pname: %s", __func__, pname)
+        g_glstate.set_error(GL_INVALID_ENUM);
         break;
     }
 }
@@ -307,7 +307,7 @@ void glFogiv(GLenum pname, const GLint* params) {
         SELF_CALL(glFogf, pname, (GLfloat)params[0])
         break;
     default:
-        // LOG_D("ERROR: Invalid %s pname: %s", __func__, pname)
+        g_glstate.set_error(GL_INVALID_ENUM);
         break;
     }
 }
@@ -350,7 +350,7 @@ void glLightf(GLenum light, GLenum pname, GLfloat param) {
         lightref.quadratic_attenuation = param;
         break;
     default:
-        // LOG_D("ERROR: Invalid %s pname: %s", __func__, pname)
+        g_glstate.set_error(GL_INVALID_ENUM);
         break;
     }
 }
@@ -414,7 +414,7 @@ void glLightfv(GLenum light, GLenum pname, const GLfloat* params) {
         break;
     }
     default:
-        // LOG_D("ERROR: Invalid %s pname: %s", __func__, pname);
+        g_glstate.set_error(GL_INVALID_ENUM);
         break;
     }
 }
@@ -456,7 +456,7 @@ void glLightiv(GLenum light, GLenum pname, const GLint* params) {
         break;
     }
     default:
-        // LOG_D("ERROR: Invalid %s pname: %s", __func__, pname)
+        g_glstate.set_error(GL_INVALID_ENUM);
         break;
     }
 }
@@ -474,7 +474,7 @@ void glLightModelf(GLenum pname, GLfloat param) {
     case GL_LIGHT_MODEL_TWO_SIDE:
         SELF_CALL(glLightModeli, pname, (GLint)param)
     default:
-        // LOG_D("ERROR: Invalid %s pname: %s", __func__, pname)
+        g_glstate.set_error(GL_INVALID_ENUM);
         break;
     }
 }
@@ -497,7 +497,7 @@ void glLightModeli(GLenum pname, GLint param) {
         g_glstate.fpe_state.light_model_two_side = param;
         break;
     default:
-        // LOG_D("ERROR: Invalid %s pname: %s", __func__, pname)
+        g_glstate.set_error(GL_INVALID_ENUM);
         break;
     }
 }
@@ -520,7 +520,7 @@ void glLightModelfv(GLenum pname, const GLfloat* params) {
         SELF_CALL(glLightModelf, pname, params[0]);
         break;
     default:
-        // LOG_D("ERROR: Invalid %s pname: %s", __func__, pname)
+        g_glstate.set_error(GL_INVALID_ENUM);
         break;
     }
 }
@@ -546,7 +546,7 @@ void glLightModeliv(GLenum pname, const GLint* params) {
         SELF_CALL(glLightModeli, pname, params[0]);
         break;
     default:
-        // LOG_D("ERROR: Invalid %s pname: %s", __func__, pname)
+        g_glstate.set_error(GL_INVALID_ENUM);
         break;
     }
 }

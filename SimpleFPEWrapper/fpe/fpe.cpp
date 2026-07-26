@@ -13,6 +13,7 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <limits>
 #include <cstring>
+#include <cstdlib>
 #include <vector>
 #include <algorithm>
 
@@ -23,6 +24,20 @@ namespace {
 // get_instance() / current() / current_vertex_data() / cached_context().
 thread_local EGLContext tls_snapshot_context = (EGLContext)(intptr_t)-1;
 thread_local glstate_t* tls_snapshot_state = nullptr;
+
+// SFPEW_RELAXED_CONTEXT=1: the app promises each thread uses at most one
+// EGL context for the process lifetime (true for Minecraft-era launchers).
+// Strict resolves then trust the snapshot after a thread's first resolve,
+// removing the per-entry eglGetCurrentContext - which costs ~425ns per call
+// on glvnd desktops (getpid fork check + dispatch mutex). Default: off,
+// full lazy reconciliation per docs/context-model.md.
+bool sfpew_relaxed_context() {
+    static const bool relaxed = [] {
+        const char* value = getenv("SFPEW_RELAXED_CONTEXT");
+        return value != nullptr && value[0] != '\0' && value[0] != '0';
+    }();
+    return relaxed;
+}
 } // namespace
 
 glstate_t& glstate_t::get_instance() {
@@ -41,6 +56,11 @@ glstate_t& glstate_t::get_instance() {
     static std::unordered_map<void*, std::unique_ptr<glstate_t>> instances;
     static std::mutex instances_mutex;
     static glstate_t no_context_state; // keeps backend-less calls crash-free
+
+    if (sfpew_relaxed_context() && tls_snapshot_state != nullptr &&
+        tls_snapshot_context != EGL_NO_CONTEXT) {
+        return *tls_snapshot_state;
+    }
 
     const EGLContext context =
         g_eglFuncs.eglGetCurrentContext ? g_eglFuncs.eglGetCurrentContext() : EGL_NO_CONTEXT;

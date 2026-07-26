@@ -117,3 +117,12 @@ thread's shadows are thread-local.
    evaluator entries (glMap*, glEvalCoord*, glEvalPoint*, glEvalMesh*)
    are pin-exempt: they anchor strictly at entry so the evaluator cache
    and the vertex sink always agree on one context.
+5. **`SFPEW_RELAXED_CONTEXT=1` (opt-in).** The app promises each thread
+   uses at most one EGL context for the process lifetime (true for
+   Minecraft-era launchers). Strict resolves then trust the snapshot after
+   a thread's first successful resolve and skip `eglGetCurrentContext()`
+   entirely — on glvnd desktops that call costs ~425ns (getpid fork check
+   plus a dispatch mutex), which otherwise dominates high-frequency
+   entries (matrix ops ~450ns → ~25ns/call, getters ~430ns → ~8ns).
+   With the promise violated, context switches go unobserved and state
+   lands on the wrong context. Default: off.

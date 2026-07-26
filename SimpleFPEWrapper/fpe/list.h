@@ -9,6 +9,8 @@
 #pragma once
 
 #include <GL/gl.h>
+#include <glm/mat4x4.hpp>
+#include <glm/vec3.hpp>
 #include <unordered_map>
 
 #include <vector>
@@ -34,6 +36,8 @@ public:
     virtual void execute() const = 0;
     virtual bool tryMerge(const GLCmd&) { return false; }
     virtual bool isCapturedDraw() const { return false; }
+    virtual bool bakePositionTranslation(const glm::vec3&) { return false; }
+    virtual const GLCmd* capturedDrawForBatch(glm::mat4*) const { return nullptr; }
 
     GLCmd(const GLCmd&) = delete;
     GLCmd& operator=(const GLCmd&) = delete;
@@ -164,11 +168,18 @@ public:
         }
         --callingDepth;
     }
+
+    static const DisplayList* findList(GLuint listID) {
+        const auto it = lists.find(listID);
+        return it == lists.end() ? nullptr : &it->second;
+    }
 };
 
 inline DisplayListManager displayListManager;
 
 inline GLboolean disableRecording = GL_FALSE;
+
+bool tryExecuteCapturedDisplayLists(const std::vector<GLuint>& listIds);
 
 #define SELF_CALL(func, ...)                                                                                           \
     {                                                                                                                  \

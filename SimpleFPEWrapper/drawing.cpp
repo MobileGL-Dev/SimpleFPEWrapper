@@ -356,6 +356,39 @@ public:
 
     bool isValid() const { return valid; }
     bool isCapturedDraw() const override { return true; }
+    bool bakePositionTranslation(const glm::vec3& translation) override {
+        if (!valid || arenaAllocation.buffer != 0 || vertexBuffer != 0 || vertexBufferUploaded) {
+            return false;
+        }
+
+        const int positionIndex = vp2idx(GL_VERTEX_ARRAY);
+        if (((layout.enabled_pointers >> positionIndex) & 1u) == 0) {
+            return false;
+        }
+
+        const auto& position = layout.attributes[positionIndex];
+        if (position.type != GL_FLOAT || position.size < 3 || layout.stride <= 0 ||
+            packedOffsets[positionIndex] + sizeof(GLfloat) * 3u >
+                static_cast<size_t>(layout.stride)) {
+            return false;
+        }
+
+        for (GLsizei vertex = 0; vertex < count; ++vertex) {
+            auto* components = reinterpret_cast<GLfloat*>(
+                vertexData.data() + static_cast<size_t>(vertex) * layout.stride +
+                packedOffsets[positionIndex]);
+            components[0] += translation.x;
+            components[1] += translation.y;
+            components[2] += translation.z;
+        }
+        return true;
+    }
+
+    const GLCmd* capturedDrawForBatch(glm::mat4* transform) const override {
+        if (transform != nullptr) *transform = glm::mat4(1.0f);
+        return this;
+    }
+
     bool tryMerge(const GLCmd& nextCommand) override {
         // A GLFuncCmd between two captured draws prevents this path. With no
         // intervening command, identical array layouts can share one packed
@@ -621,6 +654,8 @@ private:
     mutable display_list_vertex_allocation_t arenaAllocation{};
     mutable GLuint vertexBuffer = 0;
     mutable bool vertexBufferUploaded = false;
+
+    friend bool ::tryExecuteCapturedDisplayLists(const std::vector<GLuint>& listIds);
 };
 
 void drawArraysNow(GLenum mode, GLint first, GLsizei count, bool forceFixedFunction,
@@ -678,6 +713,125 @@ void drawArraysNow(GLenum mode, GLint first, GLsizei count, bool forceFixedFunct
 }
 
 } // namespace
+
+bool tryExecuteCapturedDisplayLists(const std::vector<GLuint>& listIds) {
+    if (listIds.size() < 2 || g_glFuncs.glMultiDrawArrays == nullptr ||
+        g_glstate.fpe_uniform.transformation.matrix_mode != GL_MODELVIEW) {
+        return false;
+    }
+
+    const captured_draw_arrays_cmd_t* prototype = nullptr;
+    glm::mat4 commonLinear(1.0f);
+    GLuint commonBuffer = 0;
+
+    thread_local std::vector<GLint> firsts;
+    thread_local std::vector<GLsizei> counts;
+    thread_local std::vector<const void*> indexPointers;
+    firsts.clear();
+    counts.clear();
+    firsts.reserve(listIds.size());
+    counts.reserve(listIds.size());
+
+    const auto compatible = [](const captured_draw_arrays_cmd_t& left,
+                               const captured_draw_arrays_cmd_t& right) {
+        if (!left.valid || !right.valid || left.mode != right.mode ||
+            left.clientActiveTexture != right.clientActiveTexture ||
+            left.layout.enabled_pointers != right.layout.enabled_pointers ||
+            left.layout.stride != right.layout.stride ||
+            left.packedOffsets != right.packedOffsets) {
+            return false;
+        }
+        for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
+            if (((left.layout.enabled_pointers >> i) & 1u) == 0) continue;
+            const auto& lhs = left.layout.attributes[i];
+            const auto& rhs = right.layout.attributes[i];
+            if (lhs.size != rhs.size || lhs.usage != rhs.usage || lhs.type != rhs.type ||
+                lhs.normalized != rhs.normalized || lhs.stride != rhs.stride ||
+                lhs.pointer != rhs.pointer) {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    for (const GLuint listId : listIds) {
+        const DisplayList* list = DisplayListManager::findList(listId);
+        if (list == nullptr || list->size() != 1) return false;
+
+        glm::mat4 linear(1.0f);
+        const GLCmd* batchCommand = list->front()->capturedDrawForBatch(&linear);
+        const auto* draw = dynamic_cast<const captured_draw_arrays_cmd_t*>(batchCommand);
+        if (draw == nullptr) return false;
+
+        if (prototype == nullptr) {
+            prototype = draw;
+            commonLinear = linear;
+        } else if (std::memcmp(&commonLinear, &linear, sizeof(commonLinear)) != 0 ||
+                   !compatible(*prototype, *draw)) {
+            return false;
+        }
+
+        GLuint buffer = 0;
+        GLint first = 0;
+        if (!draw->bindStaticVertexBuffer(&buffer, &first) || buffer == 0) return false;
+        if (commonBuffer == 0)
+            commonBuffer = buffer;
+        else if (commonBuffer != buffer)
+            return false;
+
+        firsts.push_back(first);
+        counts.push_back(draw->count);
+    }
+
+    if (prototype == nullptr || commonBuffer == 0) return false;
+    if (prototype->mode == GL_QUADS && g_glFuncs.glMultiDrawElementsBaseVertex == nullptr) {
+        return false;
+    }
+
+    wrapper_client_state_guard_t wrapperState;
+    auto& modelView = g_glstate.fpe_uniform.transformation.matrices[matrix_idx(GL_MODELVIEW)];
+    const glm::mat4 savedModelView = modelView;
+    modelView *= commonLinear;
+
+    auto replayState = prototype->layout;
+    replayState.starting_pointer = nullptr;
+    replayState.dirty = true;
+    replayState.buffer_based = true;
+    for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
+        if (((replayState.enabled_pointers >> i) & 1u) == 0) continue;
+        replayState.attributes[i].pointer =
+            reinterpret_cast<const void*>(prototype->packedOffsets[i]);
+    }
+    g_glstate.fpe_state.vertexpointer_array = replayState;
+    g_glstate.fpe_state.normalized_vpa.reset();
+    g_glstate.fpe_state.client_active_texture = prototype->clientActiveTexture;
+
+    g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, commonBuffer);
+    GLenum mode = prototype->mode;
+    GLint firstForCommit = firsts.front();
+    const GLsizei maxVertexCount = *std::max_element(counts.begin(), counts.end());
+    GLsizei countForCommit = maxVertexCount;
+    const int drawElements =
+        commit_fpe_state_on_draw(&mode, &firstForCommit, &countForCommit,
+                                 static_cast<GLint>(commonBuffer));
+
+    bool executed = false;
+    if (drawElements == 0 && prototype->mode != GL_QUADS) {
+        g_glFuncs.glMultiDrawArrays(mode, firsts.data(), counts.data(),
+                                    static_cast<GLsizei>(counts.size()));
+        executed = true;
+    } else if (drawElements > 0 && prototype->mode == GL_QUADS) {
+        for (auto& count : counts) count = (count / 4) * 6;
+        indexPointers.assign(counts.size(), nullptr);
+        g_glFuncs.glMultiDrawElementsBaseVertex(
+            mode, counts.data(), quad_index_type(), indexPointers.data(),
+            static_cast<GLsizei>(counts.size()), firsts.data());
+        executed = true;
+    }
+
+    modelView = savedModelView;
+    return executed;
+}
 
 void glDrawArrays(GLenum mode, GLint first, GLsizei count) {
     flushPendingImmediateDraws();

@@ -74,7 +74,9 @@ void glCallLists(GLsizei n, GLenum type, const GLvoid* lists) {
         displayListManager.record<glCallLists>({{2, n * PointerUtils::type_to_bytes(type)}}, n, type, lists);
         if (DisplayListManager::shouldFinish()) return;
     }
-    fpe_backend_draw_state_guard_t backendState;
+    thread_local std::vector<GLuint> decodedListIds;
+    decodedListIds.clear();
+    if (n > 0) decodedListIds.reserve(static_cast<size_t>(n));
     const auto* ptr = static_cast<const uint8_t*>(lists);
     for (int i = 0; i < n; ++i) {
         GLuint offset = 0;
@@ -130,8 +132,12 @@ void glCallLists(GLsizei n, GLenum type, const GLvoid* lists) {
             // LOG_W("ERROR: Failed to handle lists and type!")
             break;
         }
-        DisplayListManager::callList(currentListBase + offset);
+        decodedListIds.push_back(currentListBase + offset);
     }
+
+    fpe_backend_draw_state_guard_t backendState;
+    if (tryExecuteCapturedDisplayLists(decodedListIds)) return;
+    for (const GLuint listId : decodedListIds) DisplayListManager::callList(listId);
 }
 
 void glListBase(GLuint base) {

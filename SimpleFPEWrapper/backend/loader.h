@@ -401,6 +401,10 @@ namespace SFPEW {
             GL_FUNC_TYPEDEF(void, glDrawArraysInstanced, GLenum mode, GLint first, GLsizei count, GLsizei instancecount)
             GL_FUNC_TYPEDEF(void, glDrawElementsInstanced, GLenum mode, GLsizei count, GLenum type, const void* indices,
                             GLsizei instancecount)
+            GL_FUNC_TYPEDEF(void, glMultiDrawArrays, GLenum mode, const GLint* first, const GLsizei* count,
+                            GLsizei drawcount)
+            GL_FUNC_TYPEDEF(void, glMultiDrawElementsBaseVertex, GLenum mode, const GLsizei* count, GLenum type,
+                            const void* const* indices, GLsizei drawcount, const GLint* basevertex)
             GL_FUNC_TYPEDEF(GLsync, glFenceSync, GLenum condition, GLbitfield flags)
             GL_FUNC_TYPEDEF(GLboolean, glIsSync, GLsync sync)
             GL_FUNC_TYPEDEF(void, glDeleteSync, GLsync sync)
@@ -837,6 +841,8 @@ namespace SFPEW {
             GL_FUNC_DECL(glUniformBlockBinding)
             GL_FUNC_DECL(glDrawArraysInstanced)
             GL_FUNC_DECL(glDrawElementsInstanced)
+            GL_FUNC_DECL(glMultiDrawArrays)
+            GL_FUNC_DECL(glMultiDrawElementsBaseVertex)
             GL_FUNC_DECL(glFenceSync)
             GL_FUNC_DECL(glIsSync)
             GL_FUNC_DECL(glDeleteSync)

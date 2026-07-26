@@ -146,6 +146,162 @@ SFPEW_APIENTRY __eglMustCastToProperFunctionPointerType eglGetProcAddress(const 
     if (std::strcmp("glMultiTexCoord2fARB", name) == 0) {
         return (__eglMustCastToProperFunctionPointerType)glMultiTexCoord2f;
     }
+    GETPROC(glTexCoord1d, name)
+    GETPROC(glTexCoord1f, name)
+    GETPROC(glTexCoord1i, name)
+    GETPROC(glTexCoord1s, name)
+    GETPROC(glTexCoord2d, name)
+    GETPROC(glTexCoord2i, name)
+    GETPROC(glTexCoord2s, name)
+    GETPROC(glTexCoord3d, name)
+    GETPROC(glTexCoord3f, name)
+    GETPROC(glTexCoord3i, name)
+    GETPROC(glTexCoord3s, name)
+    GETPROC(glTexCoord4d, name)
+    GETPROC(glTexCoord4i, name)
+    GETPROC(glTexCoord4s, name)
+    GETPROC(glTexCoord1dv, name)
+    GETPROC(glTexCoord1fv, name)
+    GETPROC(glTexCoord1iv, name)
+    GETPROC(glTexCoord1sv, name)
+    GETPROC(glTexCoord2dv, name)
+    GETPROC(glTexCoord2fv, name)
+    GETPROC(glTexCoord2iv, name)
+    GETPROC(glTexCoord2sv, name)
+    GETPROC(glTexCoord3dv, name)
+    GETPROC(glTexCoord3fv, name)
+    GETPROC(glTexCoord3iv, name)
+    GETPROC(glTexCoord3sv, name)
+    GETPROC(glTexCoord4dv, name)
+    GETPROC(glTexCoord4fv, name)
+    GETPROC(glTexCoord4iv, name)
+    GETPROC(glTexCoord4sv, name)
+    GETPROC(glMultiTexCoord1d, name)
+    if (std::strcmp("glMultiTexCoord1dARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glMultiTexCoord1d;
+    }
+    GETPROC(glMultiTexCoord1f, name)
+    if (std::strcmp("glMultiTexCoord1fARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glMultiTexCoord1f;
+    }
+    GETPROC(glMultiTexCoord1i, name)
+    if (std::strcmp("glMultiTexCoord1iARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glMultiTexCoord1i;
+    }
+    GETPROC(glMultiTexCoord1s, name)
+    if (std::strcmp("glMultiTexCoord1sARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glMultiTexCoord1s;
+    }
+    GETPROC(glMultiTexCoord2d, name)
+    if (std::strcmp("glMultiTexCoord2dARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glMultiTexCoord2d;
+    }
+    if (std::strcmp("glMultiTexCoord2fARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glMultiTexCoord2f;
+    }
+    GETPROC(glMultiTexCoord2i, name)
+    if (std::strcmp("glMultiTexCoord2iARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glMultiTexCoord2i;
+    }
+    GETPROC(glMultiTexCoord2s, name)
+    if (std::strcmp("glMultiTexCoord2sARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glMultiTexCoord2s;
+    }
+    GETPROC(glMultiTexCoord3d, name)
+    if (std::strcmp("glMultiTexCoord3dARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glMultiTexCoord3d;
+    }
+    GETPROC(glMultiTexCoord3f, name)
+    if (std::strcmp("glMultiTexCoord3fARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glMultiTexCoord3f;
+    }
+    GETPROC(glMultiTexCoord3i, name)
+    if (std::strcmp("glMultiTexCoord3iARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glMultiTexCoord3i;
+    }
+    GETPROC(glMultiTexCoord3s, name)
+    if (std::strcmp("glMultiTexCoord3sARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glMultiTexCoord3s;
+    }
+    GETPROC(glMultiTexCoord4d, name)
+    if (std::strcmp("glMultiTexCoord4dARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glMultiTexCoord4d;
+    }
+    if (std::strcmp("glMultiTexCoord4fARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glMultiTexCoord4f;
+    }
+    GETPROC(glMultiTexCoord4i, name)
+    if (std::strcmp("glMultiTexCoord4iARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glMultiTexCoord4i;
+    }
+    GETPROC(glMultiTexCoord4s, name)
+    if (std::strcmp("glMultiTexCoord4sARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glMultiTexCoord4s;
+    }
+    GETPROC(glMultiTexCoord1dv, name)
+    if (std::strcmp("glMultiTexCoord1dvARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glMultiTexCoord1dv;
+    }
+    GETPROC(glMultiTexCoord1fv, name)
+    if (std::strcmp("glMultiTexCoord1fvARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glMultiTexCoord1fv;
+    }
+    GETPROC(glMultiTexCoord1iv, name)
+    if (std::strcmp("glMultiTexCoord1ivARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glMultiTexCoord1iv;
+    }
+    GETPROC(glMultiTexCoord1sv, name)
+    if (std::strcmp("glMultiTexCoord1svARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glMultiTexCoord1sv;
+    }
+    GETPROC(glMultiTexCoord2dv, name)
+    if (std::strcmp("glMultiTexCoord2dvARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glMultiTexCoord2dv;
+    }
+    GETPROC(glMultiTexCoord2fv, name)
+    if (std::strcmp("glMultiTexCoord2fvARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glMultiTexCoord2fv;
+    }
+    GETPROC(glMultiTexCoord2iv, name)
+    if (std::strcmp("glMultiTexCoord2ivARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glMultiTexCoord2iv;
+    }
+    GETPROC(glMultiTexCoord2sv, name)
+    if (std::strcmp("glMultiTexCoord2svARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glMultiTexCoord2sv;
+    }
+    GETPROC(glMultiTexCoord3dv, name)
+    if (std::strcmp("glMultiTexCoord3dvARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glMultiTexCoord3dv;
+    }
+    GETPROC(glMultiTexCoord3fv, name)
+    if (std::strcmp("glMultiTexCoord3fvARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glMultiTexCoord3fv;
+    }
+    GETPROC(glMultiTexCoord3iv, name)
+    if (std::strcmp("glMultiTexCoord3ivARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glMultiTexCoord3iv;
+    }
+    GETPROC(glMultiTexCoord3sv, name)
+    if (std::strcmp("glMultiTexCoord3svARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glMultiTexCoord3sv;
+    }
+    GETPROC(glMultiTexCoord4dv, name)
+    if (std::strcmp("glMultiTexCoord4dvARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glMultiTexCoord4dv;
+    }
+    GETPROC(glMultiTexCoord4fv, name)
+    if (std::strcmp("glMultiTexCoord4fvARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glMultiTexCoord4fv;
+    }
+    GETPROC(glMultiTexCoord4iv, name)
+    if (std::strcmp("glMultiTexCoord4ivARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glMultiTexCoord4iv;
+    }
+    GETPROC(glMultiTexCoord4sv, name)
+    if (std::strcmp("glMultiTexCoord4svARB", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glMultiTexCoord4sv;
+    }
     GETPROC(glGenLists, name)
     GETPROC(glDeleteLists, name)
     GETPROC(glIsList, name)

@@ -915,3 +915,110 @@ DEFINE_COLOR4_VECTOR(us, GLushort)
 #undef DEFINE_COLOR3_VECTOR
 #undef DEFINE_COLOR4_SCALAR
 #undef DEFINE_COLOR3_SCALAR
+
+// Complete the glTexCoord/glMultiTexCoord families the same way as the
+// Vertex/Normal/Color families above: one float-backed draw state behind
+// desktop aliases. Per the GL spec texture coordinates are converted
+// directly (NOT normalized) for integer variants, so the raw cast inside
+// mglTexCoord is the correct conversion.
+
+#define DEFINE_TEXCOORD(N, SUFFIX, TYPE, PARAMS, ARGS)                                                                 \
+    void glTexCoord##N##SUFFIX PARAMS {                                                                                \
+        LIST_RECORD(glTexCoord##N##SUFFIX, {}, ARGS_LIST ARGS)                                                         \
+        mglTexCoord<TYPE, N>({ARGS_LIST ARGS}, 0);                                                                     \
+    }
+
+#define ARGS_LIST(...) __VA_ARGS__
+
+#define DEFINE_TEXCOORD_ALL(SUFFIX, TYPE)                                                                              \
+    DEFINE_TEXCOORD(1, SUFFIX, TYPE, (TYPE s), (s))                                                                    \
+    DEFINE_TEXCOORD(2, SUFFIX, TYPE, (TYPE s, TYPE t), (s, t))                                                         \
+    DEFINE_TEXCOORD(3, SUFFIX, TYPE, (TYPE s, TYPE t, TYPE r), (s, t, r))                                              \
+    DEFINE_TEXCOORD(4, SUFFIX, TYPE, (TYPE s, TYPE t, TYPE r, TYPE q), (s, t, r, q))
+
+DEFINE_TEXCOORD_ALL(d, GLdouble)
+DEFINE_TEXCOORD_ALL(i, GLint)
+DEFINE_TEXCOORD_ALL(s, GLshort)
+DEFINE_TEXCOORD(1, f, GLfloat, (GLfloat s), (s))
+DEFINE_TEXCOORD(3, f, GLfloat, (GLfloat s, GLfloat t, GLfloat r), (s, t, r))
+// 2f/4f live in drawing1x.cpp since the original implementation.
+
+#define DEFINE_TEXCOORD_VECTOR(N, SUFFIX, TYPE)                                                                        \
+    void glTexCoord##N##SUFFIX##v(const TYPE* v) {                                                                     \
+        if (!v) return;                                                                                                \
+        LIST_RECORD(glTexCoord##N##SUFFIX##v, {{0, sizeof(TYPE) * N}}, v)                                              \
+        if constexpr (N == 1)                                                                                          \
+            mglTexCoord<TYPE, 1>({v[0]}, 0);                                                                           \
+        else if constexpr (N == 2)                                                                                     \
+            mglTexCoord<TYPE, 2>({v[0], v[1]}, 0);                                                                     \
+        else if constexpr (N == 3)                                                                                     \
+            mglTexCoord<TYPE, 3>({v[0], v[1], v[2]}, 0);                                                               \
+        else                                                                                                           \
+            mglTexCoord<TYPE, 4>({v[0], v[1], v[2], v[3]}, 0);                                                         \
+    }
+
+#define DEFINE_TEXCOORD_VECTOR_ALL(SUFFIX, TYPE)                                                                       \
+    DEFINE_TEXCOORD_VECTOR(1, SUFFIX, TYPE)                                                                            \
+    DEFINE_TEXCOORD_VECTOR(2, SUFFIX, TYPE)                                                                            \
+    DEFINE_TEXCOORD_VECTOR(3, SUFFIX, TYPE)                                                                            \
+    DEFINE_TEXCOORD_VECTOR(4, SUFFIX, TYPE)
+
+DEFINE_TEXCOORD_VECTOR_ALL(d, GLdouble)
+DEFINE_TEXCOORD_VECTOR_ALL(f, GLfloat)
+DEFINE_TEXCOORD_VECTOR_ALL(i, GLint)
+DEFINE_TEXCOORD_VECTOR_ALL(s, GLshort)
+
+// MultiTexCoord: validate the unit before recording (invalid enums are not
+// compiled into display lists) and before indexing texcoord[MAX_TEX].
+#define DEFINE_MULTITEXCOORD(N, SUFFIX, TYPE, PARAMS, ARGS)                                                            \
+    void glMultiTexCoord##N##SUFFIX PARAMS {                                                                           \
+        if (target < GL_TEXTURE0 || target - GL_TEXTURE0 >= MAX_TEX) {                                                 \
+            g_glstate.set_error(GL_INVALID_ENUM);                                                                      \
+            return;                                                                                                    \
+        }                                                                                                              \
+        LIST_RECORD(glMultiTexCoord##N##SUFFIX, {}, target, ARGS_LIST ARGS)                                            \
+        mglTexCoord<TYPE, N>({ARGS_LIST ARGS}, (GLint)(target - GL_TEXTURE0));                                         \
+    }
+
+#define DEFINE_MULTITEXCOORD_ALL(SUFFIX, TYPE)                                                                         \
+    DEFINE_MULTITEXCOORD(1, SUFFIX, TYPE, (GLenum target, TYPE s), (s))                                                \
+    DEFINE_MULTITEXCOORD(2, SUFFIX, TYPE, (GLenum target, TYPE s, TYPE t), (s, t))                                     \
+    DEFINE_MULTITEXCOORD(3, SUFFIX, TYPE, (GLenum target, TYPE s, TYPE t, TYPE r), (s, t, r))                          \
+    DEFINE_MULTITEXCOORD(4, SUFFIX, TYPE, (GLenum target, TYPE s, TYPE t, TYPE r, TYPE q), (s, t, r, q))
+
+DEFINE_MULTITEXCOORD_ALL(d, GLdouble)
+DEFINE_MULTITEXCOORD_ALL(i, GLint)
+DEFINE_MULTITEXCOORD_ALL(s, GLshort)
+DEFINE_MULTITEXCOORD(1, f, GLfloat, (GLenum target, GLfloat s), (s))
+DEFINE_MULTITEXCOORD(3, f, GLfloat, (GLenum target, GLfloat s, GLfloat t, GLfloat r), (s, t, r))
+// 2f/4f live in drawing1x.cpp since the original implementation.
+
+#define DEFINE_MULTITEXCOORD_VECTOR(N, SUFFIX, TYPE)                                                                   \
+    void glMultiTexCoord##N##SUFFIX##v(GLenum target, const TYPE* v) {                                                 \
+        if (target < GL_TEXTURE0 || target - GL_TEXTURE0 >= MAX_TEX) {                                                 \
+            g_glstate.set_error(GL_INVALID_ENUM);                                                                      \
+            return;                                                                                                    \
+        }                                                                                                              \
+        if (!v) return;                                                                                                \
+        LIST_RECORD(glMultiTexCoord##N##SUFFIX##v, {{1, sizeof(TYPE) * N}}, target, v)                                 \
+        const GLint unit = (GLint)(target - GL_TEXTURE0);                                                              \
+        if constexpr (N == 1)                                                                                          \
+            mglTexCoord<TYPE, 1>({v[0]}, unit);                                                                        \
+        else if constexpr (N == 2)                                                                                     \
+            mglTexCoord<TYPE, 2>({v[0], v[1]}, unit);                                                                  \
+        else if constexpr (N == 3)                                                                                     \
+            mglTexCoord<TYPE, 3>({v[0], v[1], v[2]}, unit);                                                            \
+        else                                                                                                           \
+            mglTexCoord<TYPE, 4>({v[0], v[1], v[2], v[3]}, unit);                                                      \
+    }
+
+#define DEFINE_MULTITEXCOORD_VECTOR_ALL(SUFFIX, TYPE)                                                                  \
+    DEFINE_MULTITEXCOORD_VECTOR(1, SUFFIX, TYPE)                                                                       \
+    DEFINE_MULTITEXCOORD_VECTOR(2, SUFFIX, TYPE)                                                                       \
+    DEFINE_MULTITEXCOORD_VECTOR(3, SUFFIX, TYPE)                                                                       \
+    DEFINE_MULTITEXCOORD_VECTOR(4, SUFFIX, TYPE)
+
+DEFINE_MULTITEXCOORD_VECTOR_ALL(d, GLdouble)
+DEFINE_MULTITEXCOORD_VECTOR_ALL(f, GLfloat)
+DEFINE_MULTITEXCOORD_VECTOR_ALL(i, GLint)
+DEFINE_MULTITEXCOORD_VECTOR_ALL(s, GLshort)

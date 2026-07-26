@@ -125,12 +125,18 @@ static int resolve_all(void) {
     return 1;
 }
 
-static char* section_body(char* text, const char* name) {
+// Returns the nth (0-based) section of that name; NULL when absent.
+// shader_test files may repeat [vertex shader]/[fragment shader]: each
+// repetition is a separate GL 2.1 compilation unit of that stage.
+static char* section_body_n(char* text, const char* name, int nth) {
     char header[64];
     snprintf(header, sizeof(header), "[%s]", name);
-    char* start = strstr(text, header);
-    if (!start) return NULL;
-    start += strlen(header);
+    char* start = text;
+    for (int i = 0; i <= nth; ++i) {
+        start = strstr(start, header);
+        if (!start) return NULL;
+        start += strlen(header);
+    }
     while (*start == '\n' || *start == '\r') ++start;
     char* end = start;
     while ((end = strchr(end, '\n')) != NULL) {
@@ -142,6 +148,10 @@ static char* section_body(char* text, const char* name) {
     memcpy(out, start, len);
     out[len] = '\0';
     return out;
+}
+
+static char* section_body(char* text, const char* name) {
+    return section_body_n(text, name, 0);
 }
 
 static GLuint compile_stage(GLenum stage, const char* src, const char* tag) {
@@ -340,15 +350,25 @@ int main(int argc, char** argv) {
         return 77;
     }
 
-    char* vs_src = section_body(text, "vertex shader");
-    char* fs_src = section_body(text, "fragment shader");
-    if (!fs_src) return 1;
-    const GLuint vs = compile_stage(0x8B31, vs_src ? vs_src : kDefaultVS, "vertex");
-    const GLuint fs = compile_stage(0x8B30, fs_src, "fragment");
-    if (!vs || !fs) return 1;
+    if (!section_body(text, "fragment shader")) return 1;
     g_program = pCreateProgram();
-    pAttachShader(g_program, vs);
-    pAttachShader(g_program, fs);
+    if (!section_body(text, "vertex shader")) {
+        const GLuint vs = compile_stage(0x8B31, kDefaultVS, "vertex");
+        if (!vs) return 1;
+        pAttachShader(g_program, vs);
+    }
+    for (int stage = 0; stage < 2; ++stage) {
+        const char* name = stage == 0 ? "vertex shader" : "fragment shader";
+        for (int nth = 0;; ++nth) {
+            char* src = section_body_n(text, name, nth);
+            if (!src) break;
+            const GLuint sh =
+                compile_stage(stage == 0 ? 0x8B31 : 0x8B30, src, stage == 0 ? "vertex" : "fragment");
+            if (!sh) return 1;
+            pAttachShader(g_program, sh);
+            free(src);
+        }
+    }
     pLinkProgram(g_program);
     GLint linked = 0;
     pGetProgramiv(g_program, 0x8B82 /* LINK_STATUS */, &linked);

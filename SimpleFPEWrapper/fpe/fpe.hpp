@@ -33,9 +33,17 @@ struct fpe_backend_draw_state_guard_t {
     GLint vertex_array = 0;
     GLint array_buffer = 0;
     GLint element_array_buffer = 0;
+    // Without a backend (no context yet / loader failure) the guard must be
+    // inert: display-list replay reaches this even backend-less.
+    bool active = false;
 
     explicit fpe_backend_draw_state_guard_t(GLint known_program = -1,
                                             GLint known_array_buffer = -1) {
+        if (g_glFuncs.glGetIntegerv == nullptr || g_glFuncs.glUseProgram == nullptr ||
+            g_glFuncs.glBindVertexArray == nullptr || g_glFuncs.glBindBuffer == nullptr) {
+            return;
+        }
+        active = true;
         if (known_program >= 0)
             program = known_program;
         else
@@ -49,6 +57,7 @@ struct fpe_backend_draw_state_guard_t {
     }
 
     ~fpe_backend_draw_state_guard_t() {
+        if (!active) return;
         g_glFuncs.glUseProgram(program);
         g_glFuncs.glBindVertexArray(vertex_array);
         g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, element_array_buffer);

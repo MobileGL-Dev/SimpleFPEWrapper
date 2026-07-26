@@ -37,6 +37,7 @@ GLuint getLogicalArrayBufferBinding() {
     auto& state = getLogicalArrayBufferState();
     if (state.known) return state.binding;
 
+    if (!sfpewEnsureBackend() || g_glFuncs.glGetIntegerv == nullptr) return 0;
     GLint binding = 0;
     g_glFuncs.glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &binding);
     state.binding = static_cast<GLuint>(binding);

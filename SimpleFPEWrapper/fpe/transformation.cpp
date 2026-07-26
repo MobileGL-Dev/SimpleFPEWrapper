@@ -17,6 +17,7 @@
 #include <glm/ext/matrix_relational.hpp>
 #include <glm/ext/matrix_transform.hpp>
 #include <glm/ext/matrix_float4x4.hpp>
+#include <glm/gtc/matrix_inverse.hpp>
 #include <glm/ext/vector_relational.hpp>
 #include <glm/ext/vector_float4.hpp>
 #include <glm/ext/vector_float3.hpp>
@@ -117,6 +118,35 @@ private:
     std::unique_ptr<GLCmd> draw;
 };
 
+class linear_matrix_draw_cmd_t final : public GLCmd {
+public:
+    linear_matrix_draw_cmd_t(const glm::mat4& linearTransform, std::unique_ptr<GLCmd> draw)
+        : linearTransform(linearTransform), draw(std::move(draw)) {}
+
+    void execute() const override {
+        flushPendingImmediateDraws();
+        auto& matrix = current_matrix(g_glstate.fpe_uniform.transformation);
+        const glm::mat4 saved = matrix;
+        matrix *= linearTransform;
+        draw->execute();
+        matrix = saved;
+    }
+
+    bool isCapturedDraw() const override { return draw->isCapturedDraw(); }
+
+    const GLCmd* capturedDrawForBatch(glm::mat4* transform) const override {
+        glm::mat4 ignored(1.0f);
+        const GLCmd* captured = draw->capturedDrawForBatch(&ignored);
+        if (captured == nullptr) return nullptr;
+        if (transform != nullptr) *transform = linearTransform;
+        return captured;
+    }
+
+private:
+    glm::mat4 linearTransform;
+    std::unique_ptr<GLCmd> draw;
+};
+
 bool recordMatrixTransform(matrix_transform_kind_t kind, const glm::vec3& value) {
     if (disableRecording || !DisplayListManager::shouldRecord()) return false;
     displayListManager.recordCommand(std::make_unique<matrix_transform_cmd_t>(kind, value));
@@ -139,6 +169,34 @@ void optimizeDisplayListCommands(DisplayList& commands) {
         return;
     }
     if (!commands[2]->isCapturedDraw()) return;
+
+    // A chunk list in Minecraft 1.5.2 is normally
+    // PushMatrix; Translate; Scale; Translate; Draw; PopMatrix. Factor its
+    // affine transform A = L * T into a per-list translation baked into the
+    // immutable vertices and a common linear part L kept in the model-view
+    // matrix. This preserves fixed-pipeline normal transformation while
+    // allowing glCallLists to submit many chunks through one MultiDraw call.
+    glm::mat4 affine(1.0f);
+    transform->apply(affine);
+    glm::mat4 linear = affine;
+    linear[3] = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+    const glm::mat3 linear3(linear);
+    const float determinant = glm::determinant(linear3);
+    if (determinant != 0.0f) {
+        const glm::vec3 translation = glm::inverse(linear3) * glm::vec3(affine[3]);
+        if (commands[2]->bakePositionTranslation(translation)) {
+            auto draw = std::move(commands[2]);
+            commands.clear();
+            const glm::mat4 identity(1.0f);
+            if (glm::all(glm::equal(linear, identity))) {
+                commands.emplace_back(std::move(draw));
+            } else {
+                commands.emplace_back(
+                    std::make_unique<linear_matrix_draw_cmd_t>(linear, std::move(draw)));
+            }
+            return;
+        }
+    }
 
     auto ownedTransform = std::unique_ptr<matrix_transform_cmd_t>(
         static_cast<matrix_transform_cmd_t*>(commands[1].release()));

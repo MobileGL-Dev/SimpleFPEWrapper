@@ -268,6 +268,8 @@ namespace SFPEW::Utils::BackendLoader {
             INIT_BACKENDGL_FUNC(glUniformBlockBinding)
             INIT_BACKENDGL_FUNC(glDrawArraysInstanced)
             INIT_BACKENDGL_FUNC(glDrawElementsInstanced)
+            INIT_BACKENDGL_FUNC(glMultiDrawArrays)
+            INIT_BACKENDGL_FUNC(glMultiDrawElementsBaseVertex)
             INIT_BACKENDGL_FUNC(glFenceSync)
             INIT_BACKENDGL_FUNC(glIsSync)
             INIT_BACKENDGL_FUNC(glDeleteSync)

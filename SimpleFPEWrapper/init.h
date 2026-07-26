@@ -31,6 +31,9 @@ bool sfpewUnpackPboBound();
 bool sfpewPackPboBound();
 void sfpewSetGenerateMipmap(GLenum target, GLuint texture, bool enable);
 void sfpewMaybeGenerateMipmap(GLenum target);
+void sfpewRememberTextureSize(GLuint texture, GLsizei width, GLsizei height);
+SFPEW_APIENTRY void glGetTexImage(GLenum target, GLint level, GLenum format, GLenum type, GLvoid* pixels);
+SFPEW_APIENTRY void glReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, GLvoid* pixels);
 
 SFPEW_APIENTRY GLenum glGetError();
 SFPEW_APIENTRY GLuint glCreateShader(GLenum type);

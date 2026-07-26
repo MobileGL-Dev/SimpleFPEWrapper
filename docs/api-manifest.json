@@ -1,6 +1,6 @@
 {
  "source": "lookup.cpp",
- "count": 415,
+ "count": 416,
  "entries": {
   "glAccum": {
    "status": "resolvable",
@@ -545,6 +545,10 @@
   "glGetTexGeniv": {
    "status": "resolvable",
    "target": "glGetTexGeniv"
+  },
+  "glGetTexImage": {
+   "status": "resolvable",
+   "target": "glGetTexImage"
   },
   "glGetTexLevelParameterfv": {
    "status": "resolvable",

@@ -248,6 +248,17 @@ namespace {
 thread_local std::unordered_map<GLuint, bool> generateMipmapTextures;
 } // namespace
 
+namespace {
+// Level-0 dimensions per texture name, recorded at upload time: ES 3.0 has
+// no glGetTexLevelParameter, so readback sizes must come from the shadow.
+struct texture_size_t { GLsizei width = 0, height = 0; };
+thread_local std::unordered_map<GLuint, texture_size_t> textureSizes;
+} // namespace
+
+void sfpewRememberTextureSize(GLuint texture, GLsizei width, GLsizei height) {
+    if (texture != 0) textureSizes[texture] = {width, height};
+}
+
 void sfpewSetGenerateMipmap(GLenum, GLuint texture, bool enable) {
     if (texture == 0) return;
     if (enable)
@@ -1041,6 +1052,7 @@ void glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei widt
         }
 
         g_glFuncs.glTexImage2D(target, level, internalformat, width, height, border, format, type, pixels);
+        if (level == 0) sfpewRememberTextureSize(sfpewLogicalTextureBinding(GL_TEXTURE_2D), width, height);
         sfpewMaybeGenerateMipmap(target);
         return;
     }
@@ -1070,6 +1082,42 @@ void glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei widt
     state.supported = border == 0 && dimensionsSupported && internalFormatSupported &&
                       isProxyTextureFormat(format) && isProxyTextureTypeCompatible(format, type);
     getProxyTexture2DLevels()[level] = state;
+}
+
+void glGetTexImage(GLenum target, GLint level, GLenum format, GLenum type, GLvoid* pixels) {
+    if (pixels == nullptr) return;
+    if (!sfpewEnsureBackend() || g_glFuncs.glGenFramebuffers == nullptr ||
+        g_glFuncs.glFramebufferTexture2D == nullptr || g_glFuncs.glReadPixels == nullptr) {
+        return;
+    }
+    if (target == GL_TEXTURE_1D) target = GL_TEXTURE_2D; // Nx1 emulation
+    if (target != GL_TEXTURE_2D) {
+        SFPEW_LOGW("glGetTexImage: target 0x%x not supported", target);
+        g_glstate.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    const GLuint texture = sfpewLogicalTextureBinding(GL_TEXTURE_2D);
+    const auto size_it = textureSizes.find(texture);
+    if (texture == 0 || size_it == textureSizes.end()) {
+        g_glstate.set_error(GL_INVALID_OPERATION);
+        return;
+    }
+    const GLsizei width = std::max<GLsizei>(size_it->second.width >> level, 1);
+    const GLsizei height = std::max<GLsizei>(size_it->second.height >> level, 1);
+
+    // Read through a scratch FBO; the wrapper glReadPixels handles BGRA.
+    GLint prev_read = 0, prev_draw = 0;
+    g_glFuncs.glGetIntegerv(0x8CAA /* GL_READ_FRAMEBUFFER_BINDING */, &prev_read);
+    g_glFuncs.glGetIntegerv(0x8CA6 /* GL_DRAW_FRAMEBUFFER_BINDING */, &prev_draw);
+    static thread_local GLuint scratch_fbo = 0;
+    if (scratch_fbo == 0) g_glFuncs.glGenFramebuffers(1, &scratch_fbo);
+    g_glFuncs.glBindFramebuffer(0x8CA8 /* GL_READ_FRAMEBUFFER */, scratch_fbo);
+    g_glFuncs.glFramebufferTexture2D(0x8CA8, 0x8CE0 /* GL_COLOR_ATTACHMENT0 */, GL_TEXTURE_2D,
+                                     texture, level);
+    glReadPixels(0, 0, width, height, format, type, pixels);
+    g_glFuncs.glFramebufferTexture2D(0x8CA8, 0x8CE0, GL_TEXTURE_2D, 0, 0);
+    g_glFuncs.glBindFramebuffer(0x8CA8, prev_read);
+    g_glFuncs.glBindFramebuffer(0x8CA9 /* GL_DRAW_FRAMEBUFFER */, prev_draw);
 }
 
 void glGetTexLevelParameteriv(GLenum target, GLint level, GLenum pname, GLint* params) {

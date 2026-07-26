@@ -1,6 +1,6 @@
 {
  "source": "lookup.cpp",
- "count": 293,
+ "count": 294,
  "entries": {
   "glActiveTexture": {
    "status": "resolvable",
@@ -13,6 +13,10 @@
   "glAlphaFunc": {
    "status": "resolvable",
    "target": "glAlphaFunc"
+  },
+  "glArrayElement": {
+   "status": "resolvable",
+   "target": "glArrayElement"
   },
   "glBegin": {
    "status": "resolvable",

@@ -387,6 +387,7 @@ SFPEW_APIENTRY __eglMustCastToProperFunctionPointerType eglGetProcAddress(const 
     GETPROC(glTexCoordPointer, name)
     GETPROC(glIndexPointer, name)
     GETPROC(glInterleavedArrays, name)
+    GETPROC(glArrayElement, name)
     GETPROC(glEnableClientState, name)
     GETPROC(glDisableClientState, name)
     GETPROC(glGetFloatv, name)

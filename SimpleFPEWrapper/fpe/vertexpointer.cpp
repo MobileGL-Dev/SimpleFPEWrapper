@@ -9,6 +9,7 @@
 #include "vertexpointer.h"
 #include "fpe.hpp"
 #include "drawing1x.h"
+#include <algorithm>
 
 #define DEBUG 0
 
@@ -254,4 +255,95 @@ void glInterleavedArrays(GLenum format, GLsizei stride, const void* pointer) {
     }
     glEnableClientState(GL_VERTEX_ARRAY);
     glVertexPointer(l.vertex, GL_FLOAT, effective_stride, base + l.vertex_off);
+}
+
+namespace {
+
+// Reads component `c` of element `i` from a client array declaration.
+GLfloat clientArrayComponent(const vertexattribute_t& a, GLint i, GLint c, bool normalized) {
+    const GLsizei tsize = type_size(a.type);
+    const GLsizei stride = a.stride != 0 ? a.stride : a.size * tsize;
+    const uint8_t* p = static_cast<const uint8_t*>(a.pointer) + (size_t)i * stride + (size_t)c * tsize;
+    switch (a.type) {
+    case GL_BYTE: {
+        auto v = *reinterpret_cast<const GLbyte*>(p);
+        return normalized ? std::max((GLfloat)v / 127.0f, -1.0f) : (GLfloat)v;
+    }
+    case GL_UNSIGNED_BYTE: {
+        auto v = *reinterpret_cast<const GLubyte*>(p);
+        return normalized ? (GLfloat)v / 255.0f : (GLfloat)v;
+    }
+    case GL_SHORT: {
+        auto v = *reinterpret_cast<const GLshort*>(p);
+        return normalized ? std::max((GLfloat)v / 32767.0f, -1.0f) : (GLfloat)v;
+    }
+    case GL_UNSIGNED_SHORT: {
+        auto v = *reinterpret_cast<const GLushort*>(p);
+        return normalized ? (GLfloat)v / 65535.0f : (GLfloat)v;
+    }
+    case GL_INT: {
+        auto v = *reinterpret_cast<const GLint*>(p);
+        return normalized ? std::max((GLfloat)((GLdouble)v / 2147483647.0), -1.0f) : (GLfloat)v;
+    }
+    case GL_UNSIGNED_INT: {
+        auto v = *reinterpret_cast<const GLuint*>(p);
+        return normalized ? (GLfloat)((GLdouble)v / 4294967295.0) : (GLfloat)v;
+    }
+    case GL_DOUBLE:
+        return (GLfloat)*reinterpret_cast<const GLdouble*>(p);
+    case GL_FLOAT:
+    default:
+        return *reinterpret_cast<const GLfloat*>(p);
+    }
+}
+
+} // namespace
+
+// glArrayElement: feed element i of every enabled client array through the
+// immediate-mode current-value path (vertex last: it commits the vertex).
+// Arrays living in VBOs cannot be read from the CPU here; those elements
+// are skipped (logged once per call site would be noise - manifest notes it).
+void glArrayElement(GLint i) {
+    if (i < 0) {
+        g_glstate.set_error(GL_INVALID_VALUE);
+        return;
+    }
+    const auto& va = g_glstate.fpe_state.vertexpointer_array;
+    const auto enabled = [&](GLenum array) { return (va.enabled_pointers & vp_mask(array)) != 0; };
+    const auto client_side = [&](int idx) { return getClientArrayBufferBinding(idx) == 0; };
+
+    if (enabled(GL_NORMAL_ARRAY) && client_side(vp2idx(GL_NORMAL_ARRAY))) {
+        const auto& a = va.attributes[vp2idx(GL_NORMAL_ARRAY)];
+        if (a.pointer)
+            mglNormal<GLfloat, 3>({clientArrayComponent(a, i, 0, true), clientArrayComponent(a, i, 1, true),
+                                   clientArrayComponent(a, i, 2, true)});
+    }
+    if (enabled(GL_COLOR_ARRAY) && client_side(vp2idx(GL_COLOR_ARRAY))) {
+        const auto& a = va.attributes[vp2idx(GL_COLOR_ARRAY)];
+        if (a.pointer) {
+            if (a.size == 3)
+                mglColor<GLfloat, 3>({clientArrayComponent(a, i, 0, true), clientArrayComponent(a, i, 1, true),
+                                      clientArrayComponent(a, i, 2, true)});
+            else
+                mglColor<GLfloat, 4>({clientArrayComponent(a, i, 0, true), clientArrayComponent(a, i, 1, true),
+                                      clientArrayComponent(a, i, 2, true), clientArrayComponent(a, i, 3, true)});
+        }
+    }
+    for (int unit = 0; unit < MAX_TEX; ++unit) {
+        const int idx = 7 + unit;
+        if (!((va.enabled_pointers >> idx) & 1u) || !client_side(idx)) continue;
+        const auto& a = va.attributes[idx];
+        if (!a.pointer) continue;
+        GLfloat uv[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+        for (GLint c = 0; c < a.size && c < 4; ++c) uv[c] = clientArrayComponent(a, i, c, false);
+        mglTexCoord<GLfloat, 4>({uv[0], uv[1], uv[2], uv[3]}, unit);
+    }
+    if (enabled(GL_VERTEX_ARRAY) && client_side(vp2idx(GL_VERTEX_ARRAY))) {
+        const auto& a = va.attributes[vp2idx(GL_VERTEX_ARRAY)];
+        if (a.pointer) {
+            GLfloat v[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+            for (GLint c = 0; c < a.size && c < 4; ++c) v[c] = clientArrayComponent(a, i, c, false);
+            mglVertex<GLfloat, 4>({v[0], v[1], v[2], v[3]});
+        }
+    }
 }

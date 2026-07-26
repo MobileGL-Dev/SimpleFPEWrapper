@@ -1,6 +1,6 @@
 {
  "source": "lookup.cpp",
- "count": 303,
+ "count": 309,
  "entries": {
   "glActiveTexture": {
    "status": "resolvable",
@@ -1073,6 +1073,30 @@
   "glTexEnviv": {
    "status": "resolvable",
    "target": "glTexEnviv"
+  },
+  "glTexGend": {
+   "status": "resolvable",
+   "target": "glTexGend"
+  },
+  "glTexGendv": {
+   "status": "resolvable",
+   "target": "glTexGendv"
+  },
+  "glTexGenf": {
+   "status": "resolvable",
+   "target": "glTexGenf"
+  },
+  "glTexGenfv": {
+   "status": "resolvable",
+   "target": "glTexGenfv"
+  },
+  "glTexGeni": {
+   "status": "resolvable",
+   "target": "glTexGeni"
+  },
+  "glTexGeniv": {
+   "status": "resolvable",
+   "target": "glTexGeniv"
   },
   "glTexImage2D": {
    "status": "resolvable",

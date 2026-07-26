@@ -114,6 +114,12 @@ bool hijack_fpe_states(GLenum cap, bool enable, fixed_function_bool_t* bools) {
     case GL_NORMALIZE:
         bools->normalize_enable = enable;
         return true;
+    case GL_TEXTURE_GEN_S:
+    case GL_TEXTURE_GEN_T:
+    case GL_TEXTURE_GEN_R:
+    case GL_TEXTURE_GEN_Q:
+        bools->texture_gen_enable[active_texture_index()][cap - GL_TEXTURE_GEN_S] = enable;
+        return true;
     case GL_CLIP_PLANE0:
     case GL_CLIP_PLANE0 + 1:
     case GL_CLIP_PLANE0 + 2:
@@ -1039,6 +1045,96 @@ DEFINE_MULTITEXCOORD_VECTOR_ALL(d, GLdouble)
 DEFINE_MULTITEXCOORD_VECTOR_ALL(f, GLfloat)
 DEFINE_MULTITEXCOORD_VECTOR_ALL(i, GLint)
 DEFINE_MULTITEXCOORD_VECTOR_ALL(s, GLshort)
+
+namespace {
+
+int texgen_coord_index(GLenum coord) {
+    switch (coord) {
+    case GL_S: return 0;
+    case GL_T: return 1;
+    case GL_R: return 2;
+    case GL_Q: return 3;
+    default: return -1;
+    }
+}
+
+bool texgen_mode_valid(GLenum coord, GLenum mode) {
+    switch (mode) {
+    case GL_OBJECT_LINEAR:
+    case GL_EYE_LINEAR:
+        return true;
+    case GL_SPHERE_MAP:
+        return coord == GL_S || coord == GL_T; // spec: S/T only
+    case GL_NORMAL_MAP:
+    case GL_REFLECTION_MAP:
+        return coord != GL_Q;
+    default:
+        return false;
+    }
+}
+
+} // namespace
+
+void glTexGeni(GLenum coord, GLenum pname, GLint param) {
+    flushPendingImmediateDraws();
+    const int c = texgen_coord_index(coord);
+    if (c < 0 || pname != GL_TEXTURE_GEN_MODE) {
+        g_glstate.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    if (!texgen_mode_valid(coord, (GLenum)param)) {
+        g_glstate.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    LIST_RECORD(glTexGeni, {}, coord, pname, param)
+    g_glstate.fpe_state.texture_gen_mode[active_texture_index()][c] = (GLenum)param;
+}
+
+void glTexGenf(GLenum coord, GLenum pname, GLfloat param) { glTexGeni(coord, pname, (GLint)param); }
+void glTexGend(GLenum coord, GLenum pname, GLdouble param) { glTexGeni(coord, pname, (GLint)param); }
+
+void glTexGenfv(GLenum coord, GLenum pname, const GLfloat* params) {
+    flushPendingImmediateDraws();
+    const int c = texgen_coord_index(coord);
+    if (c < 0) {
+        g_glstate.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    if (params == nullptr) return;
+    if (pname == GL_TEXTURE_GEN_MODE) {
+        SELF_CALL(glTexGeni, coord, pname, (GLint)params[0])
+        return;
+    }
+    LIST_RECORD(glTexGenfv, {{2, sizeof(GLfloat) * 4}}, coord, pname, params)
+    const int unit = active_texture_index();
+    if (pname == GL_OBJECT_PLANE) {
+        g_glstate.fpe_uniform.texgen_object_plane[unit][c] = glm::make_vec4(params);
+    } else if (pname == GL_EYE_PLANE) {
+        // Spec: eye planes are transformed by the inverse of the current
+        // model-view at call time.
+        const auto& mv = g_glstate.fpe_uniform.transformation.matrices[matrix_idx(GL_MODELVIEW)];
+        g_glstate.fpe_uniform.texgen_eye_plane[unit][c] =
+            glm::transpose(glm::inverse(mv)) * glm::make_vec4(params);
+    } else {
+        g_glstate.set_error(GL_INVALID_ENUM);
+    }
+}
+
+void glTexGeniv(GLenum coord, GLenum pname, const GLint* params) {
+    if (params == nullptr) return;
+    GLfloat converted[4] = {(GLfloat)params[0], 0, 0, 0};
+    if (pname != GL_TEXTURE_GEN_MODE)
+        for (int i = 1; i < 4; ++i) converted[i] = (GLfloat)params[i];
+    SELF_CALL(glTexGenfv, coord, pname, converted)
+}
+
+void glTexGendv(GLenum coord, GLenum pname, const GLdouble* params) {
+    if (params == nullptr) return;
+    GLfloat converted[4] = {(GLfloat)params[0], 0, 0, 0};
+    if (pname != GL_TEXTURE_GEN_MODE)
+        for (int i = 1; i < 4; ++i) converted[i] = (GLfloat)params[i];
+    SELF_CALL(glTexGenfv, coord, pname, converted)
+}
 
 void glPolygonMode(GLenum face, GLenum mode) {
     flushPendingImmediateDraws();

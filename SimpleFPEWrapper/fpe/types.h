@@ -84,6 +84,9 @@ struct fixed_function_bool_t {      // glEnable/glDisable
     // Stored for the plans/08 shader consumption; participates in the
     // program hash via the aggregate but is not read by the generator yet.
     bool clip_plane_enable[6] = {false};
+    // glEnable(GL_TEXTURE_GEN_S/T/R/Q) per unit; [unit][coord], coord order
+    // S,T,R,Q. Shader consumption is the second half of plans/05 5.2.
+    bool texture_gen_enable[MAX_TEX][4] = {};
 };
 
 struct light_t {
@@ -195,6 +198,10 @@ struct fixed_function_state_t {
     int light_model_two_side = 0;                    // glLightModel(GL_LIGHT_MODEL_TWO_SIDE)
     GLenum color_material_face = GL_FRONT_AND_BACK;
     GLenum color_material_mode = GL_AMBIENT_AND_DIFFUSE;
+    // glTexGen mode per unit per coord (S,T,R,Q); GL_EYE_LINEAR planes are
+    // captured in eye space at call time, object planes verbatim.
+    GLenum texture_gen_mode[MAX_TEX][4] = {};
+
     // Texture environment mode changes the generated fragment shader. Keep a
     // compact copy in shader state while the numeric parameters remain uniforms.
     GLenum texture_env_mode[MAX_TEX] = {
@@ -256,6 +263,10 @@ struct fixed_function_uniform_t {
     // glPolygonMode: GL_FILL is native; LINE/POINT emulation is plans/08.
     GLenum polygon_mode_front = GL_FILL;
     GLenum polygon_mode_back = GL_FILL;
+
+    // glTexGen plane equations: [unit][coord] object and eye variants.
+    glm::vec4 texgen_object_plane[MAX_TEX][4] = {};
+    glm::vec4 texgen_eye_plane[MAX_TEX][4] = {};
 
     // glClipPlane equations, already transformed into eye space at call
     // time per spec; consumed by the generated shaders in plans/08.

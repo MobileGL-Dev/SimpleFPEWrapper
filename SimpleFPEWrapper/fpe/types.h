@@ -331,9 +331,23 @@ struct program_vertex_signature_t {
     GLenum normalized = 0;
 };
 
+// 128-bit program cache key: two independently seeded XXHash64 passes over
+// the same state stream. A single 64-bit value used as the map key directly
+// meant a hash collision silently reused the wrong shader; a collision now
+// requires both halves to collide (~2^-128).
+struct program_key_t {
+    uint64_t lo = 0;
+    uint64_t hi = 0;
+    bool operator==(const program_key_t&) const = default;
+};
+
+struct program_key_hash_t {
+    size_t operator()(const program_key_t& key) const noexcept { return static_cast<size_t>(key.lo); }
+};
+
 struct program_hash_cache_t {
     bool valid = false;
-    uint64_t hash = 0;
+    program_key_t hash{};
     uint32_t enabled_pointers = 0;
     fixed_function_draw_size_t constant_sizes{};
     program_vertex_signature_t vertices[VERTEX_POINTER_COUNT]{};
@@ -357,8 +371,8 @@ struct program_hash_cache_t {
 // that accessor into a per-EGL-context lookup. New context-scoped state must
 // live in here — never in file-scope globals.
 struct glstate_t {
-    template <typename K, typename V>
-    using unordered_map = std::unordered_map<K, V>;
+    template <typename K, typename V, typename H = std::hash<K>>
+    using unordered_map = std::unordered_map<K, V, H>;
 
     // Set once init_fpe() has created the FPE-owned GL objects for this
     // context (previously the file-scope global fpe_inited).
@@ -380,11 +394,11 @@ struct glstate_t {
     //    GLuint fpe_frag_shader = 0;
     //    GLuint fpe_program = 0;
 
-    // enabled_vertexpointers - program
-    // TODO: using vp as key is bad! Try to hash the whole fpe_state
-    unordered_map<uint64_t, program_t> fpe_programs;
-    unordered_map<uint64_t, GLuint> fpe_vaos;
-    uint64_t last_program_key = 0;
+    // Keyed by the dual-seeded 128-bit program_key_t (see above); the old
+    // "vp as key" TODO is long obsolete - the hash covers all shader state.
+    unordered_map<program_key_t, program_t, program_key_hash_t> fpe_programs;
+    unordered_map<program_key_t, GLuint, program_key_hash_t> fpe_vaos;
+    program_key_t last_program_key{};
     program_t* last_program = nullptr;
     program_hash_cache_t program_hash_cache;
     vertex_attribute_cache_entry_t fpe_vertex_attributes[VERTEX_POINTER_COUNT];
@@ -394,6 +408,7 @@ struct glstate_t {
     GLsizei fpe_vertex_binding_stride = 0;
 
     static constexpr uint64_t s_hash_seed = 2123456789;
+    static constexpr uint64_t s_hash_seed2 = 0x9e3779b97f4a7c15ull;
 
     const char* fpe_vtx_shader_src;
     const char* fpe_frag_shader_src;
@@ -402,13 +417,13 @@ struct glstate_t {
 
     void send_uniforms(program_t& program);
 
-    uint64_t program_hash();
+    program_key_t program_hash();
 
-    program_t& get_or_generate_program(const uint64_t key);
+    program_t& get_or_generate_program(const program_key_t& key);
 
-    bool get_vao(const uint64_t key, GLuint* vao);
+    bool get_vao(const program_key_t& key, GLuint* vao);
 
-    void save_vao(const uint64_t key, const GLuint vao);
+    void save_vao(const program_key_t& key, const GLuint vao);
 
     bool send_vertex_attributes(const vertex_pointer_array_t& va, GLuint array_buffer, GLintptr binding_offset = 0);
 };

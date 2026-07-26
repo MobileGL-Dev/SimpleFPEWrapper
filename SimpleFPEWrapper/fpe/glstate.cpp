@@ -172,7 +172,7 @@ void glstate_t::send_uniforms(program_t& program) {
     values.initialized = true;
 }
 
-uint64_t glstate_t::program_hash() {
+program_key_t glstate_t::program_hash() {
     // This executes for every fixed-function draw. The caller has already
     // normalized the vertex array, so avoid two heap allocations and a second
     // normalization just to build the shader-program key.
@@ -241,7 +241,15 @@ uint64_t glstate_t::program_hash() {
     }
     if (matches) return cache.hash;
 
-    XXHash64 hash(s_hash_seed);
+    // Two independent hash passes form the 128-bit key.
+    struct dual_hash_t {
+        XXHash64 lo{glstate_t::s_hash_seed};
+        XXHash64 hi{glstate_t::s_hash_seed2};
+        void add(const void* data, uint64_t length) {
+            lo.add(data, length);
+            hi.add(data, length);
+        }
+    } hash;
 
     for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
         const bool enabled = ((va.enabled_pointers >> i) & 1u) != 0;
@@ -304,11 +312,11 @@ uint64_t glstate_t::program_hash() {
     cache.color_material_mode = fpe_state.color_material_mode;
     cache.bools = fpe_state.fpe_bools;
     for (int i = 0; i < MAX_TEX; ++i) cache.texture_env_mode[i] = fpe_state.texture_env_mode[i];
-    cache.hash = hash.hash();
+    cache.hash = {hash.lo.hash(), hash.hi.hash()};
     return cache.hash;
 }
 
-program_t& glstate_t::get_or_generate_program(const uint64_t key) {
+program_t& glstate_t::get_or_generate_program(const program_key_t& key) {
     // LOG()
     if (last_program != nullptr && last_program_key == key) return *last_program;
 
@@ -328,7 +336,7 @@ program_t& glstate_t::get_or_generate_program(const uint64_t key) {
     return it->second;
 }
 
-bool glstate_t::get_vao(const uint64_t key, GLuint* vao) {
+bool glstate_t::get_vao(const program_key_t& key, GLuint* vao) {
     // LOG()
     if (fpe_vaos.find(key) == fpe_vaos.end()) {
         return false;
@@ -338,7 +346,7 @@ bool glstate_t::get_vao(const uint64_t key, GLuint* vao) {
     return true;
 }
 
-void glstate_t::save_vao(const uint64_t key, const GLuint vao) {
+void glstate_t::save_vao(const program_key_t& key, const GLuint vao) {
     // LOG()
     fpe_vaos[key] = vao;
 }

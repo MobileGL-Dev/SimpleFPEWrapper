@@ -103,6 +103,97 @@ int main(void) {
                 pixel[2], pixel[3]);
         return 1;
     }
-    printf("OK: FPE immediate-mode quad rendered red on %s\n", "the real GLES3 device");
+    printf("OK: phase 1 immediate-mode quad is red\n");
+
+    // --- Phase 2: vertex lighting (plans/04). A directional white light
+    // shining down -z onto a +z-facing red quad: diffuse keeps red bright.
+    void (*fEnable)(GLenum) = (void (*)(GLenum))resolve("glEnable");
+    void (*fDisable)(GLenum) = (void (*)(GLenum))resolve("glDisable");
+    void (*fLightfv)(GLenum, GLenum, const GLfloat*) =
+        (void (*)(GLenum, GLenum, const GLfloat*))resolve("glLightfv");
+    void (*fNormal3f)(GLfloat, GLfloat, GLfloat) =
+        (void (*)(GLfloat, GLfloat, GLfloat))resolve("glNormal3f");
+    if (!fEnable || !fDisable || !fLightfv || !fNormal3f) return 1;
+
+    fClearColor(0.0f, 0.0f, 1.0f, 1.0f);
+    fClear(GL_COLOR_BUFFER_BIT);
+    fEnable(0x0B50 /* GL_LIGHTING */);
+    fEnable(0x4000); /* GL_LIGHT0 */
+    static const GLfloat white[4] = {1, 1, 1, 1};
+    static const GLfloat dir[4] = {0, 0, 1, 0}; // directional, towards viewer
+    fLightfv(0x4000, 0x1201 /* GL_DIFFUSE */, white);
+    fLightfv(0x4000, 0x1203 /* GL_POSITION */, dir);
+    fEnable(0x0B57 /* GL_COLOR_MATERIAL */);
+
+    fBegin(GL_QUADS);
+    fColor3f(1.0f, 0.0f, 0.0f);
+    fNormal3f(0.0f, 0.0f, 1.0f);
+    fVertex2f(-1.0f, -1.0f);
+    fVertex2f(1.0f, -1.0f);
+    fVertex2f(1.0f, 1.0f);
+    fVertex2f(-1.0f, 1.0f);
+    fEnd();
+
+    fReadPixels(32, 32, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+    if (fGetError() != 0) {
+        fprintf(stderr, "FAIL: GL error after the lit draw\n");
+        return 1;
+    }
+    if (pixel[0] < 150 || pixel[1] > 80 || pixel[2] > 80) {
+        fprintf(stderr, "FAIL: lit pixel is (%u,%u,%u), expected bright red\n", pixel[0], pixel[1],
+                pixel[2]);
+        return 1;
+    }
+    fDisable(0x0B50);
+    fDisable(0x0B57);
+    printf("OK: phase 2 directional lighting keeps the quad red\n");
+
+    // --- Phase 3: GL_MODULATE texturing (plans/05). A solid green texture
+    // times a white quad must come back green.
+    void (*fGenTextures)(GLsizei, GLuint*) = (void (*)(GLsizei, GLuint*))resolve("glGenTextures");
+    void (*fBindTexture)(GLenum, GLuint) = (void (*)(GLenum, GLuint))resolve("glBindTexture");
+    void (*fTexImage2D)(GLenum, GLint, GLint, GLsizei, GLsizei, GLint, GLenum, GLenum, const void*) =
+        (void (*)(GLenum, GLint, GLint, GLsizei, GLsizei, GLint, GLenum, GLenum,
+                  const void*))resolve("glTexImage2D");
+    void (*fTexParameteri)(GLenum, GLenum, GLint) =
+        (void (*)(GLenum, GLenum, GLint))resolve("glTexParameteri");
+    void (*fTexCoord2f)(GLfloat, GLfloat) = (void (*)(GLfloat, GLfloat))resolve("glTexCoord2f");
+    if (!fGenTextures || !fBindTexture || !fTexImage2D || !fTexParameteri || !fTexCoord2f) return 1;
+
+    GLuint texture = 0;
+    fGenTextures(1, &texture);
+    fBindTexture(0x0DE1 /* GL_TEXTURE_2D */, texture);
+    static const GLubyte green_texel[4] = {0, 255, 0, 255};
+    fTexImage2D(0x0DE1, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, green_texel);
+    fTexParameteri(0x0DE1, 0x2801 /* GL_TEXTURE_MIN_FILTER */, 0x2600 /* GL_NEAREST */);
+    fTexParameteri(0x0DE1, 0x2800 /* GL_TEXTURE_MAG_FILTER */, 0x2600);
+    fEnable(0x0DE1); // GL_TEXTURE_2D
+
+    fClearColor(0.0f, 0.0f, 1.0f, 1.0f);
+    fClear(GL_COLOR_BUFFER_BIT);
+    fBegin(GL_QUADS);
+    fColor3f(1.0f, 1.0f, 1.0f);
+    fTexCoord2f(0.0f, 0.0f);
+    fVertex2f(-1.0f, -1.0f);
+    fTexCoord2f(1.0f, 0.0f);
+    fVertex2f(1.0f, -1.0f);
+    fTexCoord2f(1.0f, 1.0f);
+    fVertex2f(1.0f, 1.0f);
+    fTexCoord2f(0.0f, 1.0f);
+    fVertex2f(-1.0f, 1.0f);
+    fEnd();
+
+    fReadPixels(32, 32, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+    if (fGetError() != 0) {
+        fprintf(stderr, "FAIL: GL error after the textured draw\n");
+        return 1;
+    }
+    if (pixel[1] < 200 || pixel[0] > 50 || pixel[2] > 50) {
+        fprintf(stderr, "FAIL: textured pixel is (%u,%u,%u), expected green\n", pixel[0], pixel[1],
+                pixel[2]);
+        return 1;
+    }
+    printf("OK: phase 3 GL_MODULATE texturing renders green\n");
+    printf("OK: all FPE render phases passed on the real GLES3 device\n");
     return 0;
 }

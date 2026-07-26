@@ -79,4 +79,6 @@ target_include_directories(${CMAKE_PROJECT_NAME} SYSTEM PUBLIC
         ${CMAKE_SOURCE_DIR}/3rdparty/glm
         ${CMAKE_SOURCE_DIR}/3rdparty/xxhash
 )
-target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE )
+if(ANDROID)
+        target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE log)
+endif()

@@ -89,7 +89,10 @@ void mglColor(std::array<Type, N> color) {
 
 template <typename Type, GLint N>
 void mglVertex(std::array<Type, N> vertex) {
-    assert(g_glstate.fpe_state.fpe_draw.primitive != GL_NONE);
+    // Release builds define NDEBUG, so this must be a real check: a glVertex*
+    // outside glBegin/glEnd would otherwise append stray data that leaks into
+    // the next primitive's vertex stream.
+    if (g_glstate.fpe_state.fpe_draw.primitive == GL_NONE) return;
 
     auto& state = g_glstate.fpe_state.fpe_draw;
     auto& cur = state.current_data.vertex;

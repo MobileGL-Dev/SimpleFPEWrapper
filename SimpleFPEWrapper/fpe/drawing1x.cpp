@@ -334,9 +334,13 @@ void glMultiTexCoord2f(GLenum target, GLfloat s, GLfloat t) {
     // LOG()
     //  LOG_D("glMultiTexCoord2f(%s, %.2f, %.2f)", glEnumToString(target), s, t)
 
+    // Runtime bounds check (asserts are compiled out by NDEBUG): an
+    // out-of-range unit would index past texcoord[MAX_TEX]. Invalid enums
+    // are also not recorded into display lists.
+    if (target < GL_TEXTURE0 || target - GL_TEXTURE0 >= MAX_TEX) return;
+
     LIST_RECORD(glMultiTexCoord2f, {}, target, s, t)
 
-    assert(target - GL_TEXTURE0 < MAX_TEX);
     mglTexCoord<GLfloat, 2>({s, t}, target - GL_TEXTURE0);
 }
 
@@ -344,9 +348,10 @@ void glMultiTexCoord4f(GLenum target, GLfloat s, GLfloat t, GLfloat r, GLfloat q
     // LOG()
     //  LOG_D("glMultiTexCoord4f(%s, %.2f, %.2f, %.2f, %.2f)", glEnumToString(target), s, t, r, q)
 
+    if (target < GL_TEXTURE0 || target - GL_TEXTURE0 >= MAX_TEX) return;
+
     LIST_RECORD(glMultiTexCoord4f, {}, target, s, t, r, q)
 
-    assert(target - GL_TEXTURE0 < MAX_TEX);
     mglTexCoord<GLfloat, 4>({s, t, r, q}, target - GL_TEXTURE0);
 }
 

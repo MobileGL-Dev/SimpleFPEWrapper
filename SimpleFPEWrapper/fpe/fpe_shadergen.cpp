@@ -7,6 +7,7 @@
 // End of Source File Header
 
 #include "fpe_shadergen.h"
+#include "../log.h"
 #include "types.h"
 #include <cstdio>
 #include <format>
@@ -1683,7 +1684,7 @@ int program_t::compile_shader(GLenum shader_type, const char* src) {
     if (!success) {
         g_glFuncs.glGetShaderInfoLog(shader, sizeof(compile_info), NULL, compile_info);
 
-        printf("[FPE] %s shader compile error: %s\nShader source:\n%s\n",
+        SFPEW_LOGE("%s shader compile error: %s\nShader source:\n%s",
                (shader_type == GL_VERTEX_SHADER) ? "vertex" : "fragment", compile_info, src);
         g_glFuncs.glDeleteShader(shader);
 #if DEBUG || GLOBAL_DEBUG
@@ -1713,7 +1714,7 @@ int program_t::link_program(GLuint vs, GLuint fs) {
     if (!success) {
         g_glFuncs.glGetProgramInfoLog(program, sizeof(compile_info), NULL, compile_info);
 
-        printf("[FPE] program link error: %s\n", compile_info);
+        SFPEW_LOGE("program link error: %s", compile_info);
         g_glFuncs.glDeleteProgram(program);
 #if DEBUG || GLOBAL_DEBUG
         abort();

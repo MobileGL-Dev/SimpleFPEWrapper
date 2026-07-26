@@ -8,6 +8,7 @@
 
 #include "EGL/egl.h"
 #include "init.h"
+#include "log.h"
 #include "fpe/transformation.h"
 
 #define GETPROC(name, var)                                                                                             \
@@ -216,7 +217,7 @@ SFPEW_APIENTRY __eglMustCastToProperFunctionPointerType eglGetProcAddress(const 
     }
     __eglMustCastToProperFunctionPointerType ptr = g_eglFuncs.eglGetProcAddress(name);
     if (!ptr) {
-        printf("eglGetProcAddress: eglGetProcAddress also failed to find '%s'\n", name);
+        SFPEW_LOGW("eglGetProcAddress: backend also failed to find '%s'", name);
     }
     return ptr;
 }

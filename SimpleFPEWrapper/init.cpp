@@ -8,8 +8,8 @@
 
 #include "init.h"
 #include "fpe/fpe.hpp"
+#include "log.h"
 
-#include <cstdio>
 #include <cstdlib>
 
 SFPEW::External::EGLFunctionsTable g_eglFuncs;
@@ -29,20 +29,20 @@ bool InitBackend() noexcept {
 
         if (!SFPEW::Utils::BackendLoader::AcquireEGLFunctions(g_eglFuncs, eglLibName) ||
             g_eglFuncs.eglGetProcAddress == nullptr) {
-            std::fprintf(stderr, "SFPEW: failed to acquire EGL functions from '%s'\n", eglLibName.c_str());
+            SFPEW_LOGE("failed to acquire EGL functions from '%s'", eglLibName.c_str());
             return false;
         }
 
         if (!SFPEW::Utils::BackendLoader::AcquireBackendGLFunctions(g_glFuncs, g_eglFuncs.eglGetProcAddress) ||
             g_glFuncs.glGetString == nullptr) {
-            std::fprintf(stderr, "SFPEW: failed to acquire backend GL functions\n");
+            SFPEW_LOGE("failed to acquire backend GL functions");
             return false;
         } // FIXME: actually we should acquire gl functions after egl initialization
 
         return true;
     } catch (...) {
         // Never let an exception cross the extern "C" surface above us.
-        std::fprintf(stderr, "SFPEW: backend initialization threw; wrapper disabled\n");
+        SFPEW_LOGE("backend initialization threw; wrapper disabled");
         return false;
     }
 }

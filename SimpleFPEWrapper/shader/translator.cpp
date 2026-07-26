@@ -892,6 +892,11 @@ translation_result_t translateUnits(GLenum stage, const std::vector<std::string>
         for (const auto& r : resources.separate_samplers) strip(r);
         if (lang == EShLangVertex) {
             for (const auto& r : resources.stage_outputs) strip(r);
+            // VS INPUTS lose their auto-mapped locations too: a hardcoded
+            // layout(location=N) overrides the app's glBindAttribLocation
+            // (OptiFine pins mc_Entity/mc_midTexCoord that way), and name
+            // lookups via glGetAttribLocation work regardless.
+            for (const auto& r : resources.stage_inputs) strip(r);
         } else {
             for (const auto& r : resources.stage_inputs) strip(r);
         }

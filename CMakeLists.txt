@@ -19,11 +19,19 @@ else()
         # so an unoptimised C++ build dominates frame time on Android.  Keep
         # debug information while compiling the native hot path as optimised
         # production code.
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -w -fvisibility=hidden -fno-semantic-interposition -funwind-tables -g -O3 -ffast-math -flto=thin -DNDEBUG -D_THREAD_SAFE -fPIC")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -w -fvisibility=hidden -fno-semantic-interposition -funwind-tables -g -O3 -ffast-math -DNDEBUG -D_THREAD_SAFE -fPIC")
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -w -g -std=gnu99 -funwind-tables -O3 -fvisibility=hidden")
-        set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -flto=thin")
         set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libstdc++")
         set(CMAKE_ANDROID_STL_TYPE c++_static)
+endif()
+
+# ThinLTO is Clang-specific; GCC only understands full LTO.
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -flto=thin")
+        set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -flto=thin")
+else()
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -flto")
+        set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -flto")
 endif()
 
 add_library(${CMAKE_PROJECT_NAME} SHARED

@@ -44,6 +44,16 @@ class EsslCompiler : public spirv_cross::CompilerGLSL {
 public:
     using spirv_cross::CompilerGLSL::CompilerGLSL;
 
+    // Anonymous struct types get SPIRV-Cross auto-names ("_12") whose ids
+    // differ between the independently-translated stages; strict ESSL
+    // linkers then reject the shared struct uniform ("struct type
+    // mismatch"). Name them deterministically from their member layout so
+    // both stages agree.
+    void nameAnonymousStructs() {
+        const auto resources = get_shader_resources();
+        for (const auto& r : resources.gl_plain_uniforms) nameStructDeep(get_type(r.base_type_id));
+    }
+
     std::vector<uniform_initializer_t> scrapeUniformInitializers() {
         std::vector<uniform_initializer_t> scraped;
         ir.for_each_typed_id<spirv_cross::SPIRVariable>(
@@ -60,6 +70,25 @@ public:
     }
 
 private:
+    void nameStructDeep(const spirv_cross::SPIRType& type) {
+        if (type.basetype != spirv_cross::SPIRType::Struct) return;
+        std::string layout;
+        for (uint32_t m = 0; m < type.member_types.size(); ++m) {
+            const auto& mt = get<spirv_cross::SPIRType>(type.member_types[m]);
+            nameStructDeep(mt);
+            layout += get_member_name(type.self, m) + ':' + std::to_string((int)mt.basetype) +
+                      'v' + std::to_string(mt.vecsize) + 'c' + std::to_string(mt.columns);
+            for (uint32_t d : mt.array) layout += 'a' + std::to_string(d);
+            layout += ';';
+        }
+        if (get_name(type.self).empty()) {
+            char buf[32];
+            std::snprintf(buf, sizeof(buf), "fpe_anon_%08zx",
+                          (size_t)(std::hash<std::string>{}(layout) & 0xffffffffu));
+            set_name(type.self, buf);
+        }
+    }
+
     // Structs decompose into one entry per leaf member ("s.m", "s[2].m"):
     // that matches both glGetUniformLocation naming and the one-call-per-
     // member granularity of the glUniform* API.
@@ -477,13 +506,18 @@ const std::unordered_map<std::string, std::string>& fragmentReplacements() {
     return map;
 }
 
-// In GLSL <= 1.10 the non-square matrix names are ordinary identifiers
-// (the types arrived in 1.20), but 450 treats them as keywords.
+// In GLSL 1.10/1.20 these are ordinary identifiers (non-square matrix
+// types arrived in 1.20, precision qualifiers in 1.30), but 450 treats
+// them as keywords. Only applied as a RETRY when the plain parse fails:
+// real-world sources freely mix versions (Mesa is permissive), so a
+// shader claiming 110 may still use mat2x3 as a type.
 const std::unordered_map<std::string, std::string>& legacyIdentifierReplacements() {
     static const std::unordered_map<std::string, std::string> map = {
         {"mat2x2", "fpe_id_mat2x2"}, {"mat2x3", "fpe_id_mat2x3"}, {"mat2x4", "fpe_id_mat2x4"},
         {"mat3x2", "fpe_id_mat3x2"}, {"mat3x3", "fpe_id_mat3x3"}, {"mat3x4", "fpe_id_mat3x4"},
         {"mat4x2", "fpe_id_mat4x2"}, {"mat4x3", "fpe_id_mat4x3"}, {"mat4x4", "fpe_id_mat4x4"},
+        {"lowp", "fpe_id_lowp"},     {"mediump", "fpe_id_mediump"},
+        {"highp", "fpe_id_highp"},   {"precision", "fpe_id_precision"},
     };
     return map;
 }
@@ -611,7 +645,7 @@ namespace {
 // input is always "450 core" - a superset in which every 1.10/1.20
 // construct still parses once the preprocessor has rewritten the
 // compatibility spellings.
-std::string rewriteBody(bool vertex, const std::string& source) {
+std::string rewriteBody(bool vertex, const std::string& source, bool legacy_identifiers) {
     std::string body = source;
     unsigned source_version = 110; // the GLSL default when #version is absent
     const size_t vpos = body.find("#version");
@@ -620,7 +654,7 @@ std::string rewriteBody(bool vertex, const std::string& source) {
         const size_t eol = body.find('\n', vpos);
         body = body.substr(0, vpos) + body.substr(eol == std::string::npos ? body.size() : eol + 1);
     }
-    if (source_version <= 110) {
+    if (legacy_identifiers && source_version <= 120) {
         body = replaceIdentifiers(body, legacyIdentifierReplacements(), {});
     }
     body = replaceIdentifiers(body, commonReplacements(),
@@ -682,13 +716,14 @@ std::string preprocess(GLenum stage, const std::string& source) {
 // prelude carries function bodies. glslang's cross-stage-capable linker
 // then merges globals, resolves prototypes and rejects real conflicts
 // exactly like a desktop GLSL linker.
-std::vector<std::string> preprocessUnits(GLenum stage, const std::vector<std::string>& sources) {
+std::vector<std::string> preprocessUnits(GLenum stage, const std::vector<std::string>& sources,
+                                         bool legacy_identifiers = false) {
     const bool vertex = stage == GL_VERTEX_SHADER;
     std::vector<std::string> bodies;
     bodies.reserve(sources.size());
     bool uses_fragdata = false;
     for (const auto& source : sources) {
-        bodies.push_back(rewriteBody(vertex, source));
+        bodies.push_back(rewriteBody(vertex, source, legacy_identifiers));
         uses_fragdata = uses_fragdata || bodies.back().find("fpe_FragData") != std::string::npos;
     }
     std::vector<std::string> units;
@@ -714,10 +749,29 @@ translation_result_t translate(GLenum stage, const std::string& source,
     return translate(stage, std::vector<std::string>{source}, target);
 }
 
+namespace {
+translation_result_t translateUnits(GLenum stage, const std::vector<std::string>& units,
+                                    const target_language_t& target);
+} // namespace
+
 translation_result_t translate(GLenum stage, const std::vector<std::string>& sources,
                                const target_language_t& target) {
+    auto result = translateUnits(stage, preprocessUnits(stage, sources), target);
+    if (!result.ok && !result.parse_ok) {
+        // The 450 parse may have tripped over identifiers that only became
+        // keywords after 1.10/1.20 (mat2x3, lowp, ...): retry with those
+        // renamed. Kept as a fallback because permissive drivers let
+        // shaders claim 110 while using later-version types.
+        auto retry = translateUnits(stage, preprocessUnits(stage, sources, true), target);
+        if (retry.ok) return retry;
+    }
+    return result;
+}
+
+namespace {
+translation_result_t translateUnits(GLenum stage, const std::vector<std::string>& units,
+                                    const target_language_t& target) {
     translation_result_t result;
-    const std::vector<std::string> units = preprocessUnits(stage, sources);
     for (const auto& unit : units) result.preprocessed += unit;
 
     std::call_once(g_glslang_once, [] { glslang::InitializeProcess(); });
@@ -795,6 +849,7 @@ translation_result_t translate(GLenum stage, const std::vector<std::string>& sou
         } else {
             for (const auto& r : resources.stage_inputs) strip(r);
         }
+        compiler.nameAnonymousStructs();
         result.uniform_initializers = compiler.scrapeUniformInitializers();
         result.essl = compiler.compile();
         result.ok = true;
@@ -803,6 +858,7 @@ translation_result_t translate(GLenum stage, const std::vector<std::string>& sou
     }
     return result;
 }
+} // namespace
 
 } // namespace SFPEW::Shader
 

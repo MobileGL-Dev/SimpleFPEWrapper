@@ -1,0 +1,49 @@
+/* Here we test that the linker selected the exact matching function and not
+ * the function that has implicit conversions.
+ *
+ * From page 42 (page 49 of the PDF) of the GLSL 1.20 spec:
+ *
+ * "If an exact match is found, the other signatures are ignored, and
+ *  the exact match is used.  Otherwise, if no exact match is found, then
+ *  the implicit conversions in Section 4.1.10 "Implicit Conversions" will
+ *  be applied to the calling arguments if this can make their types match
+ *  a signature.  In this case, it is a semantic error if there are
+ *  multiple ways to apply these conversions to the actual arguments of a
+ *  call such that the call can be made to match multiple signatures."
+ */
+
+[require]
+GLSL >= 1.20
+
+[vertex shader]
+void main()
+{
+   gl_Position = gl_Vertex;
+}
+
+
+[fragment shader]
+#version 120
+vec4 get_frag_colour(int a)
+{
+   return vec4(0.0, a, 0.0, 0.0);
+}
+
+[fragment shader]
+#version 120
+
+vec4 get_frag_colour(int a);
+
+vec4 get_frag_colour(float a)
+{
+   return vec4(a, 0.0, 0.0, 0.0);
+}
+
+void main()
+{
+   gl_FragColor = get_frag_colour(1);
+}
+
+[test]
+draw rect -1 -1 2 2
+probe all rgba 0.0 1.0 0.0 0.0

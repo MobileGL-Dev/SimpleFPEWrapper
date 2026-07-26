@@ -1,0 +1,46 @@
+# Tests a global variable initializer that calls a function defined in a
+# second compilation unit. The call cannot be resolved at compile time and
+# does not appear in the body of main, so the linker must resolve calls
+# inside the global initializer instructions it moves into main.
+#
+# Reproduces https://gitlab.freedesktop.org/mesa/mesa/-/issues/15854
+
+[require]
+GLSL >= 1.10
+
+[vertex shader]
+float get_val();
+
+float g_val = get_val();
+
+varying vec4 color;
+
+void main()
+{
+    gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;
+    color = vec4(0.0, g_val + 0.5, 0.0, 1.0);
+}
+
+[vertex shader]
+uniform float u_val;
+
+float get_val()
+{
+    if (u_val > 0.5)
+        return 0.0;
+
+    return u_val * 2.0;
+}
+
+[fragment shader]
+varying vec4 color;
+
+void main()
+{
+    gl_FragColor = color;
+}
+
+[test]
+uniform float u_val 0.25
+draw rect -1 -1 2 2
+probe all rgba 0.0 1.0 0.0 1.0

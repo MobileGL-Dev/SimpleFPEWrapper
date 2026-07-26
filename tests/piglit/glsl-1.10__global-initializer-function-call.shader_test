@@ -1,0 +1,47 @@
+# Tests a user-defined function that is only called from a global variable
+# initializer. The call does not appear in the body of main so the linker
+# must not treat the function as unreachable.
+#
+# The early return inside control flow requires the function to have been
+# seen by nir_lower_returns before it is inlined into main.
+#
+# Reproduces https://gitlab.freedesktop.org/mesa/mesa/-/issues/15854
+
+[require]
+GLSL >= 1.10
+
+[vertex shader]
+uniform float u_val;
+
+float get_val();
+
+float g_val = get_val();
+
+varying vec4 color;
+
+float get_val()
+{
+    if (u_val > 0.5)
+        return 0.0;
+
+    return u_val * 2.0;
+}
+
+void main()
+{
+    gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;
+    color = vec4(0.0, g_val + 0.5, 0.0, 1.0);
+}
+
+[fragment shader]
+varying vec4 color;
+
+void main()
+{
+    gl_FragColor = color;
+}
+
+[test]
+uniform float u_val 0.25
+draw rect -1 -1 2 2
+probe all rgba 0.0 1.0 0.0 1.0

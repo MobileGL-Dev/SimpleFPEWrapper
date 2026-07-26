@@ -157,6 +157,23 @@ if(NOT ANDROID)
                         set_tests_properties(smoke_render PROPERTIES SKIP_RETURN_CODE 77)
                 endif()
 
+                # Vendored piglit shader_test subset through the mini-runner
+                # (tests/piglit/README.md documents provenance and license).
+                if(SFPEW_TEST_EGL AND SFPEW_TEST_GLES)
+                        add_executable(piglit_runner tests/piglit_runner.c)
+                        target_compile_definitions(piglit_runner PRIVATE
+                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
+                        target_link_libraries(piglit_runner PRIVATE dl m ${SFPEW_TEST_EGL})
+                        add_dependencies(piglit_runner ${CMAKE_PROJECT_NAME})
+                        file(GLOB SFPEW_PIGLIT_TESTS ${CMAKE_SOURCE_DIR}/tests/piglit/*.shader_test)
+                        foreach(pt ${SFPEW_PIGLIT_TESTS})
+                                get_filename_component(pt_name ${pt} NAME)
+                                string(REPLACE ".shader_test" "" pt_name ${pt_name})
+                                add_test(NAME piglit.${pt_name} COMMAND piglit_runner ${pt})
+                                set_tests_properties(piglit.${pt_name} PROPERTIES SKIP_RETURN_CODE 77)
+                        endforeach()
+                endif()
+
                 # The committed API manifest must match what lookup.cpp
                 # actually resolves (plans/03, 3.5).
                 find_package(Python3 COMPONENTS Interpreter)

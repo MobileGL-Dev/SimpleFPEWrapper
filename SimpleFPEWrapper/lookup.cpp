@@ -387,6 +387,15 @@ SFPEW_APIENTRY __eglMustCastToProperFunctionPointerType eglGetProcAddress(const 
     GETPROC(glTexCoordPointer, name)
     GETPROC(glIndexPointer, name)
     GETPROC(glInterleavedArrays, name)
+    GETPROC(glEdgeFlagPointer, name)
+    GETPROC(glSecondaryColorPointer, name)
+    if (std::strcmp("glSecondaryColorPointerEXT", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glSecondaryColorPointer;
+    }
+    GETPROC(glFogCoordPointer, name)
+    if (std::strcmp("glFogCoordPointerEXT", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glFogCoordPointer;
+    }
     GETPROC(glArrayElement, name)
     GETPROC(glEnableClientState, name)
     GETPROC(glDisableClientState, name)

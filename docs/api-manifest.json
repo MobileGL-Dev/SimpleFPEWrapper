@@ -1,6 +1,6 @@
 {
  "source": "lookup.cpp",
- "count": 294,
+ "count": 299,
  "entries": {
   "glActiveTexture": {
    "status": "resolvable",
@@ -270,6 +270,10 @@
    "status": "resolvable",
    "target": "glDrawElements"
   },
+  "glEdgeFlagPointer": {
+   "status": "resolvable",
+   "target": "glEdgeFlagPointer"
+  },
   "glEnable": {
    "status": "resolvable",
    "target": "glEnable"
@@ -293,6 +297,14 @@
   "glFlush": {
    "status": "resolvable",
    "target": "glFlush"
+  },
+  "glFogCoordPointer": {
+   "status": "resolvable",
+   "target": "glFogCoordPointer"
+  },
+  "glFogCoordPointerEXT": {
+   "status": "alias",
+   "target": "glFogCoordPointer"
   },
   "glFogf": {
    "status": "resolvable",
@@ -873,6 +885,14 @@
   "glScissor": {
    "status": "resolvable",
    "target": "glScissor"
+  },
+  "glSecondaryColorPointer": {
+   "status": "resolvable",
+   "target": "glSecondaryColorPointer"
+  },
+  "glSecondaryColorPointerEXT": {
+   "status": "alias",
+   "target": "glSecondaryColorPointer"
   },
   "glShadeModel": {
    "status": "resolvable",

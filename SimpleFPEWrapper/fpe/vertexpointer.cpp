@@ -120,6 +120,60 @@ void glNormalPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
     g_glstate.fpe_state.vertexpointer_array.dirty = true;
 }
 
+// Remaining GL 1.4/1.5 pointer trio. State is stored in the reserved
+// vp slots (vp2idx already maps them); shader-side consumption arrives
+// with plans/04 (secondary color), plans/05 (fog coord) and plans/08
+// (edge flags for PolygonMode).
+void glEdgeFlagPointer(GLsizei stride, const GLvoid* pointer) {
+    flushPendingImmediateDraws();
+    g_glstate.fpe_state.vertexpointer_array.attributes[vp2idx(GL_EDGE_FLAG_ARRAY)] = {
+        .size = 1,
+        .usage = GL_EDGE_FLAG_ARRAY,
+        .type = GL_UNSIGNED_BYTE, // GLboolean elements
+        .normalized = GL_FALSE,
+        .stride = stride,
+        .pointer = pointer,
+    };
+    rememberClientArrayBufferBinding(vp2idx(GL_EDGE_FLAG_ARRAY));
+    g_glstate.fpe_state.vertexpointer_array.dirty = true;
+}
+
+void glSecondaryColorPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* pointer) {
+    if (size != 3) { // GL 2.1: secondary color arrays are strictly 3-component
+        g_glstate.set_error(GL_INVALID_VALUE);
+        return;
+    }
+    flushPendingImmediateDraws();
+    g_glstate.fpe_state.vertexpointer_array.attributes[vp2idx(GL_SECONDARY_COLOR_ARRAY)] = {
+        .size = size,
+        .usage = GL_SECONDARY_COLOR_ARRAY,
+        .type = type,
+        .normalized = static_cast<GLenum>((type == GL_FLOAT || type == GL_DOUBLE) ? GL_FALSE : GL_TRUE),
+        .stride = stride,
+        .pointer = pointer,
+    };
+    rememberClientArrayBufferBinding(vp2idx(GL_SECONDARY_COLOR_ARRAY));
+    g_glstate.fpe_state.vertexpointer_array.dirty = true;
+}
+
+void glFogCoordPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
+    if (type != GL_FLOAT && type != GL_DOUBLE) {
+        g_glstate.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    flushPendingImmediateDraws();
+    g_glstate.fpe_state.vertexpointer_array.attributes[vp2idx(GL_FOG_COORD_ARRAY)] = {
+        .size = 1,
+        .usage = GL_FOG_COORD_ARRAY,
+        .type = type,
+        .normalized = GL_FALSE,
+        .stride = stride,
+        .pointer = pointer,
+    };
+    rememberClientArrayBufferBinding(vp2idx(GL_FOG_COORD_ARRAY));
+    g_glstate.fpe_state.vertexpointer_array.dirty = true;
+}
+
 void glColorPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* pointer) {
     flushPendingImmediateDraws();
     // LOG_D("glColorPointer, size = %d, type = %s, stride = %d, pointer = 0x%x", size, glEnumToString(type), stride,

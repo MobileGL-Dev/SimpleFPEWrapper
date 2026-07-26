@@ -27,6 +27,8 @@ GLint sfpewLogicalProgram();
 GLuint sfpewLogicalArrayBufferBinding();
 
 SFPEW_APIENTRY GLenum glGetError();
+SFPEW_APIENTRY void glSecondaryColorPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* pointer);
+SFPEW_APIENTRY void glFogCoordPointer(GLenum type, GLsizei stride, const GLvoid* pointer);
 SFPEW_APIENTRY GLboolean glIsEnabled(GLenum cap);
 SFPEW_APIENTRY void glGetBooleanv(GLenum pname, GLboolean* params);
 SFPEW_APIENTRY void glGetDoublev(GLenum pname, GLdouble* params);

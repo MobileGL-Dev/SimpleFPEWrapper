@@ -68,6 +68,21 @@ int main(void) {
         return 1;
     }
 
+    // --- Attribute stack: GL_FOG_BIT must restore fog params exactly.
+    void (*pushAttrib)(unsigned int) = (void (*)(unsigned int))resolve("glPushAttrib");
+    void (*popAttrib)(void) = (void (*)(void))resolve("glPopAttrib");
+    if (!pushAttrib || !popAttrib) return 1;
+    fogf(GL_FOG_DENSITY, 0.33f);
+    pushAttrib(0x00000080 /* GL_FOG_BIT */);
+    fogf(GL_FOG_DENSITY, 0.9f);
+    popAttrib();
+    getFloatv(GL_FOG_DENSITY, &value);
+    if (value != 0.33f) {
+        fprintf(stderr, "FAIL: glPopAttrib(FOG_BIT) restored %f, want 0.33\n", (double)value);
+        return 1;
+    }
+    printf("OK: attribute stack restores fog state\n");
+
     printf("OK: COMPILE defers, replay applies, replay == immediate\n");
     return 0;
 }

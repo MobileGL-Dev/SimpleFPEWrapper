@@ -56,6 +56,20 @@ static const char* kVertex120 =
     "    gl_Position = mvp * vec4(aPos, 1.0) + gl_ModelViewProjectionMatrix * gl_Vertex * 0.0;\n"
     "}\n";
 
+static const char* kVertex120NonSquare =
+    "#version 120\n"
+    "uniform mat4x3 packed;\n"
+    "void main() {\n"
+    "    vec3 row = packed * gl_Vertex;\n"
+    "    gl_Position = vec4(row, 1.0) + ftransform() * 0.5;\n"
+    "}\n";
+
+static const char* kFragmentData =
+    "#version 120\n"
+    "void main() {\n"
+    "    gl_FragData[0] = vec4(gl_TexCoord[0].st, 0.0, 1.0);\n"
+    "}\n";
+
 static char out_buf[1 << 16];
 
 static int translate_and_check(translate_fn translate, unsigned int stage, const char* src,
@@ -109,6 +123,8 @@ int main(void) {
         {GLV, kVertex110, "vs110"},
         {GLF, kFragment110, "fs110"},
         {GLV, kVertex120, "vs120"},
+        {GLV, kVertex120NonSquare, "vs120-mat4x3"},
+        {GLF, kFragmentData, "fs120-fragdata"},
     };
     for (unsigned i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
         if (!translate_and_check(translate, cases[i].stage, cases[i].src, cases[i].tag)) return 1;

@@ -8,6 +8,7 @@
 
 #include "init.h"
 #include "fpe/drawing1x.h"
+#include "fpe/list.h"
 #include <vector>
 #include <cstdint>
 #include "fpe/fpe.hpp"
@@ -51,7 +52,19 @@ GLint sfpewLogicalProgram() {
         if (g_glFuncs.name != nullptr) g_glFuncs.name arguments;                                                      \
     }
 
-ORDERED_PASSTHROUGH(glClear, (GLbitfield mask), (mask))
+#define OP_ARGS(...) __VA_ARGS__
+// Server-state commands are compiled into display lists per GL 2.1 5.4;
+// their default tryMerge()==false also makes each one a batching barrier,
+// so the display-list draw merger cannot fuse across them.
+#define RECORDED_PASSTHROUGH(name, declaration, arguments)                                                            \
+    void name declaration {                                                                                           \
+        if (!sfpewEnsureBackend()) return;                                                                            \
+        flushPendingImmediateDraws();                                                                                 \
+        LIST_RECORD(name, {}, OP_ARGS arguments)                                                                      \
+        if (g_glFuncs.name != nullptr) g_glFuncs.name arguments;                                                      \
+    }
+
+RECORDED_PASSTHROUGH(glClear, (GLbitfield mask), (mask))
 // glDrawElements lives in drawing.cpp: it is FPE-converted, not passthrough.
 ORDERED_PASSTHROUGH(glReadPixels,
                     (GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type,
@@ -75,31 +88,31 @@ void glUseProgram(GLuint program) {
     state.known = true;
 }
 
-ORDERED_PASSTHROUGH(glBlendColor, (GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha),
+RECORDED_PASSTHROUGH(glBlendColor, (GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha),
                     (red, green, blue, alpha))
-ORDERED_PASSTHROUGH(glBlendEquation, (GLenum mode), (mode))
-ORDERED_PASSTHROUGH(glBlendEquationSeparate, (GLenum modeRGB, GLenum modeAlpha),
+RECORDED_PASSTHROUGH(glBlendEquation, (GLenum mode), (mode))
+RECORDED_PASSTHROUGH(glBlendEquationSeparate, (GLenum modeRGB, GLenum modeAlpha),
                     (modeRGB, modeAlpha))
-ORDERED_PASSTHROUGH(glBlendFunc, (GLenum sfactor, GLenum dfactor), (sfactor, dfactor))
-ORDERED_PASSTHROUGH(glBlendFuncSeparate,
+RECORDED_PASSTHROUGH(glBlendFunc, (GLenum sfactor, GLenum dfactor), (sfactor, dfactor))
+RECORDED_PASSTHROUGH(glBlendFuncSeparate,
                     (GLenum sfactorRGB, GLenum dfactorRGB, GLenum sfactorAlpha, GLenum dfactorAlpha),
                     (sfactorRGB, dfactorRGB, sfactorAlpha, dfactorAlpha))
-ORDERED_PASSTHROUGH(glDepthFunc, (GLenum func), (func))
-ORDERED_PASSTHROUGH(glDepthMask, (GLboolean flag), (flag))
-ORDERED_PASSTHROUGH(glColorMask,
+RECORDED_PASSTHROUGH(glDepthFunc, (GLenum func), (func))
+RECORDED_PASSTHROUGH(glDepthMask, (GLboolean flag), (flag))
+RECORDED_PASSTHROUGH(glColorMask,
                     (GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha),
                     (red, green, blue, alpha))
-ORDERED_PASSTHROUGH(glCullFace, (GLenum mode), (mode))
-ORDERED_PASSTHROUGH(glFrontFace, (GLenum mode), (mode))
-ORDERED_PASSTHROUGH(glViewport, (GLint x, GLint y, GLsizei width, GLsizei height),
+RECORDED_PASSTHROUGH(glCullFace, (GLenum mode), (mode))
+RECORDED_PASSTHROUGH(glFrontFace, (GLenum mode), (mode))
+RECORDED_PASSTHROUGH(glViewport, (GLint x, GLint y, GLsizei width, GLsizei height),
                     (x, y, width, height))
-ORDERED_PASSTHROUGH(glScissor, (GLint x, GLint y, GLsizei width, GLsizei height),
+RECORDED_PASSTHROUGH(glScissor, (GLint x, GLint y, GLsizei width, GLsizei height),
                     (x, y, width, height))
-ORDERED_PASSTHROUGH(glPolygonOffset, (GLfloat factor, GLfloat units), (factor, units))
-ORDERED_PASSTHROUGH(glLineWidth, (GLfloat width), (width))
-ORDERED_PASSTHROUGH(glStencilFunc, (GLenum func, GLint ref, GLuint mask), (func, ref, mask))
-ORDERED_PASSTHROUGH(glStencilMask, (GLuint mask), (mask))
-ORDERED_PASSTHROUGH(glStencilOp, (GLenum fail, GLenum zfail, GLenum zpass),
+RECORDED_PASSTHROUGH(glPolygonOffset, (GLfloat factor, GLfloat units), (factor, units))
+RECORDED_PASSTHROUGH(glLineWidth, (GLfloat width), (width))
+RECORDED_PASSTHROUGH(glStencilFunc, (GLenum func, GLint ref, GLuint mask), (func, ref, mask))
+RECORDED_PASSTHROUGH(glStencilMask, (GLuint mask), (mask))
+RECORDED_PASSTHROUGH(glStencilOp, (GLenum fail, GLenum zfail, GLenum zpass),
                     (fail, zfail, zpass))
 
 namespace {
@@ -122,6 +135,7 @@ GLint compatibleTextureParameter(GLenum pname, GLint param) {
 
 void glTexParameterf(GLenum target, GLenum pname, GLfloat param) {
     flushPendingImmediateDraws();
+    LIST_RECORD(glTexParameterf, {}, target, pname, param)
     if (g_glFuncs.glTexParameterf == nullptr) return;
     if (isTextureWrapParameter(pname) && static_cast<GLint>(param) == GL_CLAMP)
         param = static_cast<GLfloat>(GL_CLAMP_TO_EDGE);
@@ -131,6 +145,9 @@ void glTexParameterf(GLenum target, GLenum pname, GLfloat param) {
 void glTexParameterfv(GLenum target, GLenum pname, const GLfloat* params) {
     flushPendingImmediateDraws();
     if (g_glFuncs.glTexParameterfv == nullptr || params == nullptr) return;
+    LIST_RECORD(glTexParameterfv,
+                {{2, (pname == GL_TEXTURE_BORDER_COLOR ? 4u : 1u) * sizeof(GLfloat)}}, target, pname,
+                params)
     if (isTextureWrapParameter(pname) && static_cast<GLint>(params[0]) == GL_CLAMP) {
         const GLfloat compatible = static_cast<GLfloat>(GL_CLAMP_TO_EDGE);
         g_glFuncs.glTexParameterfv(target, pname, &compatible);
@@ -141,6 +158,7 @@ void glTexParameterfv(GLenum target, GLenum pname, const GLfloat* params) {
 
 void glTexParameteri(GLenum target, GLenum pname, GLint param) {
     flushPendingImmediateDraws();
+    LIST_RECORD(glTexParameteri, {}, target, pname, param)
     if (g_glFuncs.glTexParameteri != nullptr)
         g_glFuncs.glTexParameteri(target, pname, compatibleTextureParameter(pname, param));
 }
@@ -148,6 +166,9 @@ void glTexParameteri(GLenum target, GLenum pname, GLint param) {
 void glTexParameteriv(GLenum target, GLenum pname, const GLint* params) {
     flushPendingImmediateDraws();
     if (g_glFuncs.glTexParameteriv == nullptr || params == nullptr) return;
+    LIST_RECORD(glTexParameteriv,
+                {{2, (pname == GL_TEXTURE_BORDER_COLOR ? 4u : 1u) * sizeof(GLint)}}, target, pname,
+                params)
     if (isTextureWrapParameter(pname) && params[0] == GL_CLAMP) {
         const GLint compatible = GL_CLAMP_TO_EDGE;
         g_glFuncs.glTexParameteriv(target, pname, &compatible);

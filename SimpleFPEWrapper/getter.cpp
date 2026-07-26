@@ -16,6 +16,7 @@
 #include <vector>
 #include "fpe/fpe.hpp"
 #include "fpe/drawing1x.h"
+#include "fpe/list.h"
 
 namespace {
 struct ProxyTexture2DLevel {
@@ -808,6 +809,9 @@ void glGetFloatv(GLenum pname, GLfloat* params) {
 
 void glActiveTexture(GLenum texture) {
     if (!sfpewEnsureBackend() || g_glFuncs.glActiveTexture == nullptr) return;
+    // Record BEFORE the redundancy shortcut: a list must contain the command
+    // even when it matches the current state (GL spec; audit finding).
+    LIST_RECORD(glActiveTexture, {}, texture)
     auto& state = getLogicalTextureBindings();
     if (getLogicalActiveTexture(state) == texture) return;
 
@@ -820,6 +824,7 @@ void glActiveTexture(GLenum texture) {
 void glBindTexture(GLenum target, GLuint texture) {
     if (!sfpewEnsureBackend() || g_glFuncs.glBindTexture == nullptr) return;
     if (target == GL_TEXTURE_1D) target = GL_TEXTURE_2D; // Nx1 emulation
+    LIST_RECORD(glBindTexture, {}, target, texture)
     auto& state = getLogicalTextureBindings();
     const GLenum activeTexture = getLogicalActiveTexture(state);
     const GLenum query = textureBindingQuery(target);

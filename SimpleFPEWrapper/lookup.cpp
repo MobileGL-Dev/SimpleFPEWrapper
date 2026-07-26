@@ -474,6 +474,8 @@ SFPEW_APIENTRY __eglMustCastToProperFunctionPointerType eglGetProcAddress(const 
     GETPROC(glEvalPoint2, name)
     GETPROC(glEvalMesh1, name)
     GETPROC(glEvalMesh2, name)
+    GETPROC(glAccum, name)
+    GETPROC(glClearAccum, name)
     GETPROC(glRenderMode, name)
     GETPROC(glSelectBuffer, name)
     GETPROC(glFeedbackBuffer, name)

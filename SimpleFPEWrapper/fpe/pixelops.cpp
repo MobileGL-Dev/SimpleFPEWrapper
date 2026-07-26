@@ -48,7 +48,7 @@ constexpr char kQuadFS[] = "#version 300 es\n"
                            "        if (texel.r < 0.5) discard;\n"
                            "        FragColor = uColor;\n"
                            "    } else {\n"
-                           "        FragColor = texel;\n"
+                           "        FragColor = texel * uColor;\n"
                            "    }\n"
                            "}\n";
 
@@ -181,6 +181,190 @@ void drawQuad(const void* pixels, GLsizei tex_w, GLsizei tex_h, GLenum tex_forma
 }
 
 } // namespace
+
+namespace {
+
+// Full-screen pass over an EXISTING texture (0 selects a lazy 1x1 white),
+// output scaled by `color`. Blend/FBO state is the caller's responsibility;
+// program/VAO/texture bindings are restored like drawQuad does.
+void drawFullscreenTexture(GLuint texture, const glm::vec4& color) {
+    auto& d = drawer();
+    if (!ensureDrawer(d)) return;
+
+    static thread_local GLuint white_tex = 0;
+    if (texture == 0) {
+        if (white_tex == 0) {
+            g_glFuncs.glGenTextures(1, &white_tex);
+            const GLubyte white[4] = {255, 255, 255, 255};
+            g_glFuncs.glBindTexture(GL_TEXTURE_2D, white_tex);
+            g_glFuncs.glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                                   white);
+            g_glFuncs.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+            g_glFuncs.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        }
+        texture = white_tex;
+    }
+
+    GLint prev_program = 0, prev_vao = 0, prev_tex = 0, prev_active = GL_TEXTURE0;
+    g_glFuncs.glGetIntegerv(GL_CURRENT_PROGRAM, &prev_program);
+    g_glFuncs.glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &prev_vao);
+    g_glFuncs.glGetIntegerv(GL_ACTIVE_TEXTURE, &prev_active);
+    g_glFuncs.glActiveTexture(GL_TEXTURE0);
+    g_glFuncs.glGetIntegerv(GL_TEXTURE_BINDING_2D, &prev_tex);
+
+    g_glFuncs.glBindTexture(GL_TEXTURE_2D, texture);
+    g_glFuncs.glUseProgram(d.program);
+    g_glFuncs.glBindVertexArray(d.vao);
+    g_glFuncs.glUniform4f(d.loc_rect, -1.0f, -1.0f, 1.0f, 1.0f);
+    g_glFuncs.glUniform1f(d.loc_depth, 0.0f);
+    g_glFuncs.glUniform4f(d.loc_color, color.r, color.g, color.b, color.a);
+    g_glFuncs.glUniform1i(d.loc_mode, 0);
+    g_glFuncs.glUniform1i(d.loc_tex, 0);
+    g_glFuncs.glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+    g_glFuncs.glBindTexture(GL_TEXTURE_2D, (GLuint)prev_tex);
+    g_glFuncs.glActiveTexture((GLenum)prev_active);
+    g_glFuncs.glUseProgram(prev_program);
+    g_glFuncs.glBindVertexArray(prev_vao);
+}
+
+} // namespace
+
+#define sfpewDrawTextureQuad drawFullscreenTexture
+
+// --- Accumulation buffer emulation (plans/10, 10.4) ---------------------
+// An RGBA16F color attachment sized to the current viewport stands in for
+// the accumulation buffer; ops render through the shared quad drawer with
+// blend state providing the arithmetic. Sized-to-viewport is a documented
+// approximation (the real accum buffer matches the full framebuffer).
+
+namespace {
+
+struct accum_state_t {
+    GLuint fbo = 0;
+    GLuint texture = 0;      // RGBA16F accumulation storage
+    GLuint scratch_tex = 0;  // framebuffer snapshot for ACCUM/LOAD
+    GLsizei width = 0, height = 0;
+    glm::vec4 clear_value{0.0f};
+};
+
+accum_state_t& accumState() {
+    static thread_local struct {
+        EGLContext context = EGL_NO_CONTEXT;
+        accum_state_t s{};
+    } cache;
+    const EGLContext current =
+        g_eglFuncs.eglGetCurrentContext ? g_eglFuncs.eglGetCurrentContext() : EGL_NO_CONTEXT;
+    if (cache.context != current) {
+        cache.context = current;
+        cache.s = {};
+    }
+    return cache.s;
+}
+
+bool ensureAccum(accum_state_t& a, GLsizei width, GLsizei height) {
+    if (g_glFuncs.glGenFramebuffers == nullptr || g_glFuncs.glFramebufferTexture2D == nullptr ||
+        g_glFuncs.glGenTextures == nullptr) {
+        return false;
+    }
+    if (a.fbo != 0 && a.width == width && a.height == height) return true;
+    if (a.fbo == 0) g_glFuncs.glGenFramebuffers(1, &a.fbo);
+    if (a.texture == 0) g_glFuncs.glGenTextures(1, &a.texture);
+    if (a.scratch_tex == 0) g_glFuncs.glGenTextures(1, &a.scratch_tex);
+    g_glFuncs.glBindTexture(GL_TEXTURE_2D, a.texture);
+    g_glFuncs.glTexImage2D(GL_TEXTURE_2D, 0, 0x881A /* GL_RGBA16F */, width, height, 0, GL_RGBA,
+                           0x140B /* GL_HALF_FLOAT */, nullptr);
+    g_glFuncs.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    g_glFuncs.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    g_glFuncs.glBindFramebuffer(0x8D40 /* GL_FRAMEBUFFER */, a.fbo);
+    g_glFuncs.glFramebufferTexture2D(0x8D40, 0x8CE0 /* GL_COLOR_ATTACHMENT0 */, GL_TEXTURE_2D,
+                                     a.texture, 0);
+    a.width = width;
+    a.height = height;
+    return true;
+}
+
+// Snapshot of blend/FBO state around accumulation passes.
+struct accum_backend_guard_t {
+    GLint draw_fbo = 0, read_fbo = 0;
+    GLboolean blend = GL_FALSE;
+    GLint src_rgb = GL_ONE, dst_rgb = GL_ZERO, src_a = GL_ONE, dst_a = GL_ZERO;
+
+    accum_backend_guard_t() {
+        g_glFuncs.glGetIntegerv(0x8CA6 /* GL_DRAW_FRAMEBUFFER_BINDING */, &draw_fbo);
+        g_glFuncs.glGetIntegerv(0x8CAA /* GL_READ_FRAMEBUFFER_BINDING */, &read_fbo);
+        blend = g_glFuncs.glIsEnabled != nullptr ? g_glFuncs.glIsEnabled(GL_BLEND) : GL_FALSE;
+        g_glFuncs.glGetIntegerv(GL_BLEND_SRC_RGB, &src_rgb);
+        g_glFuncs.glGetIntegerv(GL_BLEND_DST_RGB, &dst_rgb);
+        g_glFuncs.glGetIntegerv(GL_BLEND_SRC_ALPHA, &src_a);
+        g_glFuncs.glGetIntegerv(GL_BLEND_DST_ALPHA, &dst_a);
+    }
+    ~accum_backend_guard_t() {
+        g_glFuncs.glBindFramebuffer(0x8CA9 /* GL_DRAW_FRAMEBUFFER */, draw_fbo);
+        g_glFuncs.glBindFramebuffer(0x8CA8 /* GL_READ_FRAMEBUFFER */, read_fbo);
+        if (blend)
+            g_glFuncs.glEnable(GL_BLEND);
+        else
+            g_glFuncs.glDisable(GL_BLEND);
+        g_glFuncs.glBlendFuncSeparate(src_rgb, dst_rgb, src_a, dst_a);
+    }
+};
+
+} // namespace
+
+void glClearAccum(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha) {
+    accumState().clear_value = {red, green, blue, alpha};
+}
+
+void glAccum(GLenum op, GLfloat value) {
+    flushPendingImmediateDraws();
+    if (op != GL_ACCUM && op != GL_LOAD && op != GL_ADD && op != GL_MULT && op != GL_RETURN) {
+        g_glstate.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    if (!sfpewEnsureBackend() || g_glFuncs.glBlendFuncSeparate == nullptr ||
+        g_glFuncs.glCopyTexImage2D == nullptr) {
+        return;
+    }
+    GLint viewport[4] = {0, 0, 0, 0};
+    g_glFuncs.glGetIntegerv(GL_VIEWPORT, viewport);
+    if (viewport[2] <= 0 || viewport[3] <= 0) return;
+
+    auto& a = accumState();
+    if (!ensureAccum(a, viewport[2], viewport[3])) return;
+
+    accum_backend_guard_t backend;
+    const glm::vec4 scale(value, value, value, value);
+
+    if (op == GL_ACCUM || op == GL_LOAD) {
+        // Snapshot the caller's framebuffer region into the scratch texture.
+        g_glFuncs.glBindFramebuffer(0x8CA8 /* GL_READ_FRAMEBUFFER */, backend.read_fbo);
+        g_glFuncs.glBindTexture(GL_TEXTURE_2D, a.scratch_tex);
+        g_glFuncs.glCopyTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, viewport[0], viewport[1], viewport[2],
+                                   viewport[3], 0);
+        g_glFuncs.glBindFramebuffer(0x8CA9 /* GL_DRAW_FRAMEBUFFER */, a.fbo);
+        if (op == GL_ACCUM) {
+            g_glFuncs.glEnable(GL_BLEND);
+            g_glFuncs.glBlendFuncSeparate(GL_ONE, GL_ONE, GL_ONE, GL_ONE);
+        } else {
+            g_glFuncs.glDisable(GL_BLEND);
+        }
+        sfpewDrawTextureQuad(a.scratch_tex, scale);
+    } else if (op == GL_ADD || op == GL_MULT) {
+        g_glFuncs.glBindFramebuffer(0x8CA9, a.fbo);
+        g_glFuncs.glEnable(GL_BLEND);
+        if (op == GL_ADD)
+            g_glFuncs.glBlendFuncSeparate(GL_ONE, GL_ONE, GL_ONE, GL_ONE);
+        else
+            g_glFuncs.glBlendFuncSeparate(GL_DST_COLOR, GL_ZERO, GL_DST_ALPHA, GL_ZERO);
+        // ADD paints the constant; MULT multiplies the destination by it.
+        sfpewDrawTextureQuad(0 /* white */, op == GL_ADD ? scale : scale);
+    } else { // GL_RETURN
+        g_glFuncs.glBindFramebuffer(0x8CA9, backend.draw_fbo);
+        g_glFuncs.glDisable(GL_BLEND);
+        sfpewDrawTextureQuad(a.texture, scale);
+    }
+}
 
 void glBitmap(GLsizei width, GLsizei height, GLfloat xorig, GLfloat yorig, GLfloat xmove,
               GLfloat ymove, const GLubyte* bitmap) {

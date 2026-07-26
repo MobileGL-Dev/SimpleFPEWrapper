@@ -1,7 +1,11 @@
 {
  "source": "lookup.cpp",
- "count": 413,
+ "count": 415,
  "entries": {
+  "glAccum": {
+   "status": "resolvable",
+   "target": "glAccum"
+  },
   "glActiveTexture": {
    "status": "resolvable",
    "target": "glActiveTexture"
@@ -81,6 +85,10 @@
   "glClear": {
    "status": "resolvable",
    "target": "glClear"
+  },
+  "glClearAccum": {
+   "status": "resolvable",
+   "target": "glClearAccum"
   },
   "glClientActiveTexture": {
    "status": "resolvable",

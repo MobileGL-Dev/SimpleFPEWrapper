@@ -23,6 +23,7 @@
 #include <spirv_glsl.hpp>
 
 #include <cctype>
+#include <memory>
 #include <mutex>
 #include <map>
 #include <unordered_map>
@@ -468,6 +469,21 @@ const std::unordered_map<std::string, std::string>& fragmentReplacements() {
         {"gl_FragColor", "fpe_FragColor"},
         {"gl_FragData", "fpe_FragData"},
         {"varying", "in"},
+        // GLSL 1.20 allows `invariant varying` in the fragment stage;
+        // modern GLSL restricts invariant to outputs. Dropping the
+        // qualifier only weakens an optimization barrier.
+        {"invariant", ""},
+    };
+    return map;
+}
+
+// In GLSL <= 1.10 the non-square matrix names are ordinary identifiers
+// (the types arrived in 1.20), but 450 treats them as keywords.
+const std::unordered_map<std::string, std::string>& legacyIdentifierReplacements() {
+    static const std::unordered_map<std::string, std::string> map = {
+        {"mat2x2", "fpe_id_mat2x2"}, {"mat2x3", "fpe_id_mat2x3"}, {"mat2x4", "fpe_id_mat2x4"},
+        {"mat3x2", "fpe_id_mat3x2"}, {"mat3x3", "fpe_id_mat3x3"}, {"mat3x4", "fpe_id_mat3x4"},
+        {"mat4x2", "fpe_id_mat4x2"}, {"mat4x3", "fpe_id_mat4x3"}, {"mat4x4", "fpe_id_mat4x4"},
     };
     return map;
 }
@@ -520,8 +536,14 @@ out vec4 fpe_FrontSecondaryColor;
 out vec4 fpe_BackSecondaryColor;
 out vec4 fpe_TexCoord[8];
 out float fpe_FogFragCoord;
-vec4 ftransform() { return fpe_ModelViewProjectionMatrix * fpe_Vertex; }
 )";
+
+// Only the first compilation unit of a stage carries function BODIES:
+// further TUs see prototypes, and glslang's cross-TU link resolves them
+// (duplicate bodies would be a redefinition).
+constexpr char kVertexPreludeFuncs[] =
+    "vec4 ftransform() { return fpe_ModelViewProjectionMatrix * fpe_Vertex; }\n";
+constexpr char kVertexPreludeProtos[] = "vec4 ftransform();\n";
 
 constexpr char kFragmentPrelude[] = R"(
 in vec4 fpe_FrontColor;
@@ -591,20 +613,57 @@ namespace {
 // compatibility spellings.
 std::string rewriteBody(bool vertex, const std::string& source) {
     std::string body = source;
+    unsigned source_version = 110; // the GLSL default when #version is absent
     const size_t vpos = body.find("#version");
     if (vpos != std::string::npos) {
+        source_version = (unsigned)std::atoi(body.c_str() + vpos + 8);
         const size_t eol = body.find('\n', vpos);
         body = body.substr(0, vpos) + body.substr(eol == std::string::npos ? body.size() : eol + 1);
     }
-    return replaceIdentifiers(body, commonReplacements(),
+    if (source_version <= 110) {
+        body = replaceIdentifiers(body, legacyIdentifierReplacements(), {});
+    }
+    body = replaceIdentifiers(body, commonReplacements(),
                               vertex ? vertexReplacements() : fragmentReplacements());
+    // GLSL 1.10/1.20 allow redeclaring gl_TexCoord with an explicit size;
+    // the prelude's fpe_TexCoord[8] is a superset, so user redeclarations
+    // are dropped instead of colliding with it.
+    for (const char* qual : {"out ", "in "}) {
+        for (size_t pos = 0; (pos = body.find("fpe_TexCoord", pos)) != std::string::npos;) {
+            const size_t semi = body.find(';', pos);
+            size_t decl = body.rfind(qual, pos);
+            // Only a declaration statement qualifies: qualifier, type and
+            // array size with no other statement text in between.
+            if (semi == std::string::npos || decl == std::string::npos ||
+                (decl > 0 && identChar(body[decl - 1]))) {
+                ++pos;
+                continue;
+            }
+            const std::string between = body.substr(decl, pos - decl);
+            if (between != std::string(qual) + "vec4 " && between != std::string(qual) + "vec4\t") {
+                ++pos;
+                continue;
+            }
+            const std::string tail = body.substr(pos + 12, semi - pos - 12);
+            if (tail.find('[') == std::string::npos || tail.find_first_not_of("[]0123456789 \t") !=
+                                                           std::string::npos) {
+                ++pos;
+                continue;
+            }
+            body.erase(decl, semi - decl + 1);
+            pos = decl;
+        }
+    }
+    return body;
 }
 
-std::string buildPrelude(bool vertex, bool uses_fragdata) {
+std::string buildPrelude(bool vertex, bool uses_fragdata, bool with_bodies) {
     std::string result = "#version 450\n"; // SPIR-V rejects compatibility
     result += kSharedPrelude;
     result += vertex ? kVertexPrelude : kFragmentPrelude;
-    if (!vertex) {
+    if (vertex) {
+        result += with_bodies ? kVertexPreludeFuncs : kVertexPreludeProtos;
+    } else {
         // FragColor and FragData[0] would collide on one location; declare
         // only what the shader actually writes (GL forbids mixing them).
         result += uses_fragdata ? kFragDataOut : kFragColorOut;
@@ -619,11 +678,11 @@ std::string preprocess(GLenum stage, const std::string& source) {
 }
 
 // Multiple compilation units of one stage (GL 2.1 multi-TU programs, which
-// GLES forbids) merge by concatenation: GLSL has no TU-local scope, so
-// concatenating the rewritten bodies after a single prelude reproduces the
-// linker's global-scope merge for everything short of duplicated
-// initialized globals.
-std::string preprocess(GLenum stage, const std::vector<std::string>& sources) {
+// GLES forbids) become one glslang TShader each; only the first TU's
+// prelude carries function bodies. glslang's cross-stage-capable linker
+// then merges globals, resolves prototypes and rejects real conflicts
+// exactly like a desktop GLSL linker.
+std::vector<std::string> preprocessUnits(GLenum stage, const std::vector<std::string>& sources) {
     const bool vertex = stage == GL_VERTEX_SHADER;
     std::vector<std::string> bodies;
     bodies.reserve(sources.size());
@@ -632,13 +691,22 @@ std::string preprocess(GLenum stage, const std::vector<std::string>& sources) {
         bodies.push_back(rewriteBody(vertex, source));
         uses_fragdata = uses_fragdata || bodies.back().find("fpe_FragData") != std::string::npos;
     }
-    std::string result = buildPrelude(vertex, uses_fragdata);
-    for (const auto& body : bodies) {
-        result += "#line 1\n"; // keep glslang diagnostics on user line numbers
-        result += body;
-        if (result.empty() || result.back() != '\n') result += '\n';
+    std::vector<std::string> units;
+    units.reserve(bodies.size());
+    for (size_t i = 0; i < bodies.size(); ++i) {
+        std::string unit = buildPrelude(vertex, uses_fragdata, i == 0);
+        unit += "#line 1\n"; // keep glslang diagnostics on user line numbers
+        unit += bodies[i];
+        if (unit.back() != '\n') unit += '\n';
+        units.push_back(std::move(unit));
     }
-    return result;
+    return units;
+}
+
+std::string preprocess(GLenum stage, const std::vector<std::string>& sources) {
+    std::string joined;
+    for (const auto& unit : preprocessUnits(stage, sources)) joined += unit;
+    return joined;
 }
 
 translation_result_t translate(GLenum stage, const std::string& source,
@@ -649,31 +717,35 @@ translation_result_t translate(GLenum stage, const std::string& source,
 translation_result_t translate(GLenum stage, const std::vector<std::string>& sources,
                                const target_language_t& target) {
     translation_result_t result;
-    result.preprocessed = preprocess(stage, sources);
+    const std::vector<std::string> units = preprocessUnits(stage, sources);
+    for (const auto& unit : units) result.preprocessed += unit;
 
     std::call_once(g_glslang_once, [] { glslang::InitializeProcess(); });
 
     const EShLanguage lang = stage == GL_VERTEX_SHADER ? EShLangVertex : EShLangFragment;
-    glslang::TShader shader(lang);
-    const char* text = result.preprocessed.c_str();
-    shader.setStrings(&text, 1);
-    shader.setEnvInput(glslang::EShSourceGlsl, lang, glslang::EShClientOpenGL, 450);
-    shader.setEnvClient(glslang::EShClientOpenGL, glslang::EShTargetOpenGL_450);
-    shader.setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_0);
-    // OpenGL SPIR-V requires explicit locations/bindings; auto-map them and
-    // let the linker resolve attributes by name from the ESSL output.
-    shader.setAutoMapLocations(true);
-    shader.setAutoMapBindings(true);
-
+    std::vector<std::unique_ptr<glslang::TShader>> shaders;
     const EShMessages messages = (EShMessages)(EShMsgSpvRules | EShMsgKeepUncalled);
-    if (!shader.parse(GetDefaultResources(), 450, ECoreProfile, false, false, messages)) {
-        result.log = std::string("glslang parse:\n") + shader.getInfoLog();
-        return result;
+    for (const auto& unit : units) {
+        auto shader = std::make_unique<glslang::TShader>(lang);
+        const char* text = unit.c_str();
+        shader->setStrings(&text, 1);
+        shader->setEnvInput(glslang::EShSourceGlsl, lang, glslang::EShClientOpenGL, 450);
+        shader->setEnvClient(glslang::EShClientOpenGL, glslang::EShTargetOpenGL_450);
+        shader->setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_0);
+        // OpenGL SPIR-V requires explicit locations/bindings; auto-map them
+        // and let the linker resolve attributes by name from the ESSL.
+        shader->setAutoMapLocations(true);
+        shader->setAutoMapBindings(true);
+        if (!shader->parse(GetDefaultResources(), 450, ECoreProfile, false, false, messages)) {
+            result.log = std::string("glslang parse:\n") + shader->getInfoLog();
+            return result;
+        }
+        shaders.push_back(std::move(shader));
     }
     result.parse_ok = true;
 
     glslang::TProgram program;
-    program.addShader(&shader);
+    for (auto& shader : shaders) program.addShader(shader.get());
     if (!program.link(messages) || !program.mapIO()) {
         result.log = std::string("glslang link:\n") + program.getInfoLog();
         return result;

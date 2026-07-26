@@ -263,6 +263,117 @@ inline bool containsMobileGLDev(const std::string& str) {
     return str.find("MobileGL-Dev") != std::string::npos;
 }
 
+namespace {
+
+// pnames the wrapper answers itself through glGetIntegerv (scalar integers).
+bool isWrapperIntegerPname(GLenum pname) {
+    switch (pname) {
+    case GL_CONTEXT_PROFILE_MASK:
+    case GL_CONTEXT_FLAGS:
+    case GL_NUM_EXTENSIONS:
+    case GL_CURRENT_PROGRAM:
+    case GL_ARRAY_BUFFER_BINDING:
+    case GL_MAX_LIGHTS:
+    case GL_MAX_TEXTURE_UNITS:
+    case GL_MAX_TEXTURE_COORDS:
+    case GL_MATRIX_MODE:
+    case GL_MAX_MODELVIEW_STACK_DEPTH:
+    case GL_MAX_PROJECTION_STACK_DEPTH:
+    case GL_MAX_TEXTURE_STACK_DEPTH:
+    case GL_MODELVIEW_STACK_DEPTH:
+    case GL_PROJECTION_STACK_DEPTH:
+    case GL_TEXTURE_STACK_DEPTH:
+        return true;
+    default:
+        return false;
+    }
+}
+
+// Component counts for common float-domain pnames, needed because
+// glGetDoublev has no backend equivalent on GLES and must know how many
+// values the backend wrote into the staging buffer.
+int floatPnameComponentCount(GLenum pname) {
+    switch (pname) {
+    case GL_MODELVIEW_MATRIX:
+    case GL_PROJECTION_MATRIX:
+    case GL_TEXTURE_MATRIX:
+    case GL_COLOR_MATRIX:
+        return 16;
+    case GL_VIEWPORT:
+    case GL_SCISSOR_BOX:
+    case GL_COLOR_CLEAR_VALUE:
+    case GL_BLEND_COLOR:
+    case GL_FOG_COLOR:
+    case GL_LIGHT_MODEL_AMBIENT:
+    case GL_CURRENT_COLOR:
+        return 4;
+    case GL_DEPTH_RANGE:
+    case GL_ALIASED_LINE_WIDTH_RANGE:
+    case GL_ALIASED_POINT_SIZE_RANGE:
+    case GL_MAX_VIEWPORT_DIMS:
+        return 2;
+    default:
+        return 1;
+    }
+}
+
+} // namespace
+
+GLboolean glIsEnabled(GLenum cap) {
+    const auto& bools = g_glstate.fpe_state.fpe_bools;
+    switch (cap) {
+    case GL_FOG:
+        return bools.fog_enable ? GL_TRUE : GL_FALSE;
+    case GL_LIGHTING:
+        return bools.lighting_enable ? GL_TRUE : GL_FALSE;
+    case GL_ALPHA_TEST:
+        return bools.alpha_test_enable ? GL_TRUE : GL_FALSE;
+    case GL_COLOR_MATERIAL:
+        return bools.color_material_enable ? GL_TRUE : GL_FALSE;
+    case GL_NORMALIZE:
+        return bools.normalize_enable ? GL_TRUE : GL_FALSE;
+    case GL_RESCALE_NORMAL:
+        return bools.rescale_normal_enable ? GL_TRUE : GL_FALSE;
+    case GL_TEXTURE_2D: {
+        const int unit = std::clamp(static_cast<int>(sfpewLogicalActiveTexture() - GL_TEXTURE0), 0, MAX_TEX - 1);
+        return bools.texture_2d_enable[unit] ? GL_TRUE : GL_FALSE;
+    }
+    default:
+        if (cap >= GL_LIGHT0 && cap < GL_LIGHT0 + MAX_LIGHTS)
+            return bools.light_enable[cap - GL_LIGHT0] ? GL_TRUE : GL_FALSE;
+        if (!sfpewEnsureBackend() || g_glFuncs.glIsEnabled == nullptr) return GL_FALSE;
+        return g_glFuncs.glIsEnabled(cap);
+    }
+}
+
+void glGetBooleanv(GLenum pname, GLboolean* params) {
+    if (!params) return;
+    if (isWrapperIntegerPname(pname)) {
+        GLint value = 0;
+        glGetIntegerv(pname, &value);
+        params[0] = value != 0 ? GL_TRUE : GL_FALSE;
+        return;
+    }
+    if (!sfpewEnsureBackend() || g_glFuncs.glGetBooleanv == nullptr) return;
+    g_glFuncs.glGetBooleanv(pname, params);
+}
+
+void glGetDoublev(GLenum pname, GLdouble* params) {
+    if (!params) return;
+    if (isWrapperIntegerPname(pname)) {
+        GLint value = 0;
+        glGetIntegerv(pname, &value);
+        params[0] = static_cast<GLdouble>(value);
+        return;
+    }
+    // Everything else is float-domain: stage through the (wrapper) float
+    // getter and widen; the count table bounds how much we copy out.
+    GLfloat staging[16] = {};
+    glGetFloatv(pname, staging);
+    const int count = floatPnameComponentCount(pname);
+    for (int i = 0; i < count; ++i) params[i] = static_cast<GLdouble>(staging[i]);
+}
+
 GLenum glGetError() {
     // Wrapper-detected errors take priority over backend errors: legacy
     // paths validate before any backend call, so ours happened first.

@@ -27,6 +27,9 @@ GLint sfpewLogicalProgram();
 GLuint sfpewLogicalArrayBufferBinding();
 
 SFPEW_APIENTRY GLenum glGetError();
+SFPEW_APIENTRY GLboolean glIsEnabled(GLenum cap);
+SFPEW_APIENTRY void glGetBooleanv(GLenum pname, GLboolean* params);
+SFPEW_APIENTRY void glGetDoublev(GLenum pname, GLdouble* params);
 SFPEW_APIENTRY const GLubyte* glGetString(GLenum name);
 SFPEW_APIENTRY const GLubyte* glGetStringi(GLenum name, GLuint index);
 SFPEW_APIENTRY void glGetIntegerv(GLenum pname, GLint* params);

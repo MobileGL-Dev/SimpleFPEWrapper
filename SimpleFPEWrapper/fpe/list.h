@@ -11,6 +11,8 @@
 #include <GL/gl.h>
 #include <glm/mat4x4.hpp>
 #include <glm/vec3.hpp>
+#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <unordered_map>
 
@@ -185,6 +187,36 @@ public:
         --callingDepth;
     }
 
+    static bool callSingleCaptured(GLuint listID) {
+        if (callingDepth != 0) return false;
+
+        struct cache_entry_t {
+            uint64_t generation = 0;
+            GLuint listID = 0;
+            const GLCmd* command = nullptr;
+        };
+        constexpr size_t kCacheSize = 256;
+        thread_local std::array<cache_entry_t, kCacheSize> cache;
+
+        const uint64_t currentGeneration = mutationGeneration;
+        auto& entry = cache[(static_cast<size_t>(listID) * 2654435761u) & (kCacheSize - 1u)];
+        const GLCmd* command = nullptr;
+        if (entry.generation == currentGeneration && entry.listID == listID) {
+            command = entry.command;
+        } else {
+            const auto it = lists.find(listID);
+            if (it == lists.end() || it->second.size() != 1) return false;
+            command = it->second.front().get();
+            if (command == nullptr || !command->isCapturedDraw()) return false;
+            entry = {currentGeneration, listID, command};
+        }
+
+        ++callingDepth;
+        command->execute();
+        --callingDepth;
+        return true;
+    }
+
     static const DisplayList* findList(GLuint listID) {
         const auto it = lists.find(listID);
         return it == lists.end() ? nullptr : &it->second;
@@ -197,7 +229,7 @@ inline DisplayListManager displayListManager;
 
 inline GLboolean disableRecording = GL_FALSE;
 
-bool tryExecuteCapturedDisplayLists(const std::vector<GLuint>& listIds);
+bool tryExecuteCapturedDisplayLists(const GLuint* listIds, size_t listCount);
 
 #define SELF_CALL(func, ...)                                                                                           \
     {                                                                                                                  \

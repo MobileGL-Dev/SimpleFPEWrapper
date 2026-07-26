@@ -18,6 +18,8 @@ extern SFPEW::External::BackendGLFunctionsTable g_glFuncs;
 
 GLenum sfpewLogicalActiveTexture();
 GLuint sfpewLogicalTextureBinding(GLenum target);
+GLint sfpewLogicalProgram();
+GLuint sfpewLogicalArrayBufferBinding();
 
 SFPEW_APIENTRY const GLubyte* glGetString(GLenum name);
 SFPEW_APIENTRY const GLubyte* glGetStringi(GLenum name, GLuint index);

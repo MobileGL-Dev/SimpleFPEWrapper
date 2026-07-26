@@ -655,7 +655,7 @@ private:
     mutable GLuint vertexBuffer = 0;
     mutable bool vertexBufferUploaded = false;
 
-    friend bool ::tryExecuteCapturedDisplayLists(const std::vector<GLuint>& listIds);
+    friend bool ::tryExecuteCapturedDisplayLists(const GLuint* listIds, size_t listCount);
 };
 
 constexpr size_t kCapturedDisplayListBatchCacheSize = 4;
@@ -703,8 +703,7 @@ void drawArraysNow(GLenum mode, GLint first, GLsizei count, bool forceFixedFunct
         return;
     }
 
-    GLint current_program = 0;
-    g_glFuncs.glGetIntegerv(GL_CURRENT_PROGRAM, &current_program);
+    const GLint current_program = sfpewLogicalProgram();
 
     const auto& vertex_array = g_glstate.fpe_state.vertexpointer_array;
     const uint32_t vertex_array_mask = 1u << vp2idx(GL_VERTEX_ARRAY);
@@ -714,8 +713,9 @@ void drawArraysNow(GLenum mode, GLint first, GLsizei count, bool forceFixedFunct
         return;
     }
 
-    fpe_backend_draw_state_guard_t backend_state(current_program);
-    GLint attributeArrayBuffer = backend_state.array_buffer;
+    const GLint logicalArrayBuffer = static_cast<GLint>(sfpewLogicalArrayBufferBinding());
+    fpe_backend_draw_state_guard_t backend_state(current_program, logicalArrayBuffer);
+    GLint attributeArrayBuffer = logicalArrayBuffer;
     if (arrayBufferOverride >= 0) {
         attributeArrayBuffer = arrayBufferOverride;
         g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, static_cast<GLuint>(arrayBufferOverride));
@@ -735,8 +735,8 @@ void drawArraysNow(GLenum mode, GLint first, GLsizei count, bool forceFixedFunct
 
 } // namespace
 
-bool tryExecuteCapturedDisplayLists(const std::vector<GLuint>& listIds) {
-    if (listIds.size() < 2 || g_glFuncs.glMultiDrawArrays == nullptr ||
+bool tryExecuteCapturedDisplayLists(const GLuint* listIds, size_t listCount) {
+    if (listIds == nullptr || listCount < 2 || g_glFuncs.glMultiDrawArrays == nullptr ||
         g_glstate.fpe_uniform.transformation.matrix_mode != GL_MODELVIEW) {
         return false;
     }
@@ -773,9 +773,9 @@ bool tryExecuteCapturedDisplayLists(const std::vector<GLuint>& listIds) {
 
     captured_display_list_batch_t* batch = nullptr;
     for (auto& entry : cache.entries) {
-        if (!entry.valid || entry.listIds.size() != listIds.size() ||
-            std::memcmp(entry.listIds.data(), listIds.data(),
-                        listIds.size() * sizeof(GLuint)) != 0) {
+        if (!entry.valid || entry.listIds.size() != listCount ||
+            std::memcmp(entry.listIds.data(), listIds,
+                        listCount * sizeof(GLuint)) != 0) {
             continue;
         }
 
@@ -801,15 +801,16 @@ bool tryExecuteCapturedDisplayLists(const std::vector<GLuint>& listIds) {
         candidate.commonLinear = glm::mat4(1.0f);
         candidate.commonBuffer = 0;
         candidate.maxVertexCount = 0;
-        candidate.listIds = listIds;
+        candidate.listIds.assign(listIds, listIds + listCount);
         candidate.firsts.clear();
         candidate.vertexCounts.clear();
         candidate.elementCounts.clear();
         candidate.indexPointers.clear();
-        candidate.firsts.reserve(listIds.size());
-        candidate.vertexCounts.reserve(listIds.size());
+        candidate.firsts.reserve(listCount);
+        candidate.vertexCounts.reserve(listCount);
 
-        for (const GLuint listId : listIds) {
+        for (size_t listIndex = 0; listIndex < listCount; ++listIndex) {
+            const GLuint listId = listIds[listIndex];
             const DisplayList* list = DisplayListManager::findList(listId);
             if (list == nullptr || list->size() != 1) return false;
 
@@ -903,8 +904,7 @@ void glDrawArrays(GLenum mode, GLint first, GLsizei count) {
     if (!disableRecording && DisplayListManager::shouldRecord()) {
         std::unique_ptr<GLCmd> command;
 
-        GLint currentProgram = 0;
-        g_glFuncs.glGetIntegerv(GL_CURRENT_PROGRAM, &currentProgram);
+        const GLint currentProgram = sfpewLogicalProgram();
         const auto& vertexArray = g_glstate.fpe_state.vertexpointer_array;
         const uint32_t vertexArrayMask = 1u << vp2idx(GL_VERTEX_ARRAY);
 

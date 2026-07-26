@@ -9,6 +9,37 @@
 #include "init.h"
 #include "fpe/drawing1x.h"
 
+namespace {
+
+struct logical_program_state_t {
+    EGLContext context = EGL_NO_CONTEXT;
+    GLint program = 0;
+    bool known = false;
+};
+
+thread_local logical_program_state_t logicalProgramState;
+
+logical_program_state_t& getLogicalProgramState() {
+    const EGLContext context =
+        g_eglFuncs.eglGetCurrentContext ? g_eglFuncs.eglGetCurrentContext() : EGL_NO_CONTEXT;
+    if (logicalProgramState.context != context) {
+        logicalProgramState = {};
+        logicalProgramState.context = context;
+    }
+    return logicalProgramState;
+}
+
+} // namespace
+
+GLint sfpewLogicalProgram() {
+    auto& state = getLogicalProgramState();
+    if (!state.known) {
+        g_glFuncs.glGetIntegerv(GL_CURRENT_PROGRAM, &state.program);
+        state.known = true;
+    }
+    return state.program;
+}
+
 #define ORDERED_PASSTHROUGH(name, declaration, arguments)                                                             \
     void name declaration {                                                                                           \
         flushPendingImmediateDraws();                                                                                 \
@@ -26,7 +57,18 @@ ORDERED_PASSTHROUGH(glFlush, (), ())
 ORDERED_PASSTHROUGH(glFinish, (), ())
 
 ORDERED_PASSTHROUGH(glBindFramebuffer, (GLenum target, GLuint framebuffer), (target, framebuffer))
-ORDERED_PASSTHROUGH(glUseProgram, (GLuint program), (program))
+void glUseProgram(GLuint program) {
+    flushPendingImmediateDraws();
+    if (g_glFuncs.glUseProgram == nullptr) return;
+    g_glFuncs.glUseProgram(program);
+
+    // Use the backend's post-call value so an invalid/unlinked program cannot
+    // poison the logical shadow. This query happens only on glUseProgram,
+    // replacing the per-draw GL_CURRENT_PROGRAM query on the hot path.
+    auto& state = getLogicalProgramState();
+    g_glFuncs.glGetIntegerv(GL_CURRENT_PROGRAM, &state.program);
+    state.known = true;
+}
 
 ORDERED_PASSTHROUGH(glBlendColor, (GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha),
                     (red, green, blue, alpha))

@@ -810,6 +810,12 @@ void glGetFloatv(GLenum pname, GLfloat* params) {
         memcpy(params, ptr, sizeof(GLfloat) * 16);
         break;
     }
+    case GL_ZOOM_X:
+        params[0] = g_glstate.fpe_uniform.pixel_zoom_x;
+        break;
+    case GL_ZOOM_Y:
+        params[0] = g_glstate.fpe_uniform.pixel_zoom_y;
+        break;
     case GL_CURRENT_RASTER_POSITION:
         memcpy(params, glm::value_ptr(g_glstate.fpe_uniform.raster_position), 4 * sizeof(GLfloat));
         break;

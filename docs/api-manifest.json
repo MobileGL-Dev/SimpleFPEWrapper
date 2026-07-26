@@ -1,6 +1,6 @@
 {
  "source": "lookup.cpp",
- "count": 361,
+ "count": 364,
  "entries": {
   "glActiveTexture": {
    "status": "resolvable",
@@ -845,6 +845,18 @@
   "glPixelStorei": {
    "status": "resolvable",
    "target": "glPixelStorei"
+  },
+  "glPixelTransferf": {
+   "status": "resolvable",
+   "target": "glPixelTransferf"
+  },
+  "glPixelTransferi": {
+   "status": "resolvable",
+   "target": "glPixelTransferi"
+  },
+  "glPixelZoom": {
+   "status": "resolvable",
+   "target": "glPixelZoom"
   },
   "glPointSize": {
    "status": "resolvable",

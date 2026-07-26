@@ -1144,6 +1144,43 @@ void glTexGendv(GLenum coord, GLenum pname, const GLdouble* params) {
     SELF_CALL(glTexGenfv, coord, pname, converted)
 }
 
+void glPixelZoom(GLfloat xfactor, GLfloat yfactor) {
+    flushPendingImmediateDraws();
+    LIST_RECORD(glPixelZoom, {}, xfactor, yfactor)
+    g_glstate.fpe_uniform.pixel_zoom_x = xfactor;
+    g_glstate.fpe_uniform.pixel_zoom_y = yfactor;
+}
+
+void glPixelTransferf(GLenum pname, GLfloat param) {
+    flushPendingImmediateDraws();
+    LIST_RECORD(glPixelTransferf, {}, pname, param)
+    auto& un = g_glstate.fpe_uniform;
+    switch (pname) {
+    case GL_RED_SCALE: un.pixel_scale[0] = param; break;
+    case GL_GREEN_SCALE: un.pixel_scale[1] = param; break;
+    case GL_BLUE_SCALE: un.pixel_scale[2] = param; break;
+    case GL_ALPHA_SCALE: un.pixel_scale[3] = param; break;
+    case GL_DEPTH_SCALE: un.pixel_scale[4] = param; break;
+    case GL_RED_BIAS: un.pixel_bias[0] = param; break;
+    case GL_GREEN_BIAS: un.pixel_bias[1] = param; break;
+    case GL_BLUE_BIAS: un.pixel_bias[2] = param; break;
+    case GL_ALPHA_BIAS: un.pixel_bias[3] = param; break;
+    case GL_DEPTH_BIAS: un.pixel_bias[4] = param; break;
+    case GL_MAP_COLOR: un.pixel_map_color = param != 0.0f; break;
+    case GL_MAP_STENCIL: un.pixel_map_stencil = param != 0.0f; break;
+    // Index shift/offset belong to color-index mode, which this
+    // implementation does not provide (plans/10, 10.5).
+    case GL_INDEX_SHIFT:
+    case GL_INDEX_OFFSET:
+        break;
+    default:
+        g_glstate.set_error(GL_INVALID_ENUM);
+        break;
+    }
+}
+
+void glPixelTransferi(GLenum pname, GLint param) { glPixelTransferf(pname, (GLfloat)param); }
+
 void glPolygonStipple(const GLubyte* mask) {
     flushPendingImmediateDraws();
     if (mask == nullptr) return;

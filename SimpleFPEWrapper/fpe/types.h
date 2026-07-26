@@ -292,6 +292,14 @@ struct fixed_function_uniform_t {
     // time per spec; consumed by the generated shaders in plans/08.
     glm::dvec4 clip_planes[6] = {};
 
+    // glPixelZoom / glPixelTransfer scale-bias (consumed by the CPU pixel
+    // paths in plans/08; state and queries are exact).
+    GLfloat pixel_zoom_x = 1.0f, pixel_zoom_y = 1.0f;
+    GLfloat pixel_scale[5] = {1, 1, 1, 1, 1}; // R,G,B,A,Depth
+    GLfloat pixel_bias[5] = {0, 0, 0, 0, 0};
+    bool pixel_map_color = false;
+    bool pixel_map_stencil = false;
+
     // Raster position state (glRasterPos*/glWindowPos*): window coords,
     // validity, and associated attributes. Consumed by the plans/08
     // bitmap/pixel paths; queryable via GL_CURRENT_RASTER_*.

@@ -262,35 +262,50 @@ inline bool containsMobileGLDev(const std::string& str) {
 }
 
 const GLubyte* glGetString(GLenum name) {
+    if (!sfpewEnsureBackend() || g_glFuncs.glGetString == nullptr) return nullptr;
+
     // we only wrap GL_VERSION GL_RENDERER GL_VENDOR
+    // Backend glGetString returns null without a current context; report
+    // that to the caller and, crucially, never let it poison the caches.
     switch (name) {
-    case GL_VERSION:
+    case GL_VERSION: {
         static std::string cachedVersionString;
         if (cachedVersionString.empty()) {
-            cachedVersionString = std::string((char*)g_glFuncs.glGetString(GL_VERSION)) + " (with Simple FPE Wrapper)";
+            const GLubyte* backend = g_glFuncs.glGetString(GL_VERSION);
+            if (!backend) return nullptr;
+            cachedVersionString = std::string((const char*)backend) + " (with Simple FPE Wrapper)";
         }
         return (const GLubyte*)cachedVersionString.c_str();
-    case GL_RENDERER:
+    }
+    case GL_RENDERER: {
         static std::string cachedRendererString;
         if (cachedRendererString.empty()) {
-            cachedRendererString = std::string((char*)g_glFuncs.glGetString(GL_RENDERER)) + " (SFPEW)";
+            const GLubyte* backend = g_glFuncs.glGetString(GL_RENDERER);
+            if (!backend) return nullptr;
+            cachedRendererString = std::string((const char*)backend) + " (SFPEW)";
         }
         return (const GLubyte*)cachedRendererString.c_str();
-    case GL_VENDOR:
+    }
+    case GL_VENDOR: {
         static std::string cachedVendorString;
         if (cachedVendorString.empty()) {
-            cachedVendorString = std::string((char*)g_glFuncs.glGetString(GL_VENDOR));
+            const GLubyte* backend = g_glFuncs.glGetString(GL_VENDOR);
+            if (!backend) return nullptr;
+            cachedVendorString = std::string((const char*)backend);
             if (!containsMobileGLDev(cachedVendorString)) {
                 cachedVendorString += " (SFPEW: MobileGL-Dev)";
             }
         }
         return (const GLubyte*)cachedVendorString.c_str();
+    }
     default:
         return g_glFuncs.glGetString(name);
     }
 }
 
 const GLubyte* glGetStringi(GLenum name, GLuint index) {
+    if (!sfpewEnsureBackend() || g_glFuncs.glGetStringi == nullptr) return nullptr;
+
     if (name != GL_EXTENSIONS) {
         return g_glFuncs.glGetStringi(name, index);
     }
@@ -318,9 +333,11 @@ const GLubyte* glGetStringi(GLenum name, GLuint index) {
 }
 
 void glGetIntegerv(GLenum pname, GLint* params) {
-    if (!params) {
-        throw std::invalid_argument("params pointer cannot be null");
-    }
+    // A null out-pointer is caller error; GL never throws. Returning quietly
+    // here keeps C callers alive (error injection arrives with the S2 error
+    // machine).
+    if (!params) return;
+    if (!sfpewEnsureBackend() || g_glFuncs.glGetIntegerv == nullptr) return;
 
     switch (pname) {
     case GL_CONTEXT_PROFILE_MASK:
@@ -329,14 +346,22 @@ void glGetIntegerv(GLenum pname, GLint* params) {
     case GL_CONTEXT_FLAGS:
         *params = 0;
         break;
-    case GL_NUM_EXTENSIONS:
+    case GL_NUM_EXTENSIONS: {
         static GLint cachedNumExtensions = -1;
-        if (cachedNumExtensions == -1) {
-            g_glFuncs.glGetIntegerv(GL_NUM_EXTENSIONS, &cachedNumExtensions);
-            cachedNumExtensions += 8;
+        if (cachedNumExtensions < 0) {
+            // Without a current context the backend leaves the out-param
+            // untouched; only cache a value the backend actually wrote.
+            GLint backendCount = -1;
+            g_glFuncs.glGetIntegerv(GL_NUM_EXTENSIONS, &backendCount);
+            if (backendCount < 0) {
+                *params = 0;
+                return;
+            }
+            cachedNumExtensions = backendCount + 8;
         }
         *params = cachedNumExtensions;
         break;
+    }
     case GL_CURRENT_PROGRAM:
         *params = sfpewLogicalProgram();
         break;
@@ -350,6 +375,7 @@ void glGetIntegerv(GLenum pname, GLint* params) {
 }
 
 void glGetFloatv(GLenum pname, GLfloat* params) {
+    if (!params) return;
     switch (pname) {
     case GL_MODELVIEW_MATRIX: {
         auto* ptr = glm::value_ptr(g_glstate.fpe_uniform.transformation.matrices[matrix_idx(GL_MODELVIEW)]);
@@ -362,12 +388,13 @@ void glGetFloatv(GLenum pname, GLfloat* params) {
         break;
     }
     default:
-        g_glFuncs.glGetFloatv(pname, params);
+        if (sfpewEnsureBackend() && g_glFuncs.glGetFloatv != nullptr) g_glFuncs.glGetFloatv(pname, params);
         break;
     }
 }
 
 void glActiveTexture(GLenum texture) {
+    if (!sfpewEnsureBackend() || g_glFuncs.glActiveTexture == nullptr) return;
     auto& state = getLogicalTextureBindings();
     if (getLogicalActiveTexture(state) == texture) return;
 
@@ -378,6 +405,7 @@ void glActiveTexture(GLenum texture) {
 }
 
 void glBindTexture(GLenum target, GLuint texture) {
+    if (!sfpewEnsureBackend() || g_glFuncs.glBindTexture == nullptr) return;
     auto& state = getLogicalTextureBindings();
     const GLenum activeTexture = getLogicalActiveTexture(state);
     const GLenum query = textureBindingQuery(target);
@@ -393,6 +421,7 @@ void glBindTexture(GLenum target, GLuint texture) {
 }
 
 void glDeleteTextures(GLsizei n, const GLuint* textures) {
+    if (!sfpewEnsureBackend() || g_glFuncs.glDeleteTextures == nullptr) return;
     flushPendingImmediateDraws();
     g_glFuncs.glDeleteTextures(n, textures);
     if (n <= 0 || textures == nullptr) return;
@@ -410,6 +439,7 @@ void glDeleteTextures(GLsizei n, const GLuint* textures) {
 
 void glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height, GLint border,
                   GLenum format, GLenum type, const GLvoid* pixels) {
+    if (!sfpewEnsureBackend() || g_glFuncs.glTexImage2D == nullptr || g_glFuncs.glGetIntegerv == nullptr) return;
     flushPendingImmediateDraws();
     if (target != GL_PROXY_TEXTURE_2D) {
         g_glFuncs.glTexImage2D(target, level, internalformat, width, height, border, format, type, pixels);
@@ -444,6 +474,7 @@ void glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei widt
 }
 
 void glGetTexLevelParameteriv(GLenum target, GLint level, GLenum pname, GLint* params) {
+    if (!sfpewEnsureBackend() || g_glFuncs.glGetTexLevelParameteriv == nullptr) return;
     if (target != GL_PROXY_TEXTURE_2D) {
         g_glFuncs.glGetTexLevelParameteriv(target, level, pname, params);
         return;
@@ -458,6 +489,7 @@ void glGetTexLevelParameteriv(GLenum target, GLint level, GLenum pname, GLint* p
 }
 
 void glGetTexLevelParameterfv(GLenum target, GLint level, GLenum pname, GLfloat* params) {
+    if (!sfpewEnsureBackend() || g_glFuncs.glGetTexLevelParameterfv == nullptr) return;
     if (target != GL_PROXY_TEXTURE_2D) {
         g_glFuncs.glGetTexLevelParameterfv(target, level, pname, params);
         return;

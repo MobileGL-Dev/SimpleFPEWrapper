@@ -19,29 +19,30 @@ void flushPendingImmediateDraws();
 template <typename Type, GLint N>
 void mglNormal(std::array<Type, N> normal) {
     auto& state = g_glstate.fpe_state.fpe_draw;
+    state.set_attribute_size(1, N); // before overwriting the current value
     auto& cur = state.current_data.normal;
     // let's hope this vectorizes well...
     for (auto i = 0; i < N; ++i) {
         glm::value_ptr(cur)[i] = (GLfloat)normal[i];
     }
-    state.current_data.sizes.normal_size = N;
 }
 
 template <typename Type, GLint N>
 void mglTexCoord(std::array<Type, N> uv, GLint texid) {
     auto& state = g_glstate.fpe_state.fpe_draw;
+    state.set_attribute_size(7 + texid, N);
     auto& cur = state.current_data.texcoord[texid];
     cur = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
     // let's hope this vectorizes well...
     for (auto i = 0; i < N; ++i) {
         glm::value_ptr(cur)[i] = (GLfloat)uv[i];
     }
-    state.current_data.sizes.texcoord_size[texid] = N;
 }
 
 template <typename Type, GLint N>
 void mglColor(std::array<Type, N> color) {
     auto& state = g_glstate.fpe_state.fpe_draw;
+    state.set_attribute_size(2, N);
     auto& cur = state.current_data.color;
     // Desktop GL defines alpha=1 for every glColor3* entry point.
     cur = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
@@ -49,7 +50,6 @@ void mglColor(std::array<Type, N> color) {
     for (auto i = 0; i < N; ++i) {
         glm::value_ptr(cur)[i] = (GLfloat)color[i];
     }
-    state.current_data.sizes.color_size = N;
 
     if (g_glstate.fpe_state.fpe_bools.color_material_enable) {
         // Vertex colors are copied into the pending batch, so ordinary color
@@ -95,6 +95,7 @@ void mglVertex(std::array<Type, N> vertex) {
     if (g_glstate.fpe_state.fpe_draw.primitive == GL_NONE) return;
 
     auto& state = g_glstate.fpe_state.fpe_draw;
+    state.set_attribute_size(0, N);
     auto& cur = state.current_data.vertex;
     // Missing components are (0, 0, 0, 1), rather than values left over
     // from the previous immediate-mode vertex.
@@ -103,8 +104,6 @@ void mglVertex(std::array<Type, N> vertex) {
     for (auto i = 0; i < N; ++i) {
         glm::value_ptr(cur)[i] = (GLfloat)vertex[i];
     }
-    state.current_data.sizes.vertex_size = N;
-
     // let's collect one vertex here!
     state.advance();
 }

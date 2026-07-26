@@ -169,6 +169,14 @@ struct fixed_function_draw_state_t {
     // Put one vertex into vb, from current draw state
     void advance();
 
+    // Declare attribute `slot` as size `requested` for the primitive being
+    // collected. First attribute use after vertices were already collected
+    // repacks vb so every vertex shares one layout (GL 1.x allows e.g. the
+    // first glColor* after the first glVertex*). Grow-only within a
+    // primitive; call BEFORE overwriting the attribute's current value -
+    // already-collected vertices are backfilled with the OLD current value.
+    void set_attribute_size(int slot, GLint requested);
+
     void compile_vertexattrib(vertex_pointer_array_t& va) const;
 };
 

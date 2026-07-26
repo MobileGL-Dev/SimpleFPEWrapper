@@ -17,6 +17,67 @@ void fixed_function_draw_state_t::reset() {
     vb.clear();
 }
 
+void fixed_function_draw_state_t::set_attribute_size(int slot, GLint requested) {
+    GLint& stored = current_data.sizes.data[slot];
+    if (primitive == GL_NONE || vertex_count == 0) {
+        stored = requested;
+        return;
+    }
+    if (requested <= stored) return; // grow-only while collecting
+
+    // Repack every collected vertex from the old layout to the new one.
+    // advance() only ever packs slots 0-2 (vertex/normal/color) and 7+
+    // (texcoords), in ascending slot order.
+    const auto packed_size = [&](int s) -> GLint {
+        const GLint sz = current_data.sizes.data[s];
+        return (s <= 2 || s >= 7) && sz > 0 ? sz : 0;
+    };
+    size_t old_stride = 0;
+    for (int s = 0; s < VERTEX_POINTER_COUNT; ++s) old_stride += (size_t)packed_size(s);
+    if (old_stride == 0 || vb.size() < old_stride * vertex_count) {
+        stored = requested;
+        return;
+    }
+
+    // Backfill value for vertices collected before this attribute existed:
+    // its current value right now (the caller has not overwritten it yet).
+    const GLfloat* previous_value = nullptr;
+    if (slot == 0)
+        previous_value = glm::value_ptr(current_data.vertex);
+    else if (slot == 1)
+        previous_value = glm::value_ptr(current_data.normal);
+    else if (slot == 2)
+        previous_value = glm::value_ptr(current_data.color);
+    else
+        previous_value = glm::value_ptr(current_data.texcoord[slot - 7]);
+    static constexpr GLfloat kComponentDefaults[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+
+    std::vector<GLfloat> repacked;
+    repacked.reserve((old_stride + (size_t)(requested - stored)) * vertex_count);
+    for (size_t v = 0; v < vertex_count; ++v) {
+        const GLfloat* src = vb.data() + v * old_stride;
+        size_t consumed = 0;
+        for (int s = 0; s < VERTEX_POINTER_COUNT; ++s) {
+            const GLint sz = packed_size(s);
+            if (s == slot) {
+                for (GLint c = 0; c < requested; ++c) {
+                    if (c < sz)
+                        repacked.push_back(src[consumed + c]);
+                    else if (sz == 0)
+                        repacked.push_back(previous_value[c]);
+                    else
+                        repacked.push_back(kComponentDefaults[c]);
+                }
+            } else {
+                for (GLint c = 0; c < sz; ++c) repacked.push_back(src[consumed + c]);
+            }
+            consumed += (size_t)sz;
+        }
+    }
+    vb = std::move(repacked);
+    stored = requested;
+}
+
 void fixed_function_draw_state_t::advance() {
     ++vertex_count;
 

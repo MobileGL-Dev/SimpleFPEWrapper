@@ -79,8 +79,61 @@ void for_each_material(GLenum face, Func&& func) {
     if (face == GL_BACK || face == GL_FRONT_AND_BACK) func(materials[1]);
 }
 
-texture_env_t& current_texture_env() {
-    return g_glstate.fpe_uniform.texture_env[active_texture_index()];
+texture_env_t& current_texture_env(glstate_t& gs) {
+    return gs.fpe_uniform.texture_env[active_texture_index()];
+}
+
+// Shared body of glTexEnvi minus recording: called by the glTexEnv* family
+// after the entry's single strict resolve, replacing SELF_CALL re-entry
+// (which would re-resolve the context per hop).
+void tex_env_set_int(glstate_t& gs, GLenum target, GLenum pname, GLint param) {
+    if (target == GL_TEXTURE_FILTER_CONTROL && pname == GL_TEXTURE_LOD_BIAS) {
+        current_texture_env(gs).lod_bias = (GLfloat)param;
+        return;
+    }
+    if (target != GL_TEXTURE_ENV) return;
+
+    auto& env = current_texture_env(gs);
+    switch (pname) {
+    case GL_TEXTURE_ENV_MODE:
+        env.mode = param;
+        gs.fpe_state.texture_env_mode[active_texture_index()] = param;
+        break;
+    case GL_COMBINE_RGB:
+        env.combine_rgb = param;
+        break;
+    case GL_COMBINE_ALPHA:
+        env.combine_alpha = param;
+        break;
+    case GL_SOURCE0_RGB:
+    case GL_SOURCE1_RGB:
+    case GL_SOURCE2_RGB:
+        env.source_rgb[pname - GL_SOURCE0_RGB] = param;
+        break;
+    case GL_SOURCE0_ALPHA:
+    case GL_SOURCE1_ALPHA:
+    case GL_SOURCE2_ALPHA:
+        env.source_alpha[pname - GL_SOURCE0_ALPHA] = param;
+        break;
+    case GL_OPERAND0_RGB:
+    case GL_OPERAND1_RGB:
+    case GL_OPERAND2_RGB:
+        env.operand_rgb[pname - GL_OPERAND0_RGB] = param;
+        break;
+    case GL_OPERAND0_ALPHA:
+    case GL_OPERAND1_ALPHA:
+    case GL_OPERAND2_ALPHA:
+        env.operand_alpha[pname - GL_OPERAND0_ALPHA] = param;
+        break;
+    case GL_RGB_SCALE:
+        env.rgb_scale = (GLfloat)param;
+        break;
+    case GL_ALPHA_SCALE:
+        env.alpha_scale = (GLfloat)param;
+        break;
+    default:
+        break;
+    }
 }
 
 } // namespace
@@ -152,7 +205,8 @@ void glEnable(GLenum cap) {
 
     LIST_RECORD(glEnable, {}, cap)
 
-    if (hijack_fpe_states(cap, true, &g_glstate.fpe_state.fpe_bools)) return;
+    auto& gs = g_glstate;
+    if (hijack_fpe_states(cap, true, &gs.fpe_state.fpe_bools)) return;
 
     g_glFuncs.glEnable(cap);
 }
@@ -164,7 +218,8 @@ void glDisable(GLenum cap) {
 
     LIST_RECORD(glDisable, {}, cap)
 
-    if (hijack_fpe_states(cap, false, &g_glstate.fpe_state.fpe_bools)) return;
+    auto& gs = g_glstate;
+    if (hijack_fpe_states(cap, false, &gs.fpe_state.fpe_bools)) return;
 
     g_glFuncs.glDisable(cap);
 }
@@ -176,7 +231,8 @@ void glClientActiveTexture(GLenum texture) {
 
     // Todo: this function can be added to displayList when GL 1.3+ is disabled
 
-    g_glstate.fpe_state.client_active_texture = texture;
+    auto& gs = g_glstate;
+    gs.fpe_state.client_active_texture = texture;
 }
 
 void glAlphaFunc(GLenum func, GLclampf ref) {
@@ -187,15 +243,16 @@ void glAlphaFunc(GLenum func, GLclampf ref) {
     // alpha_func feeds shader generation; an unvalidated enum used to end
     // up as error text inside the GLSL source. Erroring commands are not
     // recorded into display lists.
+    auto& gs = g_glstate;
     if (func < GL_NEVER || func > GL_ALWAYS) {
-        g_glstate.set_error(GL_INVALID_ENUM);
+        gs.set_error(GL_INVALID_ENUM);
         return;
     }
 
     LIST_RECORD(glAlphaFunc, {}, func, ref)
 
-    g_glstate.fpe_state.alpha_func = func;
-    g_glstate.fpe_uniform.alpha_ref = ref;
+    gs.fpe_state.alpha_func = func;
+    gs.fpe_uniform.alpha_ref = ref;
 }
 
 void glFogf(GLenum pname, GLfloat param) {
@@ -205,15 +262,16 @@ void glFogf(GLenum pname, GLfloat param) {
 
     LIST_RECORD(glFogf, {}, pname, param)
 
+    auto& gs = g_glstate;
     switch (pname) {
     case GL_FOG_DENSITY:
-        g_glstate.fpe_uniform.fog_density = param;
+        gs.fpe_uniform.fog_density = param;
         return;
     case GL_FOG_START:
-        g_glstate.fpe_uniform.fog_start = param;
+        gs.fpe_uniform.fog_start = param;
         return;
     case GL_FOG_END:
-        g_glstate.fpe_uniform.fog_end = param;
+        gs.fpe_uniform.fog_end = param;
         return;
 
     // below should not be handled here
@@ -224,7 +282,7 @@ void glFogf(GLenum pname, GLfloat param) {
         return;
 
     default:
-        g_glstate.set_error(GL_INVALID_ENUM);
+        gs.set_error(GL_INVALID_ENUM);
         break;
     }
 }
@@ -236,25 +294,26 @@ void glFogi(GLenum pname, GLint param) {
 
     LIST_RECORD(glFogi, {}, pname, param)
 
+    auto& gs = g_glstate;
     switch (pname) {
     case GL_FOG_MODE:
         // fog_mode selects generated shader code; an invalid mode used to
         // produce GLSL referencing an undeclared fogFactor.
         if (param != GL_LINEAR && param != GL_EXP && param != GL_EXP2) {
-            g_glstate.set_error(GL_INVALID_ENUM);
+            gs.set_error(GL_INVALID_ENUM);
             break;
         }
-        g_glstate.fpe_state.fog_mode = param;
+        gs.fpe_state.fog_mode = param;
         break;
     case GL_FOG_INDEX:
-        g_glstate.fpe_state.fog_index = param;
+        gs.fpe_state.fog_index = param;
         break;
     case GL_FOG_COORD_SRC:
         if (param != GL_FRAGMENT_DEPTH && param != GL_FOG_COORD) {
-            g_glstate.set_error(GL_INVALID_ENUM);
+            gs.set_error(GL_INVALID_ENUM);
             break;
         }
-        g_glstate.fpe_state.fog_coord_src = param;
+        gs.fpe_state.fog_coord_src = param;
         break;
 
     // below should not be handled here
@@ -264,7 +323,7 @@ void glFogi(GLenum pname, GLint param) {
         SELF_CALL(glFogf, pname, (GLfloat)param)
         return;
     default:
-        g_glstate.set_error(GL_INVALID_ENUM);
+        gs.set_error(GL_INVALID_ENUM);
         break;
     }
 }
@@ -277,6 +336,7 @@ void glFogfv(GLenum pname, const GLfloat* params) {
     if (params == nullptr) return; // LIST_RECORD deep-copies via pname_to_count; guard before it
     LIST_RECORD(glFogfv, {{1, PointerUtils::pname_to_count(pname) * sizeof(GLfloat)}}, pname, params)
 
+    auto& gs = g_glstate;
     switch (pname) {
     case GL_FOG_MODE:
     case GL_FOG_INDEX:
@@ -289,14 +349,14 @@ void glFogfv(GLenum pname, const GLfloat* params) {
         SELF_CALL(glFogf, pname, params[0])
         break;
     case GL_FOG_COLOR: {
-        auto& fcolor = g_glstate.fpe_uniform.fog_color;
+        auto& fcolor = gs.fpe_uniform.fog_color;
         fcolor = glm::make_vec4(params);
         // LOG_D("[...] = [%.2f, %.2f, %.2f, %.2f]", params[0], params[1], params[2], params[3])
         // LOG_D("fcolor = [%.2f, %.2f, %.2f, %.2f]", fcolor[0], fcolor[1], fcolor[2], fcolor[3])
         break;
     }
     default:
-        g_glstate.set_error(GL_INVALID_ENUM);
+        gs.set_error(GL_INVALID_ENUM);
         break;
     }
 }
@@ -309,9 +369,10 @@ void glFogiv(GLenum pname, const GLint* params) {
     if (params == nullptr) return;
     LIST_RECORD(glFogiv, {{1, PointerUtils::pname_to_count(pname) * sizeof(GLint)}}, pname, params)
 
+    auto& gs = g_glstate;
     switch (pname) {
     case GL_FOG_COLOR: {
-        auto& fcolor = g_glstate.fpe_uniform.fog_color;
+        auto& fcolor = gs.fpe_uniform.fog_color;
         fcolor[0] = (GLfloat)params[0] / (GLfloat)INT32_MAX;
         fcolor[1] = (GLfloat)params[1] / (GLfloat)INT32_MAX;
         fcolor[2] = (GLfloat)params[2] / (GLfloat)INT32_MAX;
@@ -330,7 +391,7 @@ void glFogiv(GLenum pname, const GLint* params) {
         SELF_CALL(glFogf, pname, (GLfloat)params[0])
         break;
     default:
-        g_glstate.set_error(GL_INVALID_ENUM);
+        gs.set_error(GL_INVALID_ENUM);
         break;
     }
 }
@@ -340,14 +401,15 @@ void glShadeModel(GLenum mode) {
     // LOG()
     // LOG_D("glShadeModel(%s)", glEnumToString(mode))
 
+    auto& gs = g_glstate;
     if (mode != GL_FLAT && mode != GL_SMOOTH) {
-        g_glstate.set_error(GL_INVALID_ENUM);
+        gs.set_error(GL_INVALID_ENUM);
         return;
     }
 
     LIST_RECORD(glShadeModel, {}, mode)
 
-    g_glstate.fpe_state.shade_model = mode;
+    gs.fpe_state.shade_model = mode;
 }
 
 void glLightf(GLenum light, GLenum pname, GLfloat param) {
@@ -359,7 +421,8 @@ void glLightf(GLenum light, GLenum pname, GLfloat param) {
 
     const int index = light_index(light);
     if (index < 0) return;
-    auto& lightref = g_glstate.fpe_uniform.lights[index];
+    auto& gs = g_glstate;
+    auto& lightref = gs.fpe_uniform.lights[index];
 
     switch (pname) {
     case GL_SPOT_EXPONENT:
@@ -378,7 +441,7 @@ void glLightf(GLenum light, GLenum pname, GLfloat param) {
         lightref.quadratic_attenuation = param;
         break;
     default:
-        g_glstate.set_error(GL_INVALID_ENUM);
+        gs.set_error(GL_INVALID_ENUM);
         break;
     }
 }
@@ -405,7 +468,8 @@ void glLightfv(GLenum light, GLenum pname, const GLfloat* params) {
 
     LIST_RECORD(glLightfv, {{2, PointerUtils::pname_to_count(pname) * sizeof(GLfloat)}}, light, pname, params)
 
-    auto& lightref = g_glstate.fpe_uniform.lights[index];
+    auto& gs = g_glstate;
+    auto& lightref = gs.fpe_uniform.lights[index];
 
     switch (pname) {
     case GL_SPOT_CUTOFF:
@@ -433,19 +497,19 @@ void glLightfv(GLenum light, GLenum pname, const GLfloat* params) {
         // particular, Minecraft rotates the ModelView matrix around the two
         // directional glLight(GL_POSITION) calls and restores it afterwards.
         const auto& model_view =
-            g_glstate.fpe_uniform.transformation.matrices[matrix_idx(GL_MODELVIEW)];
+            gs.fpe_uniform.transformation.matrices[matrix_idx(GL_MODELVIEW)];
         lightref.position = model_view * glm::make_vec4(params);
         break;
     }
     case GL_SPOT_DIRECTION: {
         // Like GL_POSITION, spot directions are captured in eye coordinates
         // using the upper 3x3 of the model-view current at call time.
-        const auto& mv = g_glstate.fpe_uniform.transformation.matrices[matrix_idx(GL_MODELVIEW)];
+        const auto& mv = gs.fpe_uniform.transformation.matrices[matrix_idx(GL_MODELVIEW)];
         lightref.spot_direction = glm::mat3(mv) * glm::make_vec3(params);
         break;
     }
     default:
-        g_glstate.set_error(GL_INVALID_ENUM);
+        gs.set_error(GL_INVALID_ENUM);
         break;
     }
 }
@@ -459,6 +523,7 @@ void glLightiv(GLenum light, GLenum pname, const GLint* params) {
 
     LIST_RECORD(glLightiv, {{2, PointerUtils::pname_to_count(pname) * sizeof(GLint)}}, light, pname, params)
 
+    auto& gs = g_glstate;
     switch (pname) {
     case GL_SPOT_CUTOFF:
     case GL_SPOT_EXPONENT:
@@ -487,7 +552,7 @@ void glLightiv(GLenum light, GLenum pname, const GLint* params) {
         break;
     }
     default:
-        g_glstate.set_error(GL_INVALID_ENUM);
+        gs.set_error(GL_INVALID_ENUM);
         break;
     }
 }
@@ -499,6 +564,7 @@ void glLightModelf(GLenum pname, GLfloat param) {
 
     LIST_RECORD(glLightModelf, {}, pname, param)
 
+    auto& gs = g_glstate;
     switch (pname) {
     case GL_LIGHT_MODEL_LOCAL_VIEWER:
     case GL_LIGHT_MODEL_COLOR_CONTROL:
@@ -506,7 +572,7 @@ void glLightModelf(GLenum pname, GLfloat param) {
         SELF_CALL(glLightModeli, pname, (GLint)param)
         break; // previously fell through into the (then-empty) default
     default:
-        g_glstate.set_error(GL_INVALID_ENUM);
+        gs.set_error(GL_INVALID_ENUM);
         break;
     }
 }
@@ -518,18 +584,19 @@ void glLightModeli(GLenum pname, GLint param) {
 
     LIST_RECORD(glLightModeli, {}, pname, param)
 
+    auto& gs = g_glstate;
     switch (pname) {
     case GL_LIGHT_MODEL_COLOR_CONTROL:
-        g_glstate.fpe_state.light_model_color_ctrl = param;
+        gs.fpe_state.light_model_color_ctrl = param;
         break;
     case GL_LIGHT_MODEL_LOCAL_VIEWER:
-        g_glstate.fpe_state.light_model_local_viewer = param;
+        gs.fpe_state.light_model_local_viewer = param;
         break;
     case GL_LIGHT_MODEL_TWO_SIDE:
-        g_glstate.fpe_state.light_model_two_side = param;
+        gs.fpe_state.light_model_two_side = param;
         break;
     default:
-        g_glstate.set_error(GL_INVALID_ENUM);
+        gs.set_error(GL_INVALID_ENUM);
         break;
     }
 }
@@ -542,9 +609,10 @@ void glLightModelfv(GLenum pname, const GLfloat* params) {
     if (params == nullptr) return;
     LIST_RECORD(glLightModelfv, {{1, PointerUtils::pname_to_count(pname) * sizeof(GLfloat)}}, pname, params)
 
+    auto& gs = g_glstate;
     switch (pname) {
     case GL_LIGHT_MODEL_AMBIENT:
-        g_glstate.fpe_uniform.light_model_ambient = glm::make_vec4(params);
+        gs.fpe_uniform.light_model_ambient = glm::make_vec4(params);
         break;
     case GL_LIGHT_MODEL_COLOR_CONTROL:
     case GL_LIGHT_MODEL_LOCAL_VIEWER:
@@ -552,7 +620,7 @@ void glLightModelfv(GLenum pname, const GLfloat* params) {
         SELF_CALL(glLightModelf, pname, params[0]);
         break;
     default:
-        g_glstate.set_error(GL_INVALID_ENUM);
+        gs.set_error(GL_INVALID_ENUM);
         break;
     }
 }
@@ -565,6 +633,7 @@ void glLightModeliv(GLenum pname, const GLint* params) {
     if (params == nullptr) return;
     LIST_RECORD(glLightModeliv, {{1, PointerUtils::pname_to_count(pname) * sizeof(GLint)}}, pname, params)
 
+    auto& gs = g_glstate;
     switch (pname) {
     case GL_LIGHT_MODEL_AMBIENT: {
         GLfloat converted[4];
@@ -578,7 +647,7 @@ void glLightModeliv(GLenum pname, const GLint* params) {
         SELF_CALL(glLightModeli, pname, params[0]);
         break;
     default:
-        g_glstate.set_error(GL_INVALID_ENUM);
+        gs.set_error(GL_INVALID_ENUM);
         break;
     }
 }
@@ -588,14 +657,15 @@ void glColorMaterial(GLenum face, GLenum mode) {
     LIST_RECORD(glColorMaterial, {}, face, mode)
 
     if (face != GL_FRONT && face != GL_BACK && face != GL_FRONT_AND_BACK) return;
+    auto& gs = g_glstate;
     switch (mode) {
     case GL_AMBIENT:
     case GL_DIFFUSE:
     case GL_SPECULAR:
     case GL_EMISSION:
     case GL_AMBIENT_AND_DIFFUSE:
-        g_glstate.fpe_state.color_material_face = face;
-        g_glstate.fpe_state.color_material_mode = mode;
+        gs.fpe_state.color_material_face = face;
+        gs.fpe_state.color_material_mode = mode;
         break;
     default:
         break;
@@ -676,7 +746,8 @@ void glTexEnvf(GLenum target, GLenum pname, GLfloat param) {
     flushPendingImmediateDraws();
     LIST_RECORD(glTexEnvf, {}, target, pname, param)
 
-    auto& env = current_texture_env();
+    auto& gs = g_glstate;
+    auto& env = current_texture_env(gs);
     if (target == GL_TEXTURE_FILTER_CONTROL && pname == GL_TEXTURE_LOD_BIAS) {
         env.lod_bias = param;
         return;
@@ -691,7 +762,7 @@ void glTexEnvf(GLenum target, GLenum pname, GLfloat param) {
         env.alpha_scale = param;
         break;
     default:
-        SELF_CALL(glTexEnvi, target, pname, (GLint)param)
+        tex_env_set_int(gs, target, pname, (GLint)param);
         break;
     }
 }
@@ -700,53 +771,7 @@ void glTexEnvi(GLenum target, GLenum pname, GLint param) {
     flushPendingImmediateDraws();
     LIST_RECORD(glTexEnvi, {}, target, pname, param)
 
-    if (target == GL_TEXTURE_FILTER_CONTROL && pname == GL_TEXTURE_LOD_BIAS) {
-        current_texture_env().lod_bias = (GLfloat)param;
-        return;
-    }
-    if (target != GL_TEXTURE_ENV) return;
-
-    auto& env = current_texture_env();
-    switch (pname) {
-    case GL_TEXTURE_ENV_MODE:
-        env.mode = param;
-        g_glstate.fpe_state.texture_env_mode[active_texture_index()] = param;
-        break;
-    case GL_COMBINE_RGB:
-        env.combine_rgb = param;
-        break;
-    case GL_COMBINE_ALPHA:
-        env.combine_alpha = param;
-        break;
-    case GL_SOURCE0_RGB:
-    case GL_SOURCE1_RGB:
-    case GL_SOURCE2_RGB:
-        env.source_rgb[pname - GL_SOURCE0_RGB] = param;
-        break;
-    case GL_SOURCE0_ALPHA:
-    case GL_SOURCE1_ALPHA:
-    case GL_SOURCE2_ALPHA:
-        env.source_alpha[pname - GL_SOURCE0_ALPHA] = param;
-        break;
-    case GL_OPERAND0_RGB:
-    case GL_OPERAND1_RGB:
-    case GL_OPERAND2_RGB:
-        env.operand_rgb[pname - GL_OPERAND0_RGB] = param;
-        break;
-    case GL_OPERAND0_ALPHA:
-    case GL_OPERAND1_ALPHA:
-    case GL_OPERAND2_ALPHA:
-        env.operand_alpha[pname - GL_OPERAND0_ALPHA] = param;
-        break;
-    case GL_RGB_SCALE:
-        env.rgb_scale = (GLfloat)param;
-        break;
-    case GL_ALPHA_SCALE:
-        env.alpha_scale = (GLfloat)param;
-        break;
-    default:
-        break;
-    }
+    tex_env_set_int(g_glstate, target, pname, param);
 }
 
 void glTexEnvfv(GLenum target, GLenum pname, const GLfloat* params) {
@@ -754,12 +779,29 @@ void glTexEnvfv(GLenum target, GLenum pname, const GLfloat* params) {
     if (params == nullptr) return;
     LIST_RECORD(glTexEnvfv, {{2, tex_env_param_count(pname) * sizeof(GLfloat)}}, target, pname, params)
 
-    if (!params) return;
+    auto& gs = g_glstate;
     if (target == GL_TEXTURE_ENV && pname == GL_TEXTURE_ENV_COLOR) {
-        current_texture_env().color = glm::make_vec4(params);
+        current_texture_env(gs).color = glm::make_vec4(params);
         return;
     }
-    SELF_CALL(glTexEnvf, target, pname, params[0])
+    const GLfloat param = params[0];
+    auto& env = current_texture_env(gs);
+    if (target == GL_TEXTURE_FILTER_CONTROL && pname == GL_TEXTURE_LOD_BIAS) {
+        env.lod_bias = param;
+        return;
+    }
+    if (target != GL_TEXTURE_ENV) return;
+    switch (pname) {
+    case GL_RGB_SCALE:
+        env.rgb_scale = param;
+        break;
+    case GL_ALPHA_SCALE:
+        env.alpha_scale = param;
+        break;
+    default:
+        tex_env_set_int(gs, target, pname, (GLint)param);
+        break;
+    }
 }
 
 void glTexEnviv(GLenum target, GLenum pname, const GLint* params) {
@@ -767,14 +809,14 @@ void glTexEnviv(GLenum target, GLenum pname, const GLint* params) {
     if (params == nullptr) return;
     LIST_RECORD(glTexEnviv, {{2, tex_env_param_count(pname) * sizeof(GLint)}}, target, pname, params)
 
-    if (!params) return;
+    auto& gs = g_glstate;
     if (target == GL_TEXTURE_ENV && pname == GL_TEXTURE_ENV_COLOR) {
         GLfloat converted[4];
         for (int i = 0; i < 4; ++i) converted[i] = normalized_component(params[i]);
-        SELF_CALL(glTexEnvfv, target, pname, converted)
+        current_texture_env(gs).color = glm::make_vec4(converted);
         return;
     }
-    SELF_CALL(glTexEnvi, target, pname, params[0])
+    tex_env_set_int(gs, target, pname, params[0]);
 }
 
 // The original implementation only defined a few GLfloat scalar immediate-mode
@@ -1086,16 +1128,17 @@ bool texgen_mode_valid(GLenum coord, GLenum mode) {
 void glTexGeni(GLenum coord, GLenum pname, GLint param) {
     flushPendingImmediateDraws();
     const int c = texgen_coord_index(coord);
+    auto& gs = g_glstate;
     if (c < 0 || pname != GL_TEXTURE_GEN_MODE) {
-        g_glstate.set_error(GL_INVALID_ENUM);
+        gs.set_error(GL_INVALID_ENUM);
         return;
     }
     if (!texgen_mode_valid(coord, (GLenum)param)) {
-        g_glstate.set_error(GL_INVALID_ENUM);
+        gs.set_error(GL_INVALID_ENUM);
         return;
     }
     LIST_RECORD(glTexGeni, {}, coord, pname, param)
-    g_glstate.fpe_state.texture_gen_mode[active_texture_index()][c] = (GLenum)param;
+    gs.fpe_state.texture_gen_mode[active_texture_index()][c] = (GLenum)param;
 }
 
 void glTexGenf(GLenum coord, GLenum pname, GLfloat param) { glTexGeni(coord, pname, (GLint)param); }
@@ -1104,8 +1147,9 @@ void glTexGend(GLenum coord, GLenum pname, GLdouble param) { glTexGeni(coord, pn
 void glTexGenfv(GLenum coord, GLenum pname, const GLfloat* params) {
     flushPendingImmediateDraws();
     const int c = texgen_coord_index(coord);
+    auto& gs = g_glstate;
     if (c < 0) {
-        g_glstate.set_error(GL_INVALID_ENUM);
+        gs.set_error(GL_INVALID_ENUM);
         return;
     }
     if (params == nullptr) return;
@@ -1116,15 +1160,15 @@ void glTexGenfv(GLenum coord, GLenum pname, const GLfloat* params) {
     LIST_RECORD(glTexGenfv, {{2, sizeof(GLfloat) * 4}}, coord, pname, params)
     const int unit = active_texture_index();
     if (pname == GL_OBJECT_PLANE) {
-        g_glstate.fpe_uniform.texgen_object_plane[unit][c] = glm::make_vec4(params);
+        gs.fpe_uniform.texgen_object_plane[unit][c] = glm::make_vec4(params);
     } else if (pname == GL_EYE_PLANE) {
         // Spec: eye planes are transformed by the inverse of the current
         // model-view at call time.
-        const auto& mv = g_glstate.fpe_uniform.transformation.matrices[matrix_idx(GL_MODELVIEW)];
-        g_glstate.fpe_uniform.texgen_eye_plane[unit][c] =
+        const auto& mv = gs.fpe_uniform.transformation.matrices[matrix_idx(GL_MODELVIEW)];
+        gs.fpe_uniform.texgen_eye_plane[unit][c] =
             glm::transpose(glm::inverse(mv)) * glm::make_vec4(params);
     } else {
-        g_glstate.set_error(GL_INVALID_ENUM);
+        gs.set_error(GL_INVALID_ENUM);
     }
 }
 
@@ -1147,14 +1191,16 @@ void glTexGendv(GLenum coord, GLenum pname, const GLdouble* params) {
 void glPixelZoom(GLfloat xfactor, GLfloat yfactor) {
     flushPendingImmediateDraws();
     LIST_RECORD(glPixelZoom, {}, xfactor, yfactor)
-    g_glstate.fpe_uniform.pixel_zoom_x = xfactor;
-    g_glstate.fpe_uniform.pixel_zoom_y = yfactor;
+    auto& gs = g_glstate;
+    gs.fpe_uniform.pixel_zoom_x = xfactor;
+    gs.fpe_uniform.pixel_zoom_y = yfactor;
 }
 
 void glPixelTransferf(GLenum pname, GLfloat param) {
     flushPendingImmediateDraws();
     LIST_RECORD(glPixelTransferf, {}, pname, param)
-    auto& un = g_glstate.fpe_uniform;
+    auto& gs = g_glstate;
+    auto& un = gs.fpe_uniform;
     switch (pname) {
     case GL_RED_SCALE: un.pixel_scale[0] = param; break;
     case GL_GREEN_SCALE: un.pixel_scale[1] = param; break;
@@ -1174,7 +1220,7 @@ void glPixelTransferf(GLenum pname, GLfloat param) {
     case GL_INDEX_OFFSET:
         break;
     default:
-        g_glstate.set_error(GL_INVALID_ENUM);
+        gs.set_error(GL_INVALID_ENUM);
         break;
     }
 }
@@ -1185,12 +1231,13 @@ void glPolygonStipple(const GLubyte* mask) {
     flushPendingImmediateDraws();
     if (mask == nullptr) return;
     LIST_RECORD(glPolygonStipple, {{0, 128}}, mask)
-    auto& un = g_glstate.fpe_uniform;
+    auto& gs = g_glstate;
+    auto& un = gs.fpe_uniform;
     std::memcpy(un.polygon_stipple, mask, 128);
     // Repack rows for the shader: with default unpack state (LSB_FIRST
     // false) window x0 sits in each byte's MSB; the shader tests bit
     // (x & 31) LSB-first.
-    const bool lsb_first = g_glstate.pixel_store_unpack_lsb_first;
+    const bool lsb_first = gs.pixel_store_unpack_lsb_first;
     for (int row = 0; row < 32; ++row) {
         GLuint packed = 0;
         for (int x = 0; x < 32; ++x) {
@@ -1204,7 +1251,8 @@ void glPolygonStipple(const GLubyte* mask) {
 
 void glGetPolygonStipple(GLubyte* mask) {
     if (mask == nullptr) return;
-    std::memcpy(mask, g_glstate.fpe_uniform.polygon_stipple, 128);
+    auto& gs = g_glstate;
+    std::memcpy(mask, gs.fpe_uniform.polygon_stipple, 128);
 }
 
 void glLineStipple(GLint factor, GLushort pattern) {
@@ -1212,8 +1260,9 @@ void glLineStipple(GLint factor, GLushort pattern) {
     if (factor < 1) factor = 1;
     if (factor > 256) factor = 256;
     LIST_RECORD(glLineStipple, {}, factor, pattern)
-    g_glstate.fpe_uniform.line_stipple_factor = factor;
-    g_glstate.fpe_uniform.line_stipple_pattern = pattern;
+    auto& gs = g_glstate;
+    gs.fpe_uniform.line_stipple_factor = factor;
+    gs.fpe_uniform.line_stipple_pattern = pattern;
     // Line rendering consumption is the plans/08 screen-space
     // approximation; state and queries are exact as of this commit.
 }
@@ -1224,10 +1273,11 @@ namespace {
 // store the resulting window coordinates (plans/08, 8.1).
 void set_raster_pos(GLfloat x, GLfloat y, GLfloat z, GLfloat w) {
     flushPendingImmediateDraws();
-    auto& un = g_glstate.fpe_uniform;
+    auto& gs = g_glstate;
+    auto& un = gs.fpe_uniform;
     const glm::vec4 clip = un.transformation.matrices[matrix_idx(GL_PROJECTION)] *
                            un.transformation.matrices[matrix_idx(GL_MODELVIEW)] * glm::vec4(x, y, z, w);
-    auto& st = g_glstate.fpe_uniform;
+    auto& st = gs.fpe_uniform;
     if (clip.w <= 0.0f) {
         st.raster_position_valid = false;
         return;
@@ -1241,17 +1291,18 @@ void set_raster_pos(GLfloat x, GLfloat y, GLfloat z, GLfloat w) {
     st.raster_position = {viewport[0] + (ndc.x * 0.5f + 0.5f) * (GLfloat)viewport[2],
                           viewport[1] + (ndc.y * 0.5f + 0.5f) * (GLfloat)viewport[3],
                           ndc.z * 0.5f + 0.5f, clip.w};
-    st.raster_color = g_glstate.fpe_state.fpe_draw.current_data.color;
-    st.raster_texcoord = g_glstate.fpe_state.fpe_draw.current_data.texcoord[0];
+    st.raster_color = gs.fpe_state.fpe_draw.current_data.color;
+    st.raster_texcoord = gs.fpe_state.fpe_draw.current_data.texcoord[0];
 }
 
 void set_window_pos(GLfloat x, GLfloat y, GLfloat z) {
     flushPendingImmediateDraws();
-    auto& st = g_glstate.fpe_uniform;
+    auto& gs = g_glstate;
+    auto& st = gs.fpe_uniform;
     st.raster_position = {x, y, z, 1.0f};
     st.raster_position_valid = true; // WindowPos never clips
-    st.raster_color = g_glstate.fpe_state.fpe_draw.current_data.color;
-    st.raster_texcoord = g_glstate.fpe_state.fpe_draw.current_data.texcoord[0];
+    st.raster_color = gs.fpe_state.fpe_draw.current_data.color;
+    st.raster_texcoord = gs.fpe_state.fpe_draw.current_data.texcoord[0];
 }
 
 } // namespace
@@ -1299,55 +1350,59 @@ DEFINE_WINDOWPOS_FAMILY(s, GLshort)
 
 void glPolygonMode(GLenum face, GLenum mode) {
     flushPendingImmediateDraws();
+    auto& gs = g_glstate;
     if (mode != GL_FILL && mode != GL_LINE && mode != GL_POINT) {
-        g_glstate.set_error(GL_INVALID_ENUM);
+        gs.set_error(GL_INVALID_ENUM);
         return;
     }
     if (face != GL_FRONT && face != GL_BACK && face != GL_FRONT_AND_BACK) {
-        g_glstate.set_error(GL_INVALID_ENUM);
+        gs.set_error(GL_INVALID_ENUM);
         return;
     }
     LIST_RECORD(glPolygonMode, {}, face, mode)
-    if (face == GL_FRONT || face == GL_FRONT_AND_BACK) g_glstate.fpe_uniform.polygon_mode_front = mode;
-    if (face == GL_BACK || face == GL_FRONT_AND_BACK) g_glstate.fpe_uniform.polygon_mode_back = mode;
+    if (face == GL_FRONT || face == GL_FRONT_AND_BACK) gs.fpe_uniform.polygon_mode_front = mode;
+    if (face == GL_BACK || face == GL_FRONT_AND_BACK) gs.fpe_uniform.polygon_mode_back = mode;
     if (mode != GL_FILL)
         SFPEW_LOGW("glPolygonMode(0x%x): LINE/POINT emulation is not implemented yet (plans/08)", mode);
 }
 
 void glClipPlane(GLenum plane, const GLdouble* equation) {
     flushPendingImmediateDraws();
+    auto& gs = g_glstate;
     if (plane < GL_CLIP_PLANE0 || plane >= GL_CLIP_PLANE0 + 6) {
-        g_glstate.set_error(GL_INVALID_ENUM);
+        gs.set_error(GL_INVALID_ENUM);
         return;
     }
     if (equation == nullptr) return;
     LIST_RECORD(glClipPlane, {{1, sizeof(GLdouble) * 4}}, plane, equation)
     // Spec: the stored plane is the given equation transformed by the
     // inverse of the model-view matrix current at call time.
-    const auto& mv = g_glstate.fpe_uniform.transformation.matrices[matrix_idx(GL_MODELVIEW)];
+    const auto& mv = gs.fpe_uniform.transformation.matrices[matrix_idx(GL_MODELVIEW)];
     const glm::vec4 eye = glm::transpose(glm::inverse(mv)) *
                           glm::vec4((float)equation[0], (float)equation[1], (float)equation[2], (float)equation[3]);
-    g_glstate.fpe_uniform.clip_planes[plane - GL_CLIP_PLANE0] = glm::dvec4(eye);
+    gs.fpe_uniform.clip_planes[plane - GL_CLIP_PLANE0] = glm::dvec4(eye);
 }
 
 void glGetClipPlane(GLenum plane, GLdouble* equation) {
     if (equation == nullptr) return;
+    auto& gs = g_glstate;
     if (plane < GL_CLIP_PLANE0 || plane >= GL_CLIP_PLANE0 + 6) {
-        g_glstate.set_error(GL_INVALID_ENUM);
+        gs.set_error(GL_INVALID_ENUM);
         return;
     }
-    const auto& p = g_glstate.fpe_uniform.clip_planes[plane - GL_CLIP_PLANE0];
+    const auto& p = gs.fpe_uniform.clip_planes[plane - GL_CLIP_PLANE0];
     for (int i = 0; i < 4; ++i) equation[i] = p[i];
 }
 
 void glPointSize(GLfloat size) {
     flushPendingImmediateDraws();
+    auto& gs = g_glstate;
     if (size <= 0.0f) {
-        g_glstate.set_error(GL_INVALID_VALUE);
+        gs.set_error(GL_INVALID_VALUE);
         return;
     }
     LIST_RECORD(glPointSize, {}, size)
-    g_glstate.fpe_uniform.point_size = size;
+    gs.fpe_uniform.point_size = size;
 }
 
 // glRect: GL 2.1 defines it as the equivalent Begin/Vertex2/End sequence.

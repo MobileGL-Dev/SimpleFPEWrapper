@@ -23,7 +23,8 @@ constexpr size_t kImmediateVboAlignment = 256u;
 constexpr size_t kImmediateGlyphBatchLimit = 256u;
 
 GLintptr uploadImmediateVertexData(const void* data, size_t size) {
-    auto& state = g_glstate.fpe_state;
+    auto& gs = g_glstate_c;
+    auto& state = gs.fpe_state;
     const auto dropAllFences = [&]() {
         for (auto& fence : state.fpe_immediate_fences) {
             if (fence != nullptr && g_glFuncs.glDeleteSync != nullptr)
@@ -42,8 +43,8 @@ GLintptr uploadImmediateVertexData(const void* data, size_t size) {
         state.fpe_immediate_vbo_capacity = 0;
         state.fpe_immediate_vbo_offset = 0;
         state.fpe_immediate_vbo_map = nullptr;
-        g_glstate.fpe_vertex_binding_valid = false;
-        for (auto& cached : g_glstate.fpe_vertex_attributes) cached.pointer_valid = false;
+        gs.fpe_vertex_binding_valid = false;
+        for (auto& cached : gs.fpe_vertex_attributes) cached.pointer_valid = false;
     };
 
     const size_t required_capacity = std::max(kImmediateVboMinCapacity, std::bit_ceil(size));
@@ -128,14 +129,14 @@ GLintptr uploadImmediateVertexData(const void* data, size_t size) {
 }
 
 struct immediate_client_state_guard_t {
-    vertex_pointer_array_t vertexPointerArray = g_glstate.fpe_state.vertexpointer_array;
-    vertex_pointer_array_t normalizedVertexPointerArray = g_glstate.fpe_state.normalized_vpa;
+    vertex_pointer_array_t vertexPointerArray = g_glstate_c.fpe_state.vertexpointer_array;
+    vertex_pointer_array_t normalizedVertexPointerArray = g_glstate_c.fpe_state.normalized_vpa;
 
     immediate_client_state_guard_t() = default;
 
     ~immediate_client_state_guard_t() {
-        g_glstate.fpe_state.vertexpointer_array = vertexPointerArray;
-        g_glstate.fpe_state.normalized_vpa = normalizedVertexPointerArray;
+        g_glstate_c.fpe_state.vertexpointer_array = vertexPointerArray;
+        g_glstate_c.fpe_state.normalized_vpa = normalizedVertexPointerArray;
     }
 
     immediate_client_state_guard_t(const immediate_client_state_guard_t&) = delete;
@@ -143,9 +144,9 @@ struct immediate_client_state_guard_t {
 };
 
 struct immediate_draw_sizes_guard_t {
-    fixed_function_draw_size_t sizes = g_glstate.fpe_state.fpe_draw.current_data.sizes;
+    fixed_function_draw_size_t sizes = g_glstate_c.fpe_state.fpe_draw.current_data.sizes;
 
-    ~immediate_draw_sizes_guard_t() { g_glstate.fpe_state.fpe_draw.current_data.sizes = sizes; }
+    ~immediate_draw_sizes_guard_t() { g_glstate_c.fpe_state.fpe_draw.current_data.sizes = sizes; }
 
     immediate_draw_sizes_guard_t() = default;
     immediate_draw_sizes_guard_t(const immediate_draw_sizes_guard_t&) = delete;
@@ -175,7 +176,8 @@ void drawImmediateVertices(GLenum primitive, const GLfloat* vertices, size_t flo
         return;
     }
 
-    if (g_glstate.render_mode != GL_RENDER) {
+    auto& gs = g_glstate_c;
+    if (gs.render_mode != GL_RENDER) {
         // Selection/feedback: the interleaved buffer starts with the
         // position attribute; stride is the whole per-vertex float count.
         size_t stride_floats = 0;
@@ -195,7 +197,7 @@ void drawImmediateVertices(GLenum primitive, const GLfloat* vertices, size_t flo
     immediate_client_state_guard_t clientState;
     immediate_draw_sizes_guard_t drawSizes;
 
-    auto& state = g_glstate.fpe_state;
+    auto& state = gs.fpe_state;
     state.fpe_draw.current_data.sizes = sizes;
 
     fixed_function_draw_state_t layoutState;
@@ -209,11 +211,11 @@ void drawImmediateVertices(GLenum primitive, const GLfloat* vertices, size_t flo
     auto mutableSizes = sizes;
     va.generate_compressed_index(mutableSizes.data);
 
-    auto key = g_glstate.program_hash();
-    auto& program = g_glstate.get_or_generate_program(key);
+    auto key = gs.program_hash();
+    auto& program = gs.get_or_generate_program(key);
     const int programId = program.get_program();
     if (programId <= 0) {
-        g_glstate.set_error(GL_INVALID_OPERATION);
+        gs.set_error(GL_INVALID_OPERATION);
         return;
     }
 
@@ -223,8 +225,8 @@ void drawImmediateVertices(GLenum primitive, const GLfloat* vertices, size_t flo
 
     const GLintptr vertexOffset =
         uploadImmediateVertexData(vertices, floatCount * sizeof(GLfloat));
-    g_glstate.send_vertex_attributes(va, state.fpe_immediate_vbo, vertexOffset);
-    g_glstate.send_uniforms(program);
+    gs.send_vertex_attributes(va, state.fpe_immediate_vbo, vertexOffset);
+    gs.send_uniforms(program);
 
     const GLsizei drawCount = static_cast<GLsizei>(vertexCount);
     if (primitive == GL_QUADS) {
@@ -261,8 +263,8 @@ bool queueGlyphTriangleStrip(const fixed_function_draw_state_t& draw) {
     }
     if (!batch.active) {
         batch.active = true;
-        batch.context =
-            g_eglFuncs.eglGetCurrentContext ? g_eglFuncs.eglGetCurrentContext() : EGL_NO_CONTEXT;
+        // Called from glEnd, whose entry resolve refreshed the snapshot.
+        batch.context = (EGLContext)glstate_t::cached_context();
         batch.sizes = sizes;
         batch.vertices.clear();
         batch.vertexCount = 0;
@@ -300,8 +302,11 @@ bool queueGlyphTriangleStrip(const fixed_function_draw_state_t& draw) {
 void flushPendingImmediateDraws() {
     auto& batch = pendingGlyphBatch;
     if (!batch.active) return;
-    const EGLContext current =
-        g_eglFuncs.eglGetCurrentContext ? g_eglFuncs.eglGetCurrentContext() : EGL_NO_CONTEXT;
+    // Deliberately strict: flush is reached from passthrough entries that
+    // never resolve the context themselves, and drawing a batch on the
+    // wrong context must stay impossible. Amortized over <=256 glyphs.
+    (void)g_glstate;
+    const EGLContext current = (EGLContext)glstate_t::cached_context();
     if (batch.context != current) {
         // The collecting context is gone from this thread; its texture
         // bindings and buffer names are meaningless here. Drop, not draw.
@@ -333,10 +338,14 @@ void flushPendingImmediateDraws() {
 }
 
 void glBegin(GLenum mode) {
+    // Entry strict resolve: pins the Begin/End batch (and every vertex-data
+    // call inside it) to this context via the thread-local snapshot.
+    auto& gs = g_glstate;
+
     // GL_POINTS(0) .. GL_POLYGON(9); invalid modes are errors and are not
     // recorded into display lists.
     if (mode > GL_POLYGON) {
-        g_glstate.set_error(GL_INVALID_ENUM);
+        gs.set_error(GL_INVALID_ENUM);
         return;
     }
 
@@ -344,13 +353,13 @@ void glBegin(GLenum mode) {
 
     if (mode != GL_TRIANGLE_STRIP) flushPendingImmediateDraws();
 
-    auto& s = g_glstate.fpe_state.fpe_draw;
+    auto& s = gs.fpe_state.fpe_draw;
 
     if (s.primitive != GL_NONE) {
         // Nested glBegin. Report it; keep collecting the outer primitive.
         // Checked BEFORE backend init so the error contract holds even
         // without a current context.
-        g_glstate.set_error(GL_INVALID_OPERATION);
+        gs.set_error(GL_INVALID_OPERATION);
         return;
     }
 
@@ -358,7 +367,7 @@ void glBegin(GLenum mode) {
     // contract must hold even without a context (draws bail out safely).
     s.primitive = mode;
 
-    if (!g_glstate.fpe_ready) {
+    if (!gs.fpe_ready) {
         if (init_fpe() != 0) return;
     }
 }
@@ -366,12 +375,17 @@ void glBegin(GLenum mode) {
 void glEnd() {
     LIST_RECORD(glEnd, {})
 
-    auto& s = g_glstate.fpe_state.fpe_draw;
+    // Entry strict resolve; the draw below is GPU-visible, so glEnd always
+    // re-observes the real current context. A context switched mid-batch
+    // resolves to a state whose primitive is GL_NONE (the pinned batch
+    // stays on the Begin context), which lands in the error path below.
+    auto& gs = g_glstate;
+    auto& s = gs.fpe_state.fpe_draw;
     if (s.primitive == GL_NONE) {
         // glEnd without a matching glBegin. Also drop any stray vertices
         // collected outside a Begin/End pair so they cannot leak into the
         // next primitive.
-        g_glstate.set_error(GL_INVALID_OPERATION);
+        gs.set_error(GL_INVALID_OPERATION);
         s.reset();
         return;
     }

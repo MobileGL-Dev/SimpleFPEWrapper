@@ -15,10 +15,11 @@
 
 void flushPendingImmediateDraws();
 
-// a bit bad for perf, but keep this for now...
+// Vertex-data entries ride the Begin/End context pin: zero strict resolves
+// while a batch is collecting, one strict resolve otherwise (types.h).
 template <typename Type, GLint N>
 void mglNormal(std::array<Type, N> normal) {
-    auto& state = g_glstate.fpe_state.fpe_draw;
+    auto& state = glstate_t::current_vertex_data().fpe_state.fpe_draw;
     state.set_attribute_size(1, N); // before overwriting the current value
     auto& cur = state.current_data.normal;
     // let's hope this vectorizes well...
@@ -29,7 +30,7 @@ void mglNormal(std::array<Type, N> normal) {
 
 template <typename Type, GLint N>
 void mglTexCoord(std::array<Type, N> uv, GLint texid) {
-    auto& state = g_glstate.fpe_state.fpe_draw;
+    auto& state = glstate_t::current_vertex_data().fpe_state.fpe_draw;
     state.set_attribute_size(7 + texid, N);
     auto& cur = state.current_data.texcoord[texid];
     cur = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
@@ -41,7 +42,8 @@ void mglTexCoord(std::array<Type, N> uv, GLint texid) {
 
 template <typename Type, GLint N>
 void mglColor(std::array<Type, N> color) {
-    auto& state = g_glstate.fpe_state.fpe_draw;
+    auto& gs = glstate_t::current_vertex_data();
+    auto& state = gs.fpe_state.fpe_draw;
     state.set_attribute_size(2, N);
     auto& cur = state.current_data.color;
     // Desktop GL defines alpha=1 for every glColor3* entry point.
@@ -51,13 +53,13 @@ void mglColor(std::array<Type, N> color) {
         glm::value_ptr(cur)[i] = (GLfloat)color[i];
     }
 
-    if (g_glstate.fpe_state.fpe_bools.color_material_enable) {
+    if (gs.fpe_state.fpe_bools.color_material_enable) {
         // Vertex colors are copied into the pending batch, so ordinary color
         // changes do not affect older glyphs. Color-material also mutates
         // uniform material state, which must remain ordered with the batch.
         flushPendingImmediateDraws();
         const auto apply = [&](material_t& material) {
-            switch (g_glstate.fpe_state.color_material_mode) {
+            switch (gs.fpe_state.color_material_mode) {
             case GL_AMBIENT:
                 material.ambient = cur;
                 break;
@@ -78,23 +80,22 @@ void mglColor(std::array<Type, N> color) {
                 break;
             }
         };
-        if (g_glstate.fpe_state.color_material_face == GL_FRONT ||
-            g_glstate.fpe_state.color_material_face == GL_FRONT_AND_BACK)
-            apply(g_glstate.fpe_uniform.materials[0]);
-        if (g_glstate.fpe_state.color_material_face == GL_BACK ||
-            g_glstate.fpe_state.color_material_face == GL_FRONT_AND_BACK)
-            apply(g_glstate.fpe_uniform.materials[1]);
+        if (gs.fpe_state.color_material_face == GL_FRONT ||
+            gs.fpe_state.color_material_face == GL_FRONT_AND_BACK)
+            apply(gs.fpe_uniform.materials[0]);
+        if (gs.fpe_state.color_material_face == GL_BACK ||
+            gs.fpe_state.color_material_face == GL_FRONT_AND_BACK)
+            apply(gs.fpe_uniform.materials[1]);
     }
 }
 
 template <typename Type, GLint N>
 void mglVertex(std::array<Type, N> vertex) {
+    auto& state = glstate_t::current_vertex_data().fpe_state.fpe_draw;
     // Release builds define NDEBUG, so this must be a real check: a glVertex*
     // outside glBegin/glEnd would otherwise append stray data that leaks into
     // the next primitive's vertex stream.
-    if (g_glstate.fpe_state.fpe_draw.primitive == GL_NONE) return;
-
-    auto& state = g_glstate.fpe_state.fpe_draw;
+    if (state.primitive == GL_NONE) return;
     state.set_attribute_size(0, N);
     auto& cur = state.current_data.vertex;
     // Missing components are (0, 0, 0, 1), rather than values left over

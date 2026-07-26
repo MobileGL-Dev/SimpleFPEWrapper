@@ -24,8 +24,9 @@ struct logical_array_buffer_state_t {
 thread_local logical_array_buffer_state_t logicalArrayBufferState;
 
 logical_array_buffer_state_t& getLogicalArrayBufferState() {
-    const EGLContext context =
-        g_eglFuncs.eglGetCurrentContext ? g_eglFuncs.eglGetCurrentContext() : EGL_NO_CONTEXT;
+    // Reconciles against the calling entry's strict-resolve snapshot
+    // (docs/context-model.md); no eglGetCurrentContext of its own.
+    const EGLContext context = (EGLContext)glstate_t::cached_context();
     if (logicalArrayBufferState.context != context) {
         logicalArrayBufferState = {};
         logicalArrayBufferState.context = context;
@@ -47,13 +48,14 @@ GLuint getLogicalArrayBufferBinding() {
 
 void rememberClientArrayBufferBinding(int index) {
     if (index < 0 || index >= VERTEX_POINTER_COUNT) return;
-    g_glstate.fpe_state.client_array_buffer_bindings[index] = getLogicalArrayBufferBinding();
+    g_glstate_c.fpe_state.client_array_buffer_bindings[index] = getLogicalArrayBufferBinding();
 }
 
 } // namespace
 
 void glBindBuffer(GLenum target, GLuint buffer) {
     if (!sfpewEnsureBackend() || g_glFuncs.glBindBuffer == nullptr) return;
+    (void)g_glstate; // entry strict resolve; the array-buffer shadow reads the snapshot
     flushPendingImmediateDraws();
     g_glFuncs.glBindBuffer(target, buffer);
     if (target == GL_ARRAY_BUFFER) {
@@ -65,6 +67,7 @@ void glBindBuffer(GLenum target, GLuint buffer) {
 
 void glDeleteBuffers(GLsizei n, const GLuint* buffers) {
     if (!sfpewEnsureBackend() || g_glFuncs.glDeleteBuffers == nullptr) return;
+    (void)g_glstate; // entry strict resolve; the array-buffer shadow reads the snapshot
     flushPendingImmediateDraws();
     g_glFuncs.glDeleteBuffers(n, buffers);
     if (n <= 0 || buffers == nullptr) return;
@@ -83,14 +86,15 @@ GLuint sfpewLogicalArrayBufferBinding() { return getLogicalArrayBufferBinding();
 
 GLuint getClientArrayBufferBinding(int index) {
     if (index < 0 || index >= VERTEX_POINTER_COUNT) return 0;
-    return g_glstate.fpe_state.client_array_buffer_bindings[index];
+    return g_glstate_c.fpe_state.client_array_buffer_bindings[index];
 }
 
 void glVertexPointer(GLint size, GLenum type, GLsizei stride, const void* pointer) {
+    auto& gs = g_glstate;
     flushPendingImmediateDraws();
     // LOG_D("glVertexPointer, size = %d, type = %s, stride = %d, pointer = 0x%x", size, glEnumToString(type), stride,
     // pointer)
-    auto& attr = g_glstate.fpe_state.vertexpointer_array.attributes[vp2idx(GL_VERTEX_ARRAY)];
+    auto& attr = gs.fpe_state.vertexpointer_array.attributes[vp2idx(GL_VERTEX_ARRAY)];
     attr.size = size;
     attr.usage = GL_VERTEX_ARRAY;
     attr.type = type;
@@ -99,14 +103,15 @@ void glVertexPointer(GLint size, GLenum type, GLsizei stride, const void* pointe
     attr.pointer = pointer;
     rememberClientArrayBufferBinding(vp2idx(GL_VERTEX_ARRAY));
     //    attr.varying = true;
-    g_glstate.fpe_state.vertexpointer_array.dirty = true;
-    g_glstate.fpe_state.vertexpointer_array.buffer_based = true;
+    gs.fpe_state.vertexpointer_array.dirty = true;
+    gs.fpe_state.vertexpointer_array.buffer_based = true;
 }
 
 void glNormalPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
+    auto& gs = g_glstate;
     flushPendingImmediateDraws();
     // LOG_D("glNormalPointer, type = %s, stride = %d, pointer = 0x%x", glEnumToString(type), stride, pointer)
-    g_glstate.fpe_state.vertexpointer_array.attributes[vp2idx(GL_NORMAL_ARRAY)] = {
+    gs.fpe_state.vertexpointer_array.attributes[vp2idx(GL_NORMAL_ARRAY)] = {
         .size = 3,
         .usage = GL_NORMAL_ARRAY,
         .type = type,
@@ -116,7 +121,7 @@ void glNormalPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
         //            .varying = true
     };
     rememberClientArrayBufferBinding(vp2idx(GL_NORMAL_ARRAY));
-    g_glstate.fpe_state.vertexpointer_array.dirty = true;
+    gs.fpe_state.vertexpointer_array.dirty = true;
 }
 
 // Remaining GL 1.4/1.5 pointer trio. State is stored in the reserved
@@ -124,8 +129,9 @@ void glNormalPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
 // with plans/04 (secondary color), plans/05 (fog coord) and plans/08
 // (edge flags for PolygonMode).
 void glEdgeFlagPointer(GLsizei stride, const GLvoid* pointer) {
+    auto& gs = g_glstate;
     flushPendingImmediateDraws();
-    g_glstate.fpe_state.vertexpointer_array.attributes[vp2idx(GL_EDGE_FLAG_ARRAY)] = {
+    gs.fpe_state.vertexpointer_array.attributes[vp2idx(GL_EDGE_FLAG_ARRAY)] = {
         .size = 1,
         .usage = GL_EDGE_FLAG_ARRAY,
         .type = GL_UNSIGNED_BYTE, // GLboolean elements
@@ -134,16 +140,17 @@ void glEdgeFlagPointer(GLsizei stride, const GLvoid* pointer) {
         .pointer = pointer,
     };
     rememberClientArrayBufferBinding(vp2idx(GL_EDGE_FLAG_ARRAY));
-    g_glstate.fpe_state.vertexpointer_array.dirty = true;
+    gs.fpe_state.vertexpointer_array.dirty = true;
 }
 
 void glSecondaryColorPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* pointer) {
+    auto& gs = g_glstate;
     if (size != 3) { // GL 2.1: secondary color arrays are strictly 3-component
-        g_glstate.set_error(GL_INVALID_VALUE);
+        gs.set_error(GL_INVALID_VALUE);
         return;
     }
     flushPendingImmediateDraws();
-    g_glstate.fpe_state.vertexpointer_array.attributes[vp2idx(GL_SECONDARY_COLOR_ARRAY)] = {
+    gs.fpe_state.vertexpointer_array.attributes[vp2idx(GL_SECONDARY_COLOR_ARRAY)] = {
         .size = size,
         .usage = GL_SECONDARY_COLOR_ARRAY,
         .type = type,
@@ -152,16 +159,17 @@ void glSecondaryColorPointer(GLint size, GLenum type, GLsizei stride, const GLvo
         .pointer = pointer,
     };
     rememberClientArrayBufferBinding(vp2idx(GL_SECONDARY_COLOR_ARRAY));
-    g_glstate.fpe_state.vertexpointer_array.dirty = true;
+    gs.fpe_state.vertexpointer_array.dirty = true;
 }
 
 void glFogCoordPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
+    auto& gs = g_glstate;
     if (type != GL_FLOAT && type != GL_DOUBLE) {
-        g_glstate.set_error(GL_INVALID_ENUM);
+        gs.set_error(GL_INVALID_ENUM);
         return;
     }
     flushPendingImmediateDraws();
-    g_glstate.fpe_state.vertexpointer_array.attributes[vp2idx(GL_FOG_COORD_ARRAY)] = {
+    gs.fpe_state.vertexpointer_array.attributes[vp2idx(GL_FOG_COORD_ARRAY)] = {
         .size = 1,
         .usage = GL_FOG_COORD_ARRAY,
         .type = type,
@@ -170,14 +178,15 @@ void glFogCoordPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
         .pointer = pointer,
     };
     rememberClientArrayBufferBinding(vp2idx(GL_FOG_COORD_ARRAY));
-    g_glstate.fpe_state.vertexpointer_array.dirty = true;
+    gs.fpe_state.vertexpointer_array.dirty = true;
 }
 
 void glColorPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* pointer) {
+    auto& gs = g_glstate;
     flushPendingImmediateDraws();
     // LOG_D("glColorPointer, size = %d, type = %s, stride = %d, pointer = 0x%x", size, glEnumToString(type), stride,
     // pointer)
-    g_glstate.fpe_state.vertexpointer_array.attributes[vp2idx(GL_COLOR_ARRAY)] = {
+    gs.fpe_state.vertexpointer_array.attributes[vp2idx(GL_COLOR_ARRAY)] = {
         .size = size,
         .usage = GL_COLOR_ARRAY,
         .type = type,
@@ -187,17 +196,18 @@ void glColorPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* point
         //            .varying = true
     };
     rememberClientArrayBufferBinding(vp2idx(GL_COLOR_ARRAY));
-    g_glstate.fpe_state.vertexpointer_array.dirty = true;
+    gs.fpe_state.vertexpointer_array.dirty = true;
 }
 
 void glTexCoordPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* pointer) {
+    auto& gs = g_glstate;
     flushPendingImmediateDraws();
     // LOG_D("glTexCoordPointer, size = %d, type = %s, stride = %d, pointer = 0x%x", size, glEnumToString(type), stride,
     // pointer) LOG_D("Active texture: %s", glEnumToString(g_glstate.fpe_state.client_active_texture))
     const int index = vp2idx(GL_TEXTURE_COORD_ARRAY);
-    g_glstate.fpe_state.vertexpointer_array.attributes[index] = {
+    gs.fpe_state.vertexpointer_array.attributes[index] = {
         .size = size,
-        .usage = GL_TEXTURE_COORD_ARRAY + (g_glstate.fpe_state.client_active_texture - GL_TEXTURE0),
+        .usage = GL_TEXTURE_COORD_ARRAY + (gs.fpe_state.client_active_texture - GL_TEXTURE0),
         .type = type,
         .normalized = GL_FALSE,
         .stride = stride,
@@ -205,13 +215,14 @@ void glTexCoordPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* po
         //            .varying = true
     };
     rememberClientArrayBufferBinding(index);
-    g_glstate.fpe_state.vertexpointer_array.dirty = true;
+    gs.fpe_state.vertexpointer_array.dirty = true;
 }
 
 void glIndexPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
+    auto& gs = g_glstate;
     flushPendingImmediateDraws();
     // LOG_D("glIndexPointer, size = %d, type = %s, stride = %d, pointer = 0x%x", glEnumToString(type), stride, pointer)
-    g_glstate.fpe_state.vertexpointer_array.attributes[vp2idx(GL_INDEX_ARRAY)] = {
+    gs.fpe_state.vertexpointer_array.attributes[vp2idx(GL_INDEX_ARRAY)] = {
         .size = 1,
         .usage = GL_INDEX_ARRAY,
         .type = type,
@@ -221,27 +232,29 @@ void glIndexPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
         //            .varying = true
     };
     rememberClientArrayBufferBinding(vp2idx(GL_INDEX_ARRAY));
-    g_glstate.fpe_state.vertexpointer_array.dirty = true;
+    gs.fpe_state.vertexpointer_array.dirty = true;
 }
 
 void glEnableClientState(GLenum cap) {
+    auto& gs = g_glstate;
     flushPendingImmediateDraws();
     // LOG_D("glEnableClientState, cap = %s", glEnumToString(cap))
 
     auto mask = vp_mask(cap);
-    g_glstate.fpe_state.vertexpointer_array.enabled_pointers |= mask;
+    gs.fpe_state.vertexpointer_array.enabled_pointers |= mask;
     // LOG_D("Enabled Ptr: 0x%x", g_glstate.fpe_state.vertexpointer_array.enabled_pointers)
-    g_glstate.fpe_state.vertexpointer_array.dirty = true;
+    gs.fpe_state.vertexpointer_array.dirty = true;
 }
 
 void glDisableClientState(GLenum cap) {
+    auto& gs = g_glstate;
     flushPendingImmediateDraws();
     // LOG_D("glDisableClientState, cap = %s", glEnumToString(cap))
     auto mask = vp_mask(cap);
 
-    g_glstate.fpe_state.vertexpointer_array.enabled_pointers &= (~mask);
+    gs.fpe_state.vertexpointer_array.enabled_pointers &= (~mask);
     // LOG_D("Enabled Ptr: 0x%x", g_glstate.fpe_state.vertexpointer_array.enabled_pointers)
-    g_glstate.fpe_state.vertexpointer_array.dirty = true;
+    gs.fpe_state.vertexpointer_array.dirty = true;
 }
 
 // glInterleavedArrays: a GL 1.1 shortcut that declares up to four client
@@ -249,6 +262,7 @@ void glDisableClientState(GLenum cap) {
 // of the public pointer/enable entry points so flushing, shadowing and
 // future recording behave exactly as if the caller made those calls.
 void glInterleavedArrays(GLenum format, GLsizei stride, const void* pointer) {
+    auto& gs = g_glstate;
     struct layout_t {
         GLint tex, color, normal, vertex;    // component counts, 0 = absent
         GLenum color_type;
@@ -272,11 +286,11 @@ void glInterleavedArrays(GLenum format, GLsizei stride, const void* pointer) {
     case GL_T2F_C4F_N3F_V3F:  l = {2, 4, 3, 3, GL_FLOAT, 0, 2 * F, 6 * F, 9 * F, 12 * F}; break;
     case GL_T4F_C4F_N3F_V4F:  l = {4, 4, 3, 4, GL_FLOAT, 0, 4 * F, 8 * F, 11 * F, 14 * F}; break;
     default:
-        g_glstate.set_error(GL_INVALID_ENUM);
+        gs.set_error(GL_INVALID_ENUM);
         return;
     }
     if (stride < 0) {
-        g_glstate.set_error(GL_INVALID_VALUE);
+        gs.set_error(GL_INVALID_VALUE);
         return;
     }
     const GLsizei effective_stride = stride != 0 ? stride : static_cast<GLsizei>(l.tight);
@@ -357,11 +371,12 @@ GLfloat clientArrayComponent(const vertexattribute_t& a, GLint i, GLint c, bool 
 // Arrays living in VBOs cannot be read from the CPU here; those elements
 // are skipped (logged once per call site would be noise - manifest notes it).
 void glArrayElement(GLint i) {
+    auto& gs = g_glstate;
     if (i < 0) {
-        g_glstate.set_error(GL_INVALID_VALUE);
+        gs.set_error(GL_INVALID_VALUE);
         return;
     }
-    const auto& va = g_glstate.fpe_state.vertexpointer_array;
+    const auto& va = gs.fpe_state.vertexpointer_array;
     const auto enabled = [&](GLenum array) { return (va.enabled_pointers & vp_mask(array)) != 0; };
     const auto client_side = [&](int idx) { return getClientArrayBufferBinding(idx) == 0; };
 

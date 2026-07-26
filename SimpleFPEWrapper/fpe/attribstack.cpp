@@ -84,9 +84,10 @@ void copy_array(T (&dst)[N], const T (&src)[N]) {
 void glPushAttrib(GLbitfield mask) {
     flushPendingImmediateDraws();
     LIST_RECORD(glPushAttrib, {}, mask)
+    auto& gs = g_glstate;
     auto& stack = attribStack();
     if (stack.size() >= kMaxAttribStackDepth) {
-        g_glstate.set_error(GL_STACK_OVERFLOW);
+        gs.set_error(GL_STACK_OVERFLOW);
         return;
     }
 
@@ -94,8 +95,8 @@ void glPushAttrib(GLbitfield mask) {
     // restores. Snapshot cost is small next to a 16-deep cap.
     attrib_snapshot_t snap;
     snap.mask = mask;
-    const auto& st = g_glstate.fpe_state;
-    const auto& un = g_glstate.fpe_uniform;
+    const auto& st = gs.fpe_state;
+    const auto& un = gs.fpe_uniform;
     snap.bools = st.fpe_bools;
     snap.fog_mode = st.fog_mode;
     snap.fog_index = st.fog_index;
@@ -135,15 +136,16 @@ void glPushAttrib(GLbitfield mask) {
 void glPopAttrib() {
     flushPendingImmediateDraws();
     LIST_RECORD(glPopAttrib, {})
+    auto& gs = g_glstate;
     auto& stack = attribStack();
     if (stack.empty()) {
-        g_glstate.set_error(GL_STACK_UNDERFLOW);
+        gs.set_error(GL_STACK_UNDERFLOW);
         return;
     }
     const attrib_snapshot_t snap = std::move(stack.back());
     stack.pop_back();
-    auto& st = g_glstate.fpe_state;
-    auto& un = g_glstate.fpe_uniform;
+    auto& st = gs.fpe_state;
+    auto& un = gs.fpe_uniform;
     const GLbitfield mask = snap.mask;
 
     if (mask & GL_ENABLE_BIT) {
@@ -206,41 +208,43 @@ void glPopAttrib() {
 }
 
 void glPushClientAttrib(GLbitfield mask) {
+    auto& gs = g_glstate;
     flushPendingImmediateDraws();
     auto& stack = clientAttribStack();
     if (stack.size() >= kMaxAttribStackDepth) {
-        g_glstate.set_error(GL_STACK_OVERFLOW);
+        gs.set_error(GL_STACK_OVERFLOW);
         return;
     }
     client_attrib_snapshot_t snap;
     snap.mask = mask;
-    snap.vertexpointer_array = g_glstate.fpe_state.vertexpointer_array;
-    snap.client_active_texture = g_glstate.fpe_state.client_active_texture;
-    snap.unpack_swap_bytes = g_glstate.pixel_store_unpack_swap_bytes;
-    snap.unpack_lsb_first = g_glstate.pixel_store_unpack_lsb_first;
-    snap.pack_swap_bytes = g_glstate.pixel_store_pack_swap_bytes;
-    snap.pack_lsb_first = g_glstate.pixel_store_pack_lsb_first;
+    snap.vertexpointer_array = gs.fpe_state.vertexpointer_array;
+    snap.client_active_texture = gs.fpe_state.client_active_texture;
+    snap.unpack_swap_bytes = gs.pixel_store_unpack_swap_bytes;
+    snap.unpack_lsb_first = gs.pixel_store_unpack_lsb_first;
+    snap.pack_swap_bytes = gs.pixel_store_pack_swap_bytes;
+    snap.pack_lsb_first = gs.pixel_store_pack_lsb_first;
     stack.push_back(std::move(snap));
 }
 
 void glPopClientAttrib() {
+    auto& gs = g_glstate;
     flushPendingImmediateDraws();
     auto& stack = clientAttribStack();
     if (stack.empty()) {
-        g_glstate.set_error(GL_STACK_UNDERFLOW);
+        gs.set_error(GL_STACK_UNDERFLOW);
         return;
     }
     const client_attrib_snapshot_t snap = std::move(stack.back());
     stack.pop_back();
     if (snap.mask & GL_CLIENT_VERTEX_ARRAY_BIT) {
-        g_glstate.fpe_state.vertexpointer_array = snap.vertexpointer_array;
-        g_glstate.fpe_state.vertexpointer_array.dirty = true;
-        g_glstate.fpe_state.client_active_texture = snap.client_active_texture;
+        gs.fpe_state.vertexpointer_array = snap.vertexpointer_array;
+        gs.fpe_state.vertexpointer_array.dirty = true;
+        gs.fpe_state.client_active_texture = snap.client_active_texture;
     }
     if (snap.mask & GL_CLIENT_PIXEL_STORE_BIT) {
-        g_glstate.pixel_store_unpack_swap_bytes = snap.unpack_swap_bytes;
-        g_glstate.pixel_store_unpack_lsb_first = snap.unpack_lsb_first;
-        g_glstate.pixel_store_pack_swap_bytes = snap.pack_swap_bytes;
-        g_glstate.pixel_store_pack_lsb_first = snap.pack_lsb_first;
+        gs.pixel_store_unpack_swap_bytes = snap.unpack_swap_bytes;
+        gs.pixel_store_unpack_lsb_first = snap.unpack_lsb_first;
+        gs.pixel_store_pack_swap_bytes = snap.pack_swap_bytes;
+        gs.pixel_store_pack_lsb_first = snap.pack_lsb_first;
     }
 }

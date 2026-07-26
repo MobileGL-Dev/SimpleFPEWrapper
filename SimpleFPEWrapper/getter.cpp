@@ -44,8 +44,9 @@ struct LogicalTextureBindings {
 thread_local LogicalTextureBindings logicalTextureBindings;
 
 LogicalTextureBindings& getLogicalTextureBindings() {
-    const EGLContext context =
-        g_eglFuncs.eglGetCurrentContext ? g_eglFuncs.eglGetCurrentContext() : EGL_NO_CONTEXT;
+    // Reconciles against the snapshot of the calling entry's strict resolve
+    // (docs/context-model.md); no eglGetCurrentContext of its own.
+    const EGLContext context = (EGLContext)glstate_t::cached_context();
     if (logicalTextureBindings.context != context) {
         logicalTextureBindings = {};
         logicalTextureBindings.context = context;
@@ -88,8 +89,7 @@ uint64_t textureBindingKey(GLenum activeTexture, GLenum target) {
 }
 
 std::unordered_map<GLint, ProxyTexture2DLevel>& getProxyTexture2DLevels() {
-    const EGLContext context =
-        g_eglFuncs.eglGetCurrentContext ? g_eglFuncs.eglGetCurrentContext() : EGL_NO_CONTEXT;
+    const EGLContext context = (EGLContext)glstate_t::cached_context();
     if (proxyTexture2DCache.context != context) {
         proxyTexture2DCache.context = context;
         proxyTexture2DCache.levels.clear();
@@ -408,11 +408,12 @@ int floatPnameComponentCount(GLenum pname) {
 
 void glGetLightfv(GLenum light, GLenum pname, GLfloat* params) {
     if (!params) return;
+    auto& gs = g_glstate;
     if (light < GL_LIGHT0 || light >= GL_LIGHT0 + MAX_LIGHTS) {
-        g_glstate.set_error(GL_INVALID_ENUM);
+        gs.set_error(GL_INVALID_ENUM);
         return;
     }
-    const auto& l = g_glstate.fpe_uniform.lights[light - GL_LIGHT0];
+    const auto& l = gs.fpe_uniform.lights[light - GL_LIGHT0];
     switch (pname) {
     case GL_AMBIENT:
         memcpy(params, glm::value_ptr(l.ambient), 4 * sizeof(GLfloat));
@@ -447,7 +448,7 @@ void glGetLightfv(GLenum light, GLenum pname, GLfloat* params) {
         params[0] = l.quadratic_attenuation;
         break;
     default:
-        g_glstate.set_error(GL_INVALID_ENUM);
+        gs.set_error(GL_INVALID_ENUM);
         break;
     }
 }
@@ -465,12 +466,13 @@ void glGetLightiv(GLenum light, GLenum pname, GLint* params) {
 
 void glGetMaterialfv(GLenum face, GLenum pname, GLfloat* params) {
     if (!params) return;
+    auto& gs = g_glstate;
     // GL_FRONT_AND_BACK is valid for setting but not for querying.
     if (face != GL_FRONT && face != GL_BACK) {
-        g_glstate.set_error(GL_INVALID_ENUM);
+        gs.set_error(GL_INVALID_ENUM);
         return;
     }
-    const auto& material = g_glstate.fpe_uniform.materials[face == GL_FRONT ? 0 : 1];
+    const auto& material = gs.fpe_uniform.materials[face == GL_FRONT ? 0 : 1];
     switch (pname) {
     case GL_AMBIENT:
         memcpy(params, glm::value_ptr(material.ambient), 4 * sizeof(GLfloat));
@@ -491,7 +493,7 @@ void glGetMaterialfv(GLenum face, GLenum pname, GLfloat* params) {
         memcpy(params, glm::value_ptr(material.color_indexes), 3 * sizeof(GLfloat));
         break;
     default:
-        g_glstate.set_error(GL_INVALID_ENUM);
+        gs.set_error(GL_INVALID_ENUM);
         break;
     }
 }
@@ -506,12 +508,13 @@ void glGetMaterialiv(GLenum face, GLenum pname, GLint* params) {
 
 void glGetTexEnvfv(GLenum target, GLenum pname, GLfloat* params) {
     if (!params) return;
+    auto& gs = g_glstate;
     if (target != GL_TEXTURE_ENV) {
-        g_glstate.set_error(GL_INVALID_ENUM);
+        gs.set_error(GL_INVALID_ENUM);
         return;
     }
     const int unit = std::clamp(static_cast<int>(sfpewLogicalActiveTexture() - GL_TEXTURE0), 0, MAX_TEX - 1);
-    const auto& env = g_glstate.fpe_uniform.texture_env[unit];
+    const auto& env = gs.fpe_uniform.texture_env[unit];
     switch (pname) {
     case GL_TEXTURE_ENV_MODE:
         params[0] = static_cast<GLfloat>(env.mode);
@@ -552,7 +555,7 @@ void glGetTexEnvfv(GLenum target, GLenum pname, GLfloat* params) {
         params[0] = env.alpha_scale;
         break;
     default:
-        g_glstate.set_error(GL_INVALID_ENUM);
+        gs.set_error(GL_INVALID_ENUM);
         break;
     }
 }
@@ -582,8 +585,9 @@ int texgenCoordIndex(GLenum coord) {
 // shaders need no coordinate rewrite. (plans/05, 5.4)
 void glTexImage1D(GLenum target, GLint level, GLint internalformat, GLsizei width, GLint border,
                   GLenum format, GLenum type, const GLvoid* pixels) {
+    auto& gs = g_glstate;
     if (target != GL_TEXTURE_1D && target != GL_PROXY_TEXTURE_1D) {
-        g_glstate.set_error(GL_INVALID_ENUM);
+        gs.set_error(GL_INVALID_ENUM);
         return;
     }
     if (target == GL_PROXY_TEXTURE_1D) return; // no proxy bookkeeping for 1D
@@ -592,8 +596,9 @@ void glTexImage1D(GLenum target, GLint level, GLint internalformat, GLsizei widt
 
 void glTexSubImage1D(GLenum target, GLint level, GLint xoffset, GLsizei width, GLenum format,
                      GLenum type, const GLvoid* pixels) {
+    auto& gs = g_glstate;
     if (target != GL_TEXTURE_1D) {
-        g_glstate.set_error(GL_INVALID_ENUM);
+        gs.set_error(GL_INVALID_ENUM);
         return;
     }
     glTexSubImage2D(GL_TEXTURE_2D, level, xoffset, 0, width, 1, format, type, pixels);
@@ -601,24 +606,25 @@ void glTexSubImage1D(GLenum target, GLint level, GLint xoffset, GLsizei width, G
 
 void glGetTexGenfv(GLenum coord, GLenum pname, GLfloat* params) {
     if (!params) return;
+    auto& gs = g_glstate;
     const int c = texgenCoordIndex(coord);
     if (c < 0) {
-        g_glstate.set_error(GL_INVALID_ENUM);
+        gs.set_error(GL_INVALID_ENUM);
         return;
     }
     const int unit = std::clamp(static_cast<int>(sfpewLogicalActiveTexture() - GL_TEXTURE0), 0, MAX_TEX - 1);
     switch (pname) {
     case GL_TEXTURE_GEN_MODE:
-        params[0] = static_cast<GLfloat>(g_glstate.fpe_state.texture_gen_mode[unit][c]);
+        params[0] = static_cast<GLfloat>(gs.fpe_state.texture_gen_mode[unit][c]);
         break;
     case GL_OBJECT_PLANE:
-        memcpy(params, glm::value_ptr(g_glstate.fpe_uniform.texgen_object_plane[unit][c]), 4 * sizeof(GLfloat));
+        memcpy(params, glm::value_ptr(gs.fpe_uniform.texgen_object_plane[unit][c]), 4 * sizeof(GLfloat));
         break;
     case GL_EYE_PLANE:
-        memcpy(params, glm::value_ptr(g_glstate.fpe_uniform.texgen_eye_plane[unit][c]), 4 * sizeof(GLfloat));
+        memcpy(params, glm::value_ptr(gs.fpe_uniform.texgen_eye_plane[unit][c]), 4 * sizeof(GLfloat));
         break;
     default:
-        g_glstate.set_error(GL_INVALID_ENUM);
+        gs.set_error(GL_INVALID_ENUM);
         break;
     }
 }
@@ -640,7 +646,8 @@ void glGetTexGendv(GLenum coord, GLenum pname, GLdouble* params) {
 }
 
 GLboolean glIsEnabled(GLenum cap) {
-    const auto& bools = g_glstate.fpe_state.fpe_bools;
+    auto& gs = g_glstate;
+    const auto& bools = gs.fpe_state.fpe_bools;
     switch (cap) {
     case GL_FOG:
         return bools.fog_enable ? GL_TRUE : GL_FALSE;
@@ -786,6 +793,7 @@ void glGetIntegerv(GLenum pname, GLint* params) {
     // machine).
     if (!params) return;
     if (!sfpewEnsureBackend() || g_glFuncs.glGetIntegerv == nullptr) return;
+    auto& gs = g_glstate;
 
     switch (pname) {
     case GL_CONTEXT_PROFILE_MASK:
@@ -831,7 +839,7 @@ void glGetIntegerv(GLenum pname, GLint* params) {
         *params = 8;
         break;
     case GL_MATRIX_MODE:
-        *params = static_cast<GLint>(g_glstate.fpe_uniform.transformation.matrix_mode);
+        *params = static_cast<GLint>(gs.fpe_uniform.transformation.matrix_mode);
         break;
     case GL_MAX_MODELVIEW_STACK_DEPTH:
         *params = MAX_MODELVIEW_STACK_DEPTH;
@@ -845,11 +853,11 @@ void glGetIntegerv(GLenum pname, GLint* params) {
     // Stack depth includes the current (unpushed) matrix per GL spec.
     case GL_MODELVIEW_STACK_DEPTH:
         *params = static_cast<GLint>(
-            g_glstate.fpe_uniform.transformation.matrices_stack[matrix_idx(GL_MODELVIEW)].size() + 1);
+            gs.fpe_uniform.transformation.matrices_stack[matrix_idx(GL_MODELVIEW)].size() + 1);
         break;
     case GL_PROJECTION_STACK_DEPTH:
         *params = static_cast<GLint>(
-            g_glstate.fpe_uniform.transformation.matrices_stack[matrix_idx(GL_PROJECTION)].size() + 1);
+            gs.fpe_uniform.transformation.matrices_stack[matrix_idx(GL_PROJECTION)].size() + 1);
         break;
     case GL_MAX_LIST_NESTING:
         *params = 64;
@@ -868,7 +876,7 @@ void glGetIntegerv(GLenum pname, GLint* params) {
     case GL_TEXTURE_STACK_DEPTH: {
         const int unit = std::clamp(static_cast<int>(sfpewLogicalActiveTexture() - GL_TEXTURE0), 0, MAX_TEX - 1);
         *params = static_cast<GLint>(
-            g_glstate.fpe_uniform.transformation.texture_matrices_stack[unit].size() + 1);
+            gs.fpe_uniform.transformation.texture_matrices_stack[unit].size() + 1);
         break;
     }
     default:
@@ -879,52 +887,53 @@ void glGetIntegerv(GLenum pname, GLint* params) {
 
 void glGetFloatv(GLenum pname, GLfloat* params) {
     if (!params) return;
+    auto& gs = g_glstate;
     switch (pname) {
     case GL_MODELVIEW_MATRIX: {
-        auto* ptr = glm::value_ptr(g_glstate.fpe_uniform.transformation.matrices[matrix_idx(GL_MODELVIEW)]);
+        auto* ptr = glm::value_ptr(gs.fpe_uniform.transformation.matrices[matrix_idx(GL_MODELVIEW)]);
         memcpy(params, ptr, sizeof(GLfloat) * 16);
         break;
     }
     case GL_PROJECTION_MATRIX: {
-        auto* ptr = glm::value_ptr(g_glstate.fpe_uniform.transformation.matrices[matrix_idx(GL_PROJECTION)]);
+        auto* ptr = glm::value_ptr(gs.fpe_uniform.transformation.matrices[matrix_idx(GL_PROJECTION)]);
         memcpy(params, ptr, sizeof(GLfloat) * 16);
         break;
     }
     case GL_TEXTURE_MATRIX: {
         const int unit = std::clamp(static_cast<int>(sfpewLogicalActiveTexture() - GL_TEXTURE0), 0, MAX_TEX - 1);
-        auto* ptr = glm::value_ptr(g_glstate.fpe_uniform.transformation.texture_matrices[unit]);
+        auto* ptr = glm::value_ptr(gs.fpe_uniform.transformation.texture_matrices[unit]);
         memcpy(params, ptr, sizeof(GLfloat) * 16);
         break;
     }
     case GL_ZOOM_X:
-        params[0] = g_glstate.fpe_uniform.pixel_zoom_x;
+        params[0] = gs.fpe_uniform.pixel_zoom_x;
         break;
     case GL_ZOOM_Y:
-        params[0] = g_glstate.fpe_uniform.pixel_zoom_y;
+        params[0] = gs.fpe_uniform.pixel_zoom_y;
         break;
     case GL_FOG_DENSITY:
-        params[0] = g_glstate.fpe_uniform.fog_density;
+        params[0] = gs.fpe_uniform.fog_density;
         break;
     case GL_FOG_START:
-        params[0] = g_glstate.fpe_uniform.fog_start;
+        params[0] = gs.fpe_uniform.fog_start;
         break;
     case GL_FOG_END:
-        params[0] = g_glstate.fpe_uniform.fog_end;
+        params[0] = gs.fpe_uniform.fog_end;
         break;
     case GL_CURRENT_RASTER_POSITION:
-        memcpy(params, glm::value_ptr(g_glstate.fpe_uniform.raster_position), 4 * sizeof(GLfloat));
+        memcpy(params, glm::value_ptr(gs.fpe_uniform.raster_position), 4 * sizeof(GLfloat));
         break;
     case GL_CURRENT_RASTER_COLOR:
-        memcpy(params, glm::value_ptr(g_glstate.fpe_uniform.raster_color), 4 * sizeof(GLfloat));
+        memcpy(params, glm::value_ptr(gs.fpe_uniform.raster_color), 4 * sizeof(GLfloat));
         break;
     case GL_CURRENT_RASTER_TEXTURE_COORDS:
-        memcpy(params, glm::value_ptr(g_glstate.fpe_uniform.raster_texcoord), 4 * sizeof(GLfloat));
+        memcpy(params, glm::value_ptr(gs.fpe_uniform.raster_texcoord), 4 * sizeof(GLfloat));
         break;
     case GL_CURRENT_RASTER_POSITION_VALID:
-        params[0] = g_glstate.fpe_uniform.raster_position_valid ? 1.0f : 0.0f;
+        params[0] = gs.fpe_uniform.raster_position_valid ? 1.0f : 0.0f;
         break;
     case GL_COLOR_MATRIX: {
-        auto* ptr = glm::value_ptr(g_glstate.fpe_uniform.transformation.matrices[matrix_idx(GL_COLOR)]);
+        auto* ptr = glm::value_ptr(gs.fpe_uniform.transformation.matrices[matrix_idx(GL_COLOR)]);
         memcpy(params, ptr, sizeof(GLfloat) * 16);
         break;
     }
@@ -936,6 +945,7 @@ void glGetFloatv(GLenum pname, GLfloat* params) {
 
 void glActiveTexture(GLenum texture) {
     if (!sfpewEnsureBackend() || g_glFuncs.glActiveTexture == nullptr) return;
+    (void)g_glstate; // entry strict resolve; the binding shadow reads the snapshot
     // Record BEFORE the redundancy shortcut: a list must contain the command
     // even when it matches the current state (GL spec; audit finding).
     LIST_RECORD(glActiveTexture, {}, texture)
@@ -950,6 +960,7 @@ void glActiveTexture(GLenum texture) {
 
 void glBindTexture(GLenum target, GLuint texture) {
     if (!sfpewEnsureBackend() || g_glFuncs.glBindTexture == nullptr) return;
+    (void)g_glstate; // entry strict resolve; the binding shadow reads the snapshot
     if (target == GL_TEXTURE_1D) target = GL_TEXTURE_2D; // Nx1 emulation
     LIST_RECORD(glBindTexture, {}, target, texture)
     auto& state = getLogicalTextureBindings();
@@ -968,6 +979,7 @@ void glBindTexture(GLenum target, GLuint texture) {
 
 void glDeleteTextures(GLsizei n, const GLuint* textures) {
     if (!sfpewEnsureBackend() || g_glFuncs.glDeleteTextures == nullptr) return;
+    (void)g_glstate; // entry strict resolve; the binding shadow reads the snapshot
     flushPendingImmediateDraws();
     g_glFuncs.glDeleteTextures(n, textures);
     if (n <= 0 || textures == nullptr) return;
@@ -1080,6 +1092,7 @@ const void* swapBgraPixels(GLsizei width, GLsizei height, GLenum type, const GLv
 void glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height, GLint border,
                   GLenum format, GLenum type, const GLvoid* pixels) {
     if (!sfpewEnsureBackend() || g_glFuncs.glTexImage2D == nullptr || g_glFuncs.glGetIntegerv == nullptr) return;
+    (void)g_glstate; // entry strict resolve; the binding/proxy shadows read the snapshot
     flushPendingImmediateDraws();
     if (target != GL_PROXY_TEXTURE_2D) {
         thread_local std::vector<uint8_t> bgraScratch;
@@ -1152,16 +1165,17 @@ void glGetTexImage(GLenum target, GLint level, GLenum format, GLenum type, GLvoi
         g_glFuncs.glFramebufferTexture2D == nullptr || g_glFuncs.glReadPixels == nullptr) {
         return;
     }
+    auto& gs = g_glstate;
     if (target == GL_TEXTURE_1D) target = GL_TEXTURE_2D; // Nx1 emulation
     if (target != GL_TEXTURE_2D) {
         SFPEW_LOGW("glGetTexImage: target 0x%x not supported", target);
-        g_glstate.set_error(GL_INVALID_ENUM);
+        gs.set_error(GL_INVALID_ENUM);
         return;
     }
     const GLuint texture = sfpewLogicalTextureBinding(GL_TEXTURE_2D);
     const auto size_it = textureSizes.find(texture);
     if (texture == 0 || size_it == textureSizes.end()) {
-        g_glstate.set_error(GL_INVALID_OPERATION);
+        gs.set_error(GL_INVALID_OPERATION);
         return;
     }
     const GLsizei width = std::max<GLsizei>(size_it->second.width >> level, 1);
@@ -1184,6 +1198,7 @@ void glGetTexImage(GLenum target, GLint level, GLenum format, GLenum type, GLvoi
 
 void glGetTexLevelParameteriv(GLenum target, GLint level, GLenum pname, GLint* params) {
     if (!sfpewEnsureBackend() || g_glFuncs.glGetTexLevelParameteriv == nullptr) return;
+    (void)g_glstate; // entry strict resolve; the proxy cache reads the snapshot
     if (target != GL_PROXY_TEXTURE_2D) {
         g_glFuncs.glGetTexLevelParameteriv(target, level, pname, params);
         return;
@@ -1199,6 +1214,7 @@ void glGetTexLevelParameteriv(GLenum target, GLint level, GLenum pname, GLint* p
 
 void glGetTexLevelParameterfv(GLenum target, GLint level, GLenum pname, GLfloat* params) {
     if (!sfpewEnsureBackend() || g_glFuncs.glGetTexLevelParameterfv == nullptr) return;
+    (void)g_glstate; // entry strict resolve; the proxy cache reads the snapshot
     if (target != GL_PROXY_TEXTURE_2D) {
         g_glFuncs.glGetTexLevelParameterfv(target, level, pname, params);
         return;

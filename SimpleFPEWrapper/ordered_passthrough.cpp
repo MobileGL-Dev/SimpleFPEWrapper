@@ -25,8 +25,9 @@ struct logical_program_state_t {
 thread_local logical_program_state_t logicalProgramState;
 
 logical_program_state_t& getLogicalProgramState() {
-    const EGLContext context =
-        g_eglFuncs.eglGetCurrentContext ? g_eglFuncs.eglGetCurrentContext() : EGL_NO_CONTEXT;
+    // Reconciles against the calling entry's strict-resolve snapshot
+    // (docs/context-model.md); no eglGetCurrentContext of its own.
+    const EGLContext context = (EGLContext)glstate_t::cached_context();
     if (logicalProgramState.context != context) {
         logicalProgramState = {};
         logicalProgramState.context = context;
@@ -95,6 +96,7 @@ ORDERED_PASSTHROUGH(glFinish, (), ())
 ORDERED_PASSTHROUGH(glBindFramebuffer, (GLenum target, GLuint framebuffer), (target, framebuffer))
 void glUseProgram(GLuint program) {
     if (!sfpewEnsureBackend()) return;
+    (void)g_glstate; // entry strict resolve; the program shadow reads the snapshot
     flushPendingImmediateDraws();
     if (g_glFuncs.glUseProgram == nullptr) return;
     g_glFuncs.glUseProgram(program);
@@ -162,6 +164,7 @@ bool sfpewHandleGenerateMipmapParam(GLenum target, GLenum pname, GLint param) {
 } // namespace
 
 void glTexParameterf(GLenum target, GLenum pname, GLfloat param) {
+    (void)g_glstate; // entry strict resolve; mipmap tracking reads the binding shadow
     flushPendingImmediateDraws();
     LIST_RECORD(glTexParameterf, {}, target, pname, param)
     if (sfpewHandleGenerateMipmapParam(target, pname, (GLint)param)) return;
@@ -186,6 +189,7 @@ void glTexParameterfv(GLenum target, GLenum pname, const GLfloat* params) {
 }
 
 void glTexParameteri(GLenum target, GLenum pname, GLint param) {
+    (void)g_glstate; // entry strict resolve; mipmap tracking reads the binding shadow
     flushPendingImmediateDraws();
     LIST_RECORD(glTexParameteri, {}, target, pname, param)
     if (sfpewHandleGenerateMipmapParam(target, pname, param)) return;
@@ -209,6 +213,7 @@ void glTexParameteriv(GLenum target, GLenum pname, const GLint* params) {
 void glTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width,
                      GLsizei height, GLenum format, GLenum type, const GLvoid* pixels) {
     if (!sfpewEnsureBackend() || g_glFuncs.glTexSubImage2D == nullptr) return;
+    (void)g_glstate; // entry strict resolve; mipmap tracking reads the binding shadow
     flushPendingImmediateDraws();
     // Legacy formats must match the RED/RG storage glTexImage2D allocated
     // for them; BGRA is swapped on the CPU (tight rows assumed, mirroring

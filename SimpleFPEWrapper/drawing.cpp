@@ -101,12 +101,13 @@ class display_list_vertex_arena_t {
 public:
     bool allocate(const void* data, size_t size, size_t stride,
                   display_list_vertex_allocation_t* allocation) {
-        if (allocation == nullptr || data == nullptr || size == 0 || stride == 0 ||
-            g_eglFuncs.eglGetCurrentContext == nullptr) {
+        if (allocation == nullptr || data == nullptr || size == 0 || stride == 0) {
             return false;
         }
 
-        const EGLContext currentContext = g_eglFuncs.eglGetCurrentContext();
+        // Runs under a recording/draw entry whose strict resolve refreshed
+        // the snapshot (docs/context-model.md).
+        const EGLContext currentContext = (EGLContext)glstate_t::cached_context();
         if (currentContext == EGL_NO_CONTEXT) return false;
         if (context != currentContext) resetForContext(currentContext);
         if (!ensureStorage()) return false;
@@ -145,8 +146,7 @@ public:
 
         const display_list_vertex_allocation_t old = *allocation;
         *allocation = {};
-        if (!isCurrent(old) || g_eglFuncs.eglGetCurrentContext == nullptr ||
-            g_eglFuncs.eglGetCurrentContext() != context) {
+        if (!isCurrent(old) || (EGLContext)glstate_t::cached_context() != context) {
             return;
         }
 
@@ -299,16 +299,16 @@ private:
 display_list_vertex_arena_t displayListVertexArena;
 
 struct wrapper_client_state_guard_t {
-    vertex_pointer_array_t vertexPointerArray = g_glstate.fpe_state.vertexpointer_array;
-    vertex_pointer_array_t normalizedVertexPointerArray = g_glstate.fpe_state.normalized_vpa;
-    GLenum clientActiveTexture = g_glstate.fpe_state.client_active_texture;
+    vertex_pointer_array_t vertexPointerArray = g_glstate_c.fpe_state.vertexpointer_array;
+    vertex_pointer_array_t normalizedVertexPointerArray = g_glstate_c.fpe_state.normalized_vpa;
+    GLenum clientActiveTexture = g_glstate_c.fpe_state.client_active_texture;
 
     wrapper_client_state_guard_t() = default;
 
     ~wrapper_client_state_guard_t() {
-        g_glstate.fpe_state.vertexpointer_array = vertexPointerArray;
-        g_glstate.fpe_state.normalized_vpa = normalizedVertexPointerArray;
-        g_glstate.fpe_state.client_active_texture = clientActiveTexture;
+        g_glstate_c.fpe_state.vertexpointer_array = vertexPointerArray;
+        g_glstate_c.fpe_state.normalized_vpa = normalizedVertexPointerArray;
+        g_glstate_c.fpe_state.client_active_texture = clientActiveTexture;
     }
 
     wrapper_client_state_guard_t(const wrapper_client_state_guard_t&) = delete;
@@ -333,21 +333,22 @@ public:
     }
 
     ~captured_draw_arrays_cmd_t() override {
+        // Cold path (list deletion/re-record): one strict resolve up front -
+        // both the arena release and the cache scrub below compare against
+        // the snapshot, and destruction can run from entries with no anchor.
+        auto& gs = g_glstate;
         displayListVertexArena.release(&arenaAllocation);
-        if (vertexBuffer == 0 || g_glFuncs.glDeleteBuffers == nullptr ||
-            g_eglFuncs.eglGetCurrentContext == nullptr ||
-            g_eglFuncs.eglGetCurrentContext() == EGL_NO_CONTEXT) {
-            return;
-        }
+        if (vertexBuffer == 0 || g_glFuncs.glDeleteBuffers == nullptr) return;
+        if ((EGLContext)glstate_t::cached_context() == EGL_NO_CONTEXT) return;
 
         // Deleting a buffer clears backend VAO/binding references. Scrub the
         // matching wrapper cache as well so a subsequently recycled GL name
         // cannot make send_vertex_attributes incorrectly skip its rebind.
-        if (g_glstate.fpe_vertex_binding_valid &&
-            g_glstate.fpe_vertex_binding_buffer == vertexBuffer) {
-            g_glstate.fpe_vertex_binding_valid = false;
+        if (gs.fpe_vertex_binding_valid &&
+            gs.fpe_vertex_binding_buffer == vertexBuffer) {
+            gs.fpe_vertex_binding_valid = false;
         }
-        for (auto& attribute : g_glstate.fpe_vertex_attributes) {
+        for (auto& attribute : gs.fpe_vertex_attributes) {
             if (!attribute.separate_binding && attribute.array_buffer == vertexBuffer) {
                 attribute.pointer_valid = false;
             }
@@ -447,9 +448,9 @@ public:
                                                     : vertexData.data() + packedOffsets[i];
         }
 
-        g_glstate.fpe_state.vertexpointer_array = replayState;
-        g_glstate.fpe_state.normalized_vpa.reset();
-        g_glstate.fpe_state.client_active_texture = clientActiveTexture;
+        g_glstate_c.fpe_state.vertexpointer_array = replayState;
+        g_glstate_c.fpe_state.normalized_vpa.reset();
+        g_glstate_c.fpe_state.client_active_texture = clientActiveTexture;
 
         // Static display-list geometry is immutable after glEndList. Keep it
         // in its own backend VBO so glCallList does not re-upload the same
@@ -478,7 +479,7 @@ private:
     }
 
     bool bindStaticVertexBuffer(GLuint* selectedBuffer, GLint* drawFirst) const {
-        if (!g_glstate.fpe_ready && init_fpe() != 0) return false;
+        if (!g_glstate_c.fpe_ready && init_fpe() != 0) return false;
 
         if (displayListVertexArena.isCurrent(arenaAllocation)) {
             *drawFirst = static_cast<GLint>(arenaAllocation.offset / static_cast<size_t>(layout.stride));
@@ -496,7 +497,7 @@ private:
         }
 
         if (vertexBuffer == 0) {
-            if ((!g_glstate.fpe_ready && init_fpe() != 0) || g_glFuncs.glGenBuffers == nullptr ||
+            if ((!g_glstate_c.fpe_ready && init_fpe() != 0) || g_glFuncs.glGenBuffers == nullptr ||
                 g_glFuncs.glBufferData == nullptr) {
                 return false;
             }
@@ -708,7 +709,7 @@ void drawArraysNow(GLenum mode, GLint first, GLsizei count, bool forceFixedFunct
 
     const GLint current_program = sfpewLogicalProgram();
 
-    const auto& vertex_array = g_glstate.fpe_state.vertexpointer_array;
+    const auto& vertex_array = g_glstate_c.fpe_state.vertexpointer_array;
     const uint32_t vertex_array_mask = 1u << vp2idx(GL_VERTEX_ARRAY);
     if ((!forceFixedFunction && current_program != 0) || first < 0 || count < 0 ||
         !(vertex_array.enabled_pointers & vertex_array_mask)) {
@@ -717,7 +718,7 @@ void drawArraysNow(GLenum mode, GLint first, GLsizei count, bool forceFixedFunct
         return;
     }
 
-    if (g_glstate.render_mode != GL_RENDER) {
+    if (g_glstate_c.render_mode != GL_RENDER) {
         // Selection/feedback: transform on the CPU, never touch the GPU.
         const auto& attr = vertex_array.attributes[vp2idx(GL_VERTEX_ARRAY)];
         const bool client_ptr = getClientArrayBufferBinding(vp2idx(GL_VERTEX_ARRAY)) == 0;
@@ -798,7 +799,7 @@ void expandQuadIndices(const T* src, size_t quadCount, std::vector<uint32_t>& ou
 // array is converted, everything else passes through untouched.
 void drawElementsNow(GLenum mode, GLsizei count, GLenum type, const GLvoid* indices) {
     const GLint current_program = sfpewLogicalProgram();
-    const auto& vertex_array = g_glstate.fpe_state.vertexpointer_array;
+    const auto& vertex_array = g_glstate_c.fpe_state.vertexpointer_array;
     const uint32_t vertex_array_mask = 1u << vp2idx(GL_VERTEX_ARRAY);
 
     if (current_program != 0 || !(vertex_array.enabled_pointers & vertex_array_mask)) {
@@ -809,16 +810,16 @@ void drawElementsNow(GLenum mode, GLsizei count, GLenum type, const GLvoid* indi
 
     const size_t index_size = indexTypeSize(type);
     if (index_size == 0) {
-        g_glstate.set_error(GL_INVALID_ENUM);
+        g_glstate_c.set_error(GL_INVALID_ENUM);
         return;
     }
     if (count < 0) {
-        g_glstate.set_error(GL_INVALID_VALUE);
+        g_glstate_c.set_error(GL_INVALID_VALUE);
         return;
     }
     if (count == 0) return;
 
-    if (!g_glstate.fpe_ready && init_fpe() != 0) {
+    if (!g_glstate_c.fpe_ready && init_fpe() != 0) {
         if (g_glFuncs.glDrawElements != nullptr) g_glFuncs.glDrawElements(mode, count, type, indices);
         return;
     }
@@ -847,7 +848,7 @@ void drawElementsNow(GLenum mode, GLsizei count, GLenum type, const GLvoid* indi
     const uint8_t* cpu_indices = nullptr;
     if (element_buffer == 0) {
         if (indices == nullptr) {
-            g_glstate.set_error(GL_INVALID_VALUE);
+            g_glstate_c.set_error(GL_INVALID_VALUE);
             return;
         }
         cpu_indices = static_cast<const uint8_t*>(indices);
@@ -884,7 +885,7 @@ void drawElementsNow(GLenum mode, GLsizei count, GLenum type, const GLvoid* indi
             break;
         }
         if (max_index >= static_cast<uint32_t>(std::numeric_limits<GLsizei>::max())) {
-            g_glstate.set_error(GL_INVALID_VALUE);
+            g_glstate_c.set_error(GL_INVALID_VALUE);
             return;
         }
     }
@@ -924,7 +925,7 @@ void drawElementsNow(GLenum mode, GLsizei count, GLenum type, const GLvoid* indi
         if (draw_count == 0) return;
     }
 
-    auto& state = g_glstate.fpe_state;
+    auto& state = g_glstate_c.fpe_state;
     if (rewrite_quads || element_buffer == 0) {
         // CPU-side index data goes through the dedicated FPE element buffer.
         if (state.fpe_element_ibo == 0) g_glFuncs.glGenBuffers(1, &state.fpe_element_ibo);
@@ -953,7 +954,7 @@ void drawElementsNow(GLenum mode, GLsizei count, GLenum type, const GLvoid* indi
 
 bool tryExecuteCapturedDisplayLists(const GLuint* listIds, size_t listCount) {
     if (listIds == nullptr || listCount < 2 || g_glFuncs.glMultiDrawArrays == nullptr ||
-        g_glstate.fpe_uniform.transformation.matrix_mode != GL_MODELVIEW) {
+        g_glstate_c.fpe_uniform.transformation.matrix_mode != GL_MODELVIEW) {
         return false;
     }
 
@@ -1074,7 +1075,7 @@ bool tryExecuteCapturedDisplayLists(const GLuint* listIds, size_t listCount) {
     const GLuint commonBuffer = batch->commonBuffer;
 
     wrapper_client_state_guard_t wrapperState;
-    auto& modelView = g_glstate.fpe_uniform.transformation.matrices[matrix_idx(GL_MODELVIEW)];
+    auto& modelView = g_glstate_c.fpe_uniform.transformation.matrices[matrix_idx(GL_MODELVIEW)];
     const glm::mat4 savedModelView = modelView;
     modelView *= batch->commonLinear;
 
@@ -1087,9 +1088,9 @@ bool tryExecuteCapturedDisplayLists(const GLuint* listIds, size_t listCount) {
         replayState.attributes[i].pointer =
             reinterpret_cast<const void*>(prototype->packedOffsets[i]);
     }
-    g_glstate.fpe_state.vertexpointer_array = replayState;
-    g_glstate.fpe_state.normalized_vpa.reset();
-    g_glstate.fpe_state.client_active_texture = prototype->clientActiveTexture;
+    g_glstate_c.fpe_state.vertexpointer_array = replayState;
+    g_glstate_c.fpe_state.normalized_vpa.reset();
+    g_glstate_c.fpe_state.client_active_texture = prototype->clientActiveTexture;
 
     g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, commonBuffer);
     GLenum mode = prototype->mode;
@@ -1117,18 +1118,19 @@ bool tryExecuteCapturedDisplayLists(const GLuint* listIds, size_t listCount) {
 
 void glDrawArrays(GLenum mode, GLint first, GLsizei count) {
     if (!sfpewEnsureBackend()) return;
+    (void)g_glstate; // entry strict resolve; commit/capture path reads the snapshot
     flushPendingImmediateDraws();
     if (!disableRecording && DisplayListManager::shouldRecord()) {
         std::unique_ptr<GLCmd> command;
 
         const GLint currentProgram = sfpewLogicalProgram();
-        const auto& vertexArray = g_glstate.fpe_state.vertexpointer_array;
+        const auto& vertexArray = g_glstate_c.fpe_state.vertexpointer_array;
         const uint32_t vertexArrayMask = 1u << vp2idx(GL_VERTEX_ARRAY);
 
         if (currentProgram == 0 && first >= 0 && count > 0 &&
             (vertexArray.enabled_pointers & vertexArrayMask) != 0) {
             auto captured = std::make_unique<captured_draw_arrays_cmd_t>(
-                mode, first, count, vertexArray, g_glstate.fpe_state.client_active_texture);
+                mode, first, count, vertexArray, g_glstate_c.fpe_state.client_active_texture);
             if (captured->isValid()) command = std::move(captured);
         }
 
@@ -1145,6 +1147,7 @@ void glDrawArrays(GLenum mode, GLint first, GLsizei count) {
 
 void glDrawElements(GLenum mode, GLsizei count, GLenum type, const GLvoid* indices) {
     if (!sfpewEnsureBackend()) return;
+    (void)g_glstate; // entry strict resolve; commit path reads the snapshot
     flushPendingImmediateDraws();
     // Display-list capture of indexed draws lands with plans/06; while
     // recording, execution matches the previous passthrough behavior.

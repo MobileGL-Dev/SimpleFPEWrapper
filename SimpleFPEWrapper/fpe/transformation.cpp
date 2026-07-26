@@ -84,8 +84,9 @@ public:
         // Preserve the original specialized translate/scale operations and
         // their order while avoiding repeated virtual dispatch, state lookup,
         // and pending-draw checks for adjacent display-list transforms.
+        // Replay runs under the glCallList entry resolve, so relaxed access.
         flushPendingImmediateDraws();
-        auto& matrix = current_matrix(g_glstate.fpe_uniform.transformation);
+        auto& matrix = current_matrix(g_glstate_c.fpe_uniform.transformation);
         apply(matrix);
     }
 
@@ -121,7 +122,7 @@ public:
 
     void execute() const override {
         flushPendingImmediateDraws();
-        auto& matrix = current_matrix(g_glstate.fpe_uniform.transformation);
+        auto& matrix = current_matrix(g_glstate_c.fpe_uniform.transformation);
         const glm::mat4 saved = matrix;
         transform->apply(matrix);
         draw->execute();
@@ -140,7 +141,7 @@ public:
 
     void execute() const override {
         flushPendingImmediateDraws();
-        auto& matrix = current_matrix(g_glstate.fpe_uniform.transformation);
+        auto& matrix = current_matrix(g_glstate_c.fpe_uniform.transformation);
         const glm::mat4 saved = matrix;
         matrix *= linearTransform;
         draw->execute();
@@ -257,7 +258,8 @@ void glMatrixMode(GLenum mode) {
 
     LIST_RECORD(glMatrixMode, {}, mode)
 
-    auto& transformation = g_glstate.fpe_uniform.transformation;
+    auto& gs = g_glstate;
+    auto& transformation = gs.fpe_uniform.transformation;
 
     switch (mode) {
     case GL_MODELVIEW:
@@ -267,7 +269,7 @@ void glMatrixMode(GLenum mode) {
         transformation.matrix_mode = mode;
         break;
     default:
-        g_glstate.set_error(GL_INVALID_ENUM);
+        gs.set_error(GL_INVALID_ENUM);
         break;
     }
 }
@@ -463,12 +465,13 @@ void glPushMatrix(void) {
 
     LIST_RECORD(glPushMatrix, {})
 
-    auto& transformation = g_glstate.fpe_uniform.transformation;
+    auto& gs = g_glstate;
+    auto& transformation = gs.fpe_uniform.transformation;
 
     auto& mat = current_matrix(transformation);
     auto& stack = current_matrix_stack(transformation);
     if (stack.size() >= max_stack_depth(transformation.matrix_mode)) {
-        g_glstate.set_error(GL_STACK_OVERFLOW);
+        gs.set_error(GL_STACK_OVERFLOW);
         return;
     }
     stack.push_back(mat);
@@ -484,12 +487,13 @@ void glPopMatrix(void) {
 
     LIST_RECORD(glPopMatrix, {})
 
-    auto& transformation = g_glstate.fpe_uniform.transformation;
+    auto& gs = g_glstate;
+    auto& transformation = gs.fpe_uniform.transformation;
 
     auto& mat = current_matrix(transformation);
     auto& stack = current_matrix_stack(transformation);
     if (stack.empty()) {
-        g_glstate.set_error(GL_STACK_UNDERFLOW);
+        gs.set_error(GL_STACK_UNDERFLOW);
         return;
     }
     mat = stack.back();

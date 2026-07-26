@@ -544,7 +544,31 @@ struct glstate_t {
     // erases the deleter, so the incomplete type is fine in this header.
     std::shared_ptr<struct attrib_stacks_t> attrib_stacks;
 
+    // Strict context resolve: calls eglGetCurrentContext() and refreshes the
+    // thread-local snapshot. Every context-sensitive exported entry point must
+    // reach this exactly once (its first context access); on glvnd desktops
+    // one call costs ~425ns (getpid + dispatch mutex inside the driver), so
+    // everything downstream of the entry uses current() instead.
     static glstate_t& get_instance();
+
+    // Relaxed accessor: returns the snapshot of the last strict resolve on
+    // this thread (a TLS read), resolving strictly only if the thread has
+    // never resolved. Safe anywhere downstream of an entry's strict resolve:
+    // the current context cannot change mid-call on the calling thread.
+    static glstate_t& current();
+
+    // Vertex-data accessor for glVertex/glColor/glTexCoord/glNormal-class
+    // entries: while a Begin/End batch is collecting (primitive != GL_NONE)
+    // the batch stays pinned to the snapshot context and skips the strict
+    // resolve entirely (a context switch mid-Begin/End is undefined; we
+    // define it as "the batch belongs to the Begin context"). Outside a
+    // batch this is a strict resolve, preserving the documented contract.
+    static glstate_t& current_vertex_data();
+
+    // The EGLContext observed by the last strict resolve on this thread.
+    // Logical shadows reconcile against this instead of re-calling
+    // eglGetCurrentContext; freshness is provided by the entry's resolve.
+    static void* cached_context();
 
     void send_uniforms(program_t& program);
 

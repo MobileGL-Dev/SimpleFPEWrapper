@@ -20,7 +20,11 @@
 #define SET_PREV_PROGRAM                                                                                               \
     g_glFuncs.glUseProgram(m_prev_program);
 
+// Strict resolve (one eglGetCurrentContext) - use for the FIRST context
+// access of an exported entry point. Downstream code uses g_glstate_c.
 #define g_glstate glstate_t::get_instance()
+// Relaxed: thread-local snapshot refreshed by the entry's strict resolve.
+#define g_glstate_c glstate_t::current()
 
 int init_fpe();
 

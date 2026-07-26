@@ -48,8 +48,10 @@ evaluator_state_t& evalState() {
         EGLContext context = (EGLContext)(intptr_t)-1;
         evaluator_state_t state{};
     } cache;
-    const EGLContext current =
-        g_eglFuncs.eglGetCurrentContext ? g_eglFuncs.eglGetCurrentContext() : EGL_NO_CONTEXT;
+    // Reconciles against the calling entry's strict-resolve snapshot so the
+    // evaluator cache and the vertex sink always agree on one context
+    // (docs/context-model.md); evaluator entries anchor explicitly.
+    const EGLContext current = (EGLContext)glstate_t::cached_context();
     if (cache.context != current) {
         cache.context = current;
         cache.state = {};
@@ -120,6 +122,7 @@ void emitAttributes(const GLfloat* value, int idx, int comps) {
 } // namespace
 
 void glMap1f(GLenum target, GLfloat u1, GLfloat u2, GLint stride, GLint order, const GLfloat* points) {
+    (void)g_glstate; // entry strict resolve; evaluator cache reads the snapshot
     bool is_map2 = false;
     int comps = 0;
     const int idx = targetIndex(target, is_map2, comps);
@@ -143,6 +146,7 @@ void glMap1f(GLenum target, GLfloat u1, GLfloat u2, GLint stride, GLint order, c
 }
 
 void glMap1d(GLenum target, GLdouble u1, GLdouble u2, GLint stride, GLint order, const GLdouble* points) {
+    (void)g_glstate; // entry strict resolve; evaluator cache reads the snapshot
     if (points == nullptr) return;
     bool is_map2 = false;
     int comps = 0;
@@ -158,6 +162,7 @@ void glMap1d(GLenum target, GLdouble u1, GLdouble u2, GLint stride, GLint order,
 
 void glMap2f(GLenum target, GLfloat u1, GLfloat u2, GLint ustride, GLint uorder, GLfloat v1,
              GLfloat v2, GLint vstride, GLint vorder, const GLfloat* points) {
+    (void)g_glstate; // entry strict resolve; evaluator cache reads the snapshot
     bool is_map2 = false;
     int comps = 0;
     const int idx = targetIndex(target, is_map2, comps);
@@ -188,6 +193,7 @@ void glMap2f(GLenum target, GLfloat u1, GLfloat u2, GLint ustride, GLint uorder,
 
 void glMap2d(GLenum target, GLdouble u1, GLdouble u2, GLint ustride, GLint uorder, GLdouble v1,
              GLdouble v2, GLint vstride, GLint vorder, const GLdouble* points) {
+    (void)g_glstate; // entry strict resolve; evaluator cache reads the snapshot
     if (points == nullptr) return;
     bool is_map2 = false;
     int comps = 0;
@@ -207,6 +213,7 @@ void glMap2d(GLenum target, GLdouble u1, GLdouble u2, GLint ustride, GLint uorde
 }
 
 void glEvalCoord1f(GLfloat u) {
+    (void)g_glstate; // entry strict resolve; evaluator cache reads the snapshot
     auto& es = evalState();
     GLfloat value[4];
     // Non-vertex attributes first; the vertex evaluation commits the vertex.
@@ -229,6 +236,7 @@ void glEvalCoord1f(GLfloat u) {
 }
 
 void glEvalCoord2f(GLfloat u, GLfloat v) {
+    (void)g_glstate; // entry strict resolve; evaluator cache reads the snapshot
     auto& es = evalState();
     GLfloat value[4];
     std::array<GLfloat, 32 * 4> column{};
@@ -288,6 +296,7 @@ void glEvalCoord1dv(const GLdouble* u) { if (u) glEvalCoord1f((GLfloat)u[0]); }
 void glEvalCoord2dv(const GLdouble* u) { if (u) glEvalCoord2f((GLfloat)u[0], (GLfloat)u[1]); }
 
 void glMapGrid1f(GLint un, GLfloat u1, GLfloat u2) {
+    (void)g_glstate; // entry strict resolve; evaluator cache reads the snapshot
     if (un < 1) {
         g_glstate.set_error(GL_INVALID_VALUE);
         return;
@@ -303,6 +312,7 @@ void glMapGrid1d(GLint un, GLdouble u1, GLdouble u2) {
 }
 
 void glMapGrid2f(GLint un, GLfloat u1, GLfloat u2, GLint vn, GLfloat v1, GLfloat v2) {
+    (void)g_glstate; // entry strict resolve; evaluator cache reads the snapshot
     if (un < 1 || vn < 1) {
         g_glstate.set_error(GL_INVALID_VALUE);
         return;
@@ -321,17 +331,20 @@ void glMapGrid2d(GLint un, GLdouble u1, GLdouble u2, GLint vn, GLdouble v1, GLdo
 }
 
 void glEvalPoint1(GLint i) {
+    (void)g_glstate; // entry strict resolve; evaluator cache reads the snapshot
     const auto& es = evalState();
     glEvalCoord1f(es.grid_u1 + (es.grid_u2 - es.grid_u1) * (GLfloat)i / (GLfloat)es.grid_un);
 }
 
 void glEvalPoint2(GLint i, GLint j) {
+    (void)g_glstate; // entry strict resolve; evaluator cache reads the snapshot
     const auto& es = evalState();
     glEvalCoord2f(es.grid_u1 + (es.grid_u2 - es.grid_u1) * (GLfloat)i / (GLfloat)es.grid_un,
                   es.grid_v1 + (es.grid_v2 - es.grid_v1) * (GLfloat)j / (GLfloat)es.grid_vn);
 }
 
 void glEvalMesh1(GLenum mode, GLint i1, GLint i2) {
+    (void)g_glstate; // entry strict resolve; evaluator cache reads the snapshot
     if (mode != GL_POINT && mode != GL_LINE) {
         g_glstate.set_error(GL_INVALID_ENUM);
         return;
@@ -342,6 +355,7 @@ void glEvalMesh1(GLenum mode, GLint i1, GLint i2) {
 }
 
 void glEvalMesh2(GLenum mode, GLint i1, GLint i2, GLint j1, GLint j2) {
+    (void)g_glstate; // entry strict resolve; evaluator cache reads the snapshot
     if (mode != GL_POINT && mode != GL_LINE && mode != GL_FILL) {
         g_glstate.set_error(GL_INVALID_ENUM);
         return;

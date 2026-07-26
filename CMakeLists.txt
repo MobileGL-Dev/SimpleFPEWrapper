@@ -166,11 +166,18 @@ if(NOT ANDROID)
                         target_link_libraries(piglit_runner PRIVATE dl m ${SFPEW_TEST_EGL})
                         add_dependencies(piglit_runner ${CMAKE_PROJECT_NAME})
                         file(GLOB SFPEW_PIGLIT_TESTS ${CMAKE_SOURCE_DIR}/tests/piglit/*.shader_test)
+                        file(STRINGS ${CMAKE_SOURCE_DIR}/tests/piglit/KNOWN_DEVIATIONS.txt
+                             SFPEW_PIGLIT_XFAIL REGEX "^[^#]")
                         foreach(pt ${SFPEW_PIGLIT_TESTS})
                                 get_filename_component(pt_name ${pt} NAME)
                                 string(REPLACE ".shader_test" "" pt_name ${pt_name})
                                 add_test(NAME piglit.${pt_name} COMMAND piglit_runner ${pt})
                                 set_tests_properties(piglit.${pt_name} PROPERTIES SKIP_RETURN_CODE 77)
+                                if(pt_name IN_LIST SFPEW_PIGLIT_XFAIL)
+                                        # Documented pipeline deviation; if it starts
+                                        # passing, WILL_FAIL flags it for delisting.
+                                        set_tests_properties(piglit.${pt_name} PROPERTIES WILL_FAIL TRUE)
+                                endif()
                         endforeach()
                 endif()
 

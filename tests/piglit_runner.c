@@ -232,11 +232,17 @@ static int run_test_section(char* body) {
         } else if (sscanf(line, "relative probe rgba ( %f , %f ) ( %f , %f , %f , %f )", &a, &b, &c,
                           &d, &e, &f) == 6) {
             const float exp4[4] = {c, d, e, f};
-            if (!probe_pixels((int)(a * (WIN - 1)), (int)(b * (WIN - 1)), 1, 1, exp4, 4)) return 0;
+            int px = (int)(a * WIN), py = (int)(b * WIN);
+            if (px >= WIN) px = WIN - 1;
+            if (py >= WIN) py = WIN - 1;
+            if (!probe_pixels(px, py, 1, 1, exp4, 4)) return 0;
         } else if (sscanf(line, "relative probe rgb ( %f , %f ) ( %f , %f , %f )", &a, &b, &c, &d,
                           &e) == 5) {
             const float exp3[4] = {c, d, e, 0};
-            if (!probe_pixels((int)(a * (WIN - 1)), (int)(b * (WIN - 1)), 1, 1, exp3, 3)) return 0;
+            int px = (int)(a * WIN), py = (int)(b * WIN);
+            if (px >= WIN) px = WIN - 1;
+            if (py >= WIN) py = WIN - 1;
+            if (!probe_pixels(px, py, 1, 1, exp3, 3)) return 0;
         } else if (sscanf(line, "probe all rgba %f %f %f %f", &a, &b, &c, &d) == 4) {
             const float exp4[4] = {a, b, c, d};
             if (!probe_pixels(0, 0, WIN, WIN, exp4, 4)) return 0;

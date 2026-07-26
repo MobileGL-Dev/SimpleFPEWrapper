@@ -1,0 +1,24 @@
+# Vendored piglit tests that fail by design on the glslang-based
+# translation pipeline. CMake marks them WILL_FAIL: a regression that
+# makes one PASS shows up as a test failure, prompting removal here.
+#
+# glslang folds constants at 32-bit precision, so
+# int(degrees(3.1415926535)) == 179, not Mesa's double-folded 180.
+glsl-1.20__const-builtin_glsl-const-builtin-degrees
+# glslang scopes a declaration-as-body of do-while incorrectly
+# (GLSL 4.60.7 p45: the body scope excludes the while test).
+glsl-1.20__fs-do-while-scope
+# glslang checks for missing function bodies before folding constant
+# branches, so calls inside `if (false)` still demand a definition.
+glsl-1.20__glsl-const-folding-01
+# Mesa resolves cross-TU overloads at link time and falls back to an
+# implicitly-convertible defined overload when the exact match has no
+# body; glslang resolves at compile time and requires the exact body.
+glsl-1.20__linker__function-match-implicit-params
+# glslang evaluates out-parameter lvalues (value[i]) after the call
+# returns; the GLSL linker semantics evaluate them at call time.
+glsl-1.20__qualifiers_vs-out-conversion-int-to-float-vec4-index
+# Negative linker test: desktop GL fails linking when the fragment
+# stage statically reads a varying no vertex shader writes; the ESSL
+# linker (and thus the wrapper) accepts it with undefined values.
+glsl-1.10__linker__varying-read-but-not-written

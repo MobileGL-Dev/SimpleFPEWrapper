@@ -28,6 +28,7 @@
 #include <map>
 #include <unordered_map>
 #include <vector>
+#include <cstdlib>
 #include <cstring>
 #include <algorithm>
 
@@ -444,13 +445,13 @@ const std::unordered_map<std::string, std::string>& commonReplacements() {
         {"texture2D", "texture"},
         {"texture3D", "texture"},
         {"textureCube", "texture"},
-        {"shadow1D", "texture"},
-        {"shadow2D", "texture"},
+        {"shadow1D", "fpe_shadow2D"}, // 1D lives as 2D height-1 here
+        {"shadow2D", "fpe_shadow2D"},
         {"texture1DProj", "textureProj"},
         {"texture2DProj", "textureProj"},
         {"texture3DProj", "textureProj"},
-        {"shadow1DProj", "textureProj"},
-        {"shadow2DProj", "textureProj"},
+        {"shadow1DProj", "fpe_shadow2DProj"},
+        {"shadow2DProj", "fpe_shadow2DProj"},
         {"texture1DLod", "textureLod"},
         {"texture2DLod", "textureLod"},
         {"texture3DLod", "textureLod"},
@@ -458,6 +459,13 @@ const std::unordered_map<std::string, std::string>& commonReplacements() {
         {"texture1DProjLod", "textureProjLod"},
         {"texture2DProjLod", "textureProjLod"},
         {"texture3DProjLod", "textureProjLod"},
+        // GL_EXT_gpu_shader4 spellings (ShadersMod-era packs).
+        {"texelFetch1D", "texelFetch"},
+        {"texelFetch2D", "texelFetch"},
+        {"texelFetch3D", "texelFetch"},
+        {"textureSize1D", "textureSize"},
+        {"textureSize2D", "textureSize"},
+        {"textureSize3D", "textureSize"},
     };
     return map;
 }
@@ -518,10 +526,18 @@ const std::unordered_map<std::string, std::string>& legacyIdentifierReplacements
         {"mat4x2", "fpe_id_mat4x2"}, {"mat4x3", "fpe_id_mat4x3"}, {"mat4x4", "fpe_id_mat4x4"},
         {"lowp", "fpe_id_lowp"},     {"mediump", "fpe_id_mediump"},
         {"highp", "fpe_id_highp"},   {"precision", "fpe_id_precision"},
-        // In <= 1.20 these are NOT builtins, so any occurrence is a user
-        // identifier - and OptiFine shader packs universally declare
-        // `uniform sampler2D texture;`, which would otherwise shadow the
-        // modern sampling function that texture2D() rewrites into.
+    };
+    return map;
+}
+
+// OptiFine shader packs of EVERY era declare `uniform sampler2D texture;`
+// (real drivers let a variable shadow the builtin even in #version 400
+// compatibility), which collides with the modern sampling function that
+// texture2D() rewrites into. Applied as its own retry layer with no
+// version gate: a shader that legitimately CALLS texture() simply fails
+// this attempt and keeps the plain translation's diagnostics.
+const std::unordered_map<std::string, std::string>& samplerShadowingReplacements() {
+    static const std::unordered_map<std::string, std::string> map = {
         {"texture", "fpe_id_texture"},
         {"textureProj", "fpe_id_textureProj"},
         {"textureLod", "fpe_id_textureLod"},
@@ -586,6 +602,16 @@ out float fpe_FogFragCoord;
 constexpr char kVertexPreludeFuncs[] =
     "vec4 ftransform() { return fpe_ModelViewProjectionMatrix * fpe_Vertex; }\n";
 constexpr char kVertexPreludeProtos[] = "vec4 ftransform();\n";
+
+// Legacy shadow2D returns vec4 (the compare result splatted); the modern
+// texture() overload returns float, so packs doing shadow2D(...).z need a
+// widening wrapper rather than a rename.
+constexpr char kSharedPreludeFuncs[] =
+    "vec4 fpe_shadow2D(sampler2DShadow s, vec3 p) { return vec4(texture(s, p)); }\n"
+    "vec4 fpe_shadow2DProj(sampler2DShadow s, vec4 p) { return vec4(textureProj(s, p)); }\n";
+constexpr char kSharedPreludeProtos[] =
+    "vec4 fpe_shadow2D(sampler2DShadow s, vec3 p);\n"
+    "vec4 fpe_shadow2DProj(sampler2DShadow s, vec4 p);\n";
 
 constexpr char kFragmentPrelude[] = R"(
 in vec4 fpe_FrontColor;
@@ -655,7 +681,7 @@ namespace {
 // input is always "450 core" - a superset in which every 1.10/1.20
 // construct still parses once the preprocessor has rewritten the
 // compatibility spellings.
-std::string rewriteBody(bool vertex, const std::string& source, bool legacy_identifiers) {
+std::string rewriteBody(bool vertex, const std::string& source, int rename_level) {
     std::string body = source;
     unsigned source_version = 110; // the GLSL default when #version is absent
     const size_t vpos = body.find("#version");
@@ -664,7 +690,10 @@ std::string rewriteBody(bool vertex, const std::string& source, bool legacy_iden
         const size_t eol = body.find('\n', vpos);
         body = body.substr(0, vpos) + body.substr(eol == std::string::npos ? body.size() : eol + 1);
     }
-    if (legacy_identifiers && source_version <= 120) {
+    if (rename_level >= 1) {
+        body = replaceIdentifiers(body, samplerShadowingReplacements(), {});
+    }
+    if (rename_level >= 2 && source_version <= 120) {
         body = replaceIdentifiers(body, legacyIdentifierReplacements(), {});
     }
     body = replaceIdentifiers(body, commonReplacements(),
@@ -705,6 +734,7 @@ std::string buildPrelude(bool vertex, bool uses_fragdata, bool with_bodies,
                          unsigned max_draw_buffers) {
     std::string result = "#version 450\n"; // SPIR-V rejects compatibility
     result += kSharedPrelude;
+    result += with_bodies ? kSharedPreludeFuncs : kSharedPreludeProtos;
     result += vertex ? kVertexPrelude : kFragmentPrelude;
     if (vertex) {
         result += with_bodies ? kVertexPreludeFuncs : kVertexPreludeProtos;
@@ -730,14 +760,14 @@ std::string preprocess(GLenum stage, const std::string& source) {
 // then merges globals, resolves prototypes and rejects real conflicts
 // exactly like a desktop GLSL linker.
 std::vector<std::string> preprocessUnits(GLenum stage, const std::vector<std::string>& sources,
-                                         bool legacy_identifiers = false,
+                                         int rename_level = 0,
                                          unsigned max_draw_buffers = 4) {
     const bool vertex = stage == GL_VERTEX_SHADER;
     std::vector<std::string> bodies;
     bodies.reserve(sources.size());
     bool uses_fragdata = false;
     for (const auto& source : sources) {
-        bodies.push_back(rewriteBody(vertex, source, legacy_identifiers));
+        bodies.push_back(rewriteBody(vertex, source, rename_level));
         uses_fragdata = uses_fragdata || bodies.back().find("fpe_FragData") != std::string::npos;
     }
     std::vector<std::string> units;
@@ -771,14 +801,14 @@ translation_result_t translateUnits(GLenum stage, const std::vector<std::string>
 translation_result_t translate(GLenum stage, const std::vector<std::string>& sources,
                                const target_language_t& target) {
     auto result =
-        translateUnits(stage, preprocessUnits(stage, sources, false, target.max_draw_buffers), target);
-    if (!result.ok && !result.parse_ok) {
-        // The 450 parse may have tripped over identifiers that only became
-        // keywords after 1.10/1.20 (mat2x3, lowp, texture, ...): retry with
-        // those renamed. Kept as a fallback because permissive drivers let
-        // shaders claim 110 while using later-version types.
+        translateUnits(stage, preprocessUnits(stage, sources, 0, target.max_draw_buffers), target);
+    // Escalating rename retries, keeping the PLAIN attempt's diagnostics
+    // when everything fails: level 1 un-shadows sampler names (`uniform
+    // sampler2D texture;` exists in packs of every #version), level 2 also
+    // renames identifiers that were plain in <= 1.20 (mat2x3, lowp, ...).
+    for (int level = 1; level <= 2 && !result.ok && !result.parse_ok; ++level) {
         auto retry = translateUnits(
-            stage, preprocessUnits(stage, sources, true, target.max_draw_buffers), target);
+            stage, preprocessUnits(stage, sources, level, target.max_draw_buffers), target);
         if (retry.ok) return retry;
     }
     return result;
@@ -928,7 +958,10 @@ sfpewTranslateGlslForTest(unsigned int stage, const char* source, char* out, int
     if (source == nullptr || out == nullptr || out_size <= 0) return -1;
     // The test hook targets the backend when one is current, else ESSL 300.
     const auto result = SFPEW::Shader::translate(stage, source, SFPEW::Shader::detect_backend_target());
-    const std::string& payload = result.ok ? result.essl : result.log;
+    // SFPEW_DEBUG_PRE=1: return the preprocessed toolchain input instead
+    // of the diagnostics on failure (translator debugging).
+    const bool debug_pre = std::getenv("SFPEW_DEBUG_PRE") != nullptr && !result.ok;
+    const std::string& payload = result.ok ? result.essl : (debug_pre ? result.preprocessed : result.log);
     const int n = (int)std::min((size_t)out_size - 1, payload.size());
     std::memcpy(out, payload.data(), (size_t)n);
     out[n] = '\0';

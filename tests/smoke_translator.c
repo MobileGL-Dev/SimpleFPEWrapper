@@ -100,6 +100,34 @@ static const char* kFragmentOptiFine =
     "    gl_FragData[0] = albedo;\n"
     "}\n";
 
+// Constructs harvested from real shader-pack failures (device dumps):
+// legacy shadow2D returns vec4 (so .z must survive), GL_EXT_gpu_shader4
+// spellings, and `sampler2D texture` under #version 400 compatibility.
+static const char* kFragmentShadow =
+    "#version 120\n"
+    "uniform sampler2DShadow shadowtex0;\n"
+    "varying vec4 shadowposition;\n"
+    "void main() {\n"
+    "    float shadow0 = shadow2D(shadowtex0, shadowposition.xyz).z;\n"
+    "    gl_FragColor = vec4(vec3(shadow0), 1.0);\n"
+    "}\n";
+
+static const char* kFragmentGpuShader4 =
+    "#version 120\n"
+    "#extension GL_EXT_gpu_shader4 : enable\n"
+    "uniform sampler2D colortex0;\n"
+    "void main() {\n"
+    "    gl_FragColor = texelFetch2D(colortex0, ivec2(gl_FragCoord.xy), 0);\n"
+    "}\n";
+
+static const char* kFragment400Compat =
+    "#version 400 compatibility\n"
+    "uniform sampler2D texture;\n"
+    "varying vec2 texcoord;\n"
+    "void main() {\n"
+    "    gl_FragData[0] = texture2D(texture, texcoord);\n"
+    "}\n";
+
 static char out_buf[1 << 16];
 
 static int translate_and_check(translate_fn translate, unsigned int stage, const char* src,
@@ -157,6 +185,9 @@ int main(void) {
         {GLF, kFragmentData, "fs120-fragdata"},
         {GLV, kVertexOptiFine, "vs120-optifine"},
         {GLF, kFragmentOptiFine, "fs120-optifine-texture-sampler"},
+        {GLF, kFragmentShadow, "fs120-shadow2D-swizzle"},
+        {GLF, kFragmentGpuShader4, "fs120-gpu-shader4"},
+        {GLF, kFragment400Compat, "fs400-compat-texture-sampler"},
     };
     for (unsigned i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
         if (!translate_and_check(translate, cases[i].stage, cases[i].src, cases[i].tag)) return 1;

@@ -243,6 +243,10 @@ struct fixed_function_state_t {
 
     struct vertex_pointer_array_t vertexpointer_array;
     struct vertex_pointer_array_t normalized_vpa;
+    // GL_ARRAY_BUFFER binding captured at each gl*Pointer call (client
+    // state, so it lives on the per-context aggregate; previously a
+    // process-wide global that leaked across contexts - audit finding).
+    GLuint client_array_buffer_bindings[VERTEX_POINTER_COUNT] = {};
     struct fixed_function_bool_t fpe_bools;
     struct fixed_function_draw_state_t fpe_draw;
 };

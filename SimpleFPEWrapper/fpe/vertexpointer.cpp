@@ -15,7 +15,6 @@
 
 namespace {
 
-GLuint clientArrayBufferBindings[VERTEX_POINTER_COUNT] = {};
 struct logical_array_buffer_state_t {
     EGLContext context = EGL_NO_CONTEXT;
     GLuint binding = 0;
@@ -48,7 +47,7 @@ GLuint getLogicalArrayBufferBinding() {
 
 void rememberClientArrayBufferBinding(int index) {
     if (index < 0 || index >= VERTEX_POINTER_COUNT) return;
-    clientArrayBufferBindings[index] = getLogicalArrayBufferBinding();
+    g_glstate.fpe_state.client_array_buffer_bindings[index] = getLogicalArrayBufferBinding();
 }
 
 } // namespace
@@ -84,7 +83,7 @@ GLuint sfpewLogicalArrayBufferBinding() { return getLogicalArrayBufferBinding();
 
 GLuint getClientArrayBufferBinding(int index) {
     if (index < 0 || index >= VERTEX_POINTER_COUNT) return 0;
-    return clientArrayBufferBindings[index];
+    return g_glstate.fpe_state.client_array_buffer_bindings[index];
 }
 
 void glVertexPointer(GLint size, GLenum type, GLsizei stride, const void* pointer) {

@@ -37,7 +37,13 @@ logical_program_state_t& getLogicalProgramState() {
 
 GLint sfpewLogicalProgram() {
     auto& state = getLogicalProgramState();
-    if (!state.known) {
+    // Callers that bypass the glUseProgram wrapper (JNI direct dispatch,
+    // layered wrappers) would otherwise desynchronize this shadow forever.
+    // Re-read the truth every 256 queries - one cheap glGetIntegerv per ~256
+    // draws keeps the FPE interception decision self-healing (plans/07).
+    thread_local unsigned reconcile_counter = 0;
+    const bool reconcile = (++reconcile_counter & 0xFFu) == 0u;
+    if (!state.known || reconcile) {
         if (!sfpewEnsureBackend() || g_glFuncs.glGetIntegerv == nullptr) return 0;
         g_glFuncs.glGetIntegerv(GL_CURRENT_PROGRAM, &state.program);
         state.known = true;

@@ -118,6 +118,10 @@ struct immediate_draw_sizes_guard_t {
 };
 
 struct pending_glyph_batch_t {
+    // Batches are keyed to the context they were collected on: replaying
+    // vertex data or texture bindings on a different context would draw
+    // garbage (plans/07).
+    EGLContext context = EGL_NO_CONTEXT;
     bool active = false;
     fixed_function_draw_size_t sizes{};
     std::vector<GLfloat> vertices;
@@ -210,6 +214,8 @@ bool queueGlyphTriangleStrip(const fixed_function_draw_state_t& draw) {
     }
     if (!batch.active) {
         batch.active = true;
+        batch.context =
+            g_eglFuncs.eglGetCurrentContext ? g_eglFuncs.eglGetCurrentContext() : EGL_NO_CONTEXT;
         batch.sizes = sizes;
         batch.vertices.clear();
         batch.vertexCount = 0;
@@ -247,6 +253,16 @@ bool queueGlyphTriangleStrip(const fixed_function_draw_state_t& draw) {
 void flushPendingImmediateDraws() {
     auto& batch = pendingGlyphBatch;
     if (!batch.active) return;
+    const EGLContext current =
+        g_eglFuncs.eglGetCurrentContext ? g_eglFuncs.eglGetCurrentContext() : EGL_NO_CONTEXT;
+    if (batch.context != current) {
+        // The collecting context is gone from this thread; its texture
+        // bindings and buffer names are meaningless here. Drop, not draw.
+        SFPEW_LOGW("dropping %zu pending glyphs collected on a different context", batch.glyphCount);
+        batch = {};
+        batch.context = current;
+        return;
+    }
 
     const GLenum callerActiveTexture = sfpewLogicalActiveTexture();
     if (callerActiveTexture != batch.activeTexture)

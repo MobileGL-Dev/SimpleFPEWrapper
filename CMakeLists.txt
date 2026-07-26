@@ -19,7 +19,7 @@ else()
         # so an unoptimised C++ build dominates frame time on Android.  Keep
         # debug information while compiling the native hot path as optimised
         # production code.
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -w -fvisibility=hidden -fno-semantic-interposition -funwind-tables -g -O3 -ffast-math -DNDEBUG -D_THREAD_SAFE -fPIC")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -w -fvisibility=hidden -fno-semantic-interposition -funwind-tables -g -O3 -fno-math-errno -DNDEBUG -D_THREAD_SAFE -fPIC")
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -w -g -std=gnu99 -funwind-tables -O3 -fvisibility=hidden")
         set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libstdc++")
         if(ANDROID)

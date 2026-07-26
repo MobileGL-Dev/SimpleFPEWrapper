@@ -54,6 +54,12 @@ const std::unordered_map<std::string, std::string>& commonReplacements() {
         {"gl_TexCoord", "fpe_TexCoord"},
         {"gl_FogFragCoord", "fpe_FogFragCoord"},
         {"gl_NormalScale", "fpe_NormalScale"},
+        // The struct TYPE names are user-referencable too (e.g. as function
+        // parameter types) and must follow their instances into the prelude.
+        {"gl_LightSourceParameters", "fpe_LightSourceParameters"},
+        {"gl_LightModelParameters", "fpe_LightModelParameters"},
+        {"gl_MaterialParameters", "fpe_MaterialParameters"},
+        {"gl_FogParameters", "fpe_FogParameters"},
         // Legacy sampler builtins vanished from core profiles; the modern
         // overload set accepts the same argument shapes.
         {"texture1D", "texture"},
@@ -313,6 +319,27 @@ translation_result_t translate(GLenum stage, const std::string& source,
         opts.vulkan_semantics = false;
         opts.enable_420pack_extension = false;
         compiler.set_common_options(opts);
+        // The wrapper links everything by NAME (glGetUniformLocation /
+        // glGetAttribLocation / varying name matching): the auto-mapped
+        // bindings and locations from the per-stage glslang runs are not
+        // coherent across stages, and ESSL 310+ would otherwise emit
+        // layout(binding=N) on plain default-block uniforms, which no GLSL
+        // dialect accepts. Strip them; only fragment outputs keep their
+        // locations (gl_FragData[i] must stay routed to draw buffer i).
+        const auto resources = compiler.get_shader_resources();
+        auto strip = [&compiler](const spirv_cross::Resource& r) {
+            compiler.unset_decoration(r.id, spv::DecorationLocation);
+            compiler.unset_decoration(r.id, spv::DecorationBinding);
+        };
+        for (const auto& r : resources.gl_plain_uniforms) strip(r);
+        for (const auto& r : resources.sampled_images) strip(r);
+        for (const auto& r : resources.separate_images) strip(r);
+        for (const auto& r : resources.separate_samplers) strip(r);
+        if (lang == EShLangVertex) {
+            for (const auto& r : resources.stage_outputs) strip(r);
+        } else {
+            for (const auto& r : resources.stage_inputs) strip(r);
+        }
         result.essl = compiler.compile();
         result.ok = true;
     } catch (const std::exception& e) {

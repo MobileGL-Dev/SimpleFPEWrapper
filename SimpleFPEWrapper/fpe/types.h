@@ -484,6 +484,23 @@ struct glstate_t {
     bool pixel_store_pack_swap_bytes = false;
     bool pixel_store_pack_lsb_first = false;
 
+    // Selection / feedback (plans/10 10.3). CPU transform results only;
+    // nothing reaches the GPU while render_mode != GL_RENDER.
+    GLenum render_mode = GL_RENDER;
+    GLuint* select_buffer = nullptr;
+    GLsizei select_buffer_size = 0;
+    GLuint select_written = 0;
+    GLuint select_hit_count = 0;
+    bool select_overflow = false;
+    std::vector<GLuint> name_stack;
+    bool hit_pending = false;
+    float hit_min_z = 1.0f, hit_max_z = 0.0f;
+    GLfloat* feedback_buffer = nullptr;
+    GLsizei feedback_buffer_size = 0;
+    GLenum feedback_type = 0x0601 /* GL_3D */;
+    GLsizei feedback_written = 0;
+    bool feedback_overflow = false;
+
     // Wrapper-side GL error slot. GL semantics: only the first error since
     // the last glGetError() is kept; later ones are discarded until read.
     GLenum first_error = GL_NO_ERROR;

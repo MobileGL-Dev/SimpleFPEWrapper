@@ -140,6 +140,18 @@ void drawImmediateVertices(GLenum primitive, const GLfloat* vertices, size_t flo
         return;
     }
 
+    if (g_glstate.render_mode != GL_RENDER) {
+        // Selection/feedback: the interleaved buffer starts with the
+        // position attribute; stride is the whole per-vertex float count.
+        size_t stride_floats = 0;
+        for (GLint component_count : sizes.data)
+            if (component_count > 0) stride_floats += (size_t)component_count;
+        if (stride_floats > 0)
+            sfpewSelectionProcessVertices(primitive, vertices, stride_floats, sizes.vertex_size,
+                                          vertexCount);
+        return;
+    }
+
     fpe_backend_draw_state_guard_t backendState(
         sfpewLogicalProgram(), static_cast<GLint>(sfpewLogicalArrayBufferBinding()));
     // glBegin/glEnd uses temporary interleaved data. Preserve the caller's

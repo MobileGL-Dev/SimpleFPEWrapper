@@ -7,6 +7,7 @@
 // End of Source File Header
 
 #include "init.h"
+#include "log.h"
 
 #include "fpe/fpe.hpp"
 #include "fpe/list.h"
@@ -712,6 +713,24 @@ void drawArraysNow(GLenum mode, GLint first, GLsizei count, bool forceFixedFunct
     if ((!forceFixedFunction && current_program != 0) || first < 0 || count < 0 ||
         !(vertex_array.enabled_pointers & vertex_array_mask)) {
         g_glFuncs.glDrawArrays(mode, first, count);
+        return;
+    }
+
+    if (g_glstate.render_mode != GL_RENDER) {
+        // Selection/feedback: transform on the CPU, never touch the GPU.
+        const auto& attr = vertex_array.attributes[vp2idx(GL_VERTEX_ARRAY)];
+        const bool client_ptr = getClientArrayBufferBinding(vp2idx(GL_VERTEX_ARRAY)) == 0;
+        if (client_ptr && attr.pointer != nullptr && attr.type == GL_FLOAT && count > 0) {
+            const GLsizei stride_bytes = attr.stride != 0 ? attr.stride
+                                                          : attr.size * (GLsizei)sizeof(GLfloat);
+            const auto* base = static_cast<const uint8_t*>(attr.pointer) +
+                               (size_t)first * (size_t)stride_bytes;
+            sfpewSelectionProcessVertices(mode, reinterpret_cast<const GLfloat*>(base),
+                                          (size_t)stride_bytes / sizeof(GLfloat), attr.size,
+                                          (size_t)count);
+        } else {
+            SFPEW_LOGW("selection: unsupported vertex source (VBO or non-float), draw skipped");
+        }
         return;
     }
 

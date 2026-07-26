@@ -23,6 +23,11 @@
 #define g_glstate glstate_t::get_instance()
 
 int init_fpe();
+
+// Selection/feedback CPU pipeline (fpe/selection.cpp, plans/10 10.3).
+void sfpewFlushSelectionHit();
+void sfpewSelectionProcessVertices(GLenum mode, const GLfloat* positions, size_t stride_floats,
+                                   GLint position_size, size_t vertex_count);
 bool prepare_quad_indices(GLsizei count, GLuint first = 0);
 const void* quad_index_data();
 size_t quad_index_size_bytes();

@@ -939,6 +939,15 @@ bool mapLegacyInternalFormat(GLint internalformat, legacy_format_mapping_t& out)
     case 4:
         out = {GL_RGBA8, GL_RGBA, {GL_RED, GL_GREEN, GL_BLUE, GL_ALPHA}};
         return true;
+    // GL 2.1 sRGB internalformats (EXT_texture_sRGB) onto the ES3 natives.
+    case GL_SRGB:
+    case GL_SRGB8:
+        out = {GL_SRGB8, GL_RGB, {GL_RED, GL_GREEN, GL_BLUE, GL_ONE}};
+        return true;
+    case GL_SRGB_ALPHA:
+    case GL_SRGB8_ALPHA8:
+        out = {GL_SRGB8_ALPHA8, GL_RGBA, {GL_RED, GL_GREEN, GL_BLUE, GL_ALPHA}};
+        return true;
     default:
         return false;
     }

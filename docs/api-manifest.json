@@ -1,6 +1,6 @@
 {
  "source": "lookup.cpp",
- "count": 385,
+ "count": 393,
  "entries": {
   "glActiveTexture": {
    "status": "resolvable",
@@ -342,6 +342,10 @@
    "status": "resolvable",
    "target": "glEndList"
   },
+  "glFeedbackBuffer": {
+   "status": "resolvable",
+   "target": "glFeedbackBuffer"
+  },
   "glFinish": {
    "status": "resolvable",
    "target": "glFinish"
@@ -502,6 +506,10 @@
    "status": "resolvable",
    "target": "glIndexPointer"
   },
+  "glInitNames": {
+   "status": "resolvable",
+   "target": "glInitNames"
+  },
   "glInterleavedArrays": {
    "status": "resolvable",
    "target": "glInterleavedArrays"
@@ -569,6 +577,10 @@
   "glLoadMatrixf": {
    "status": "resolvable",
    "target": "glLoadMatrixf"
+  },
+  "glLoadName": {
+   "status": "resolvable",
+   "target": "glLoadName"
   },
   "glMaterialf": {
    "status": "resolvable",
@@ -910,6 +922,10 @@
    "status": "resolvable",
    "target": "glOrthof"
   },
+  "glPassThrough": {
+   "status": "resolvable",
+   "target": "glPassThrough"
+  },
   "glPixelStoref": {
    "status": "resolvable",
    "target": "glPixelStoref"
@@ -958,6 +974,10 @@
    "status": "resolvable",
    "target": "glPopMatrix"
   },
+  "glPopName": {
+   "status": "resolvable",
+   "target": "glPopName"
+  },
   "glPushAttrib": {
    "status": "resolvable",
    "target": "glPushAttrib"
@@ -969,6 +989,10 @@
   "glPushMatrix": {
    "status": "resolvable",
    "target": "glPushMatrix"
+  },
+  "glPushName": {
+   "status": "resolvable",
+   "target": "glPushName"
   },
   "glRasterPos2d": {
    "status": "resolvable",
@@ -1102,6 +1126,10 @@
    "status": "resolvable",
    "target": "glRectsv"
   },
+  "glRenderMode": {
+   "status": "resolvable",
+   "target": "glRenderMode"
+  },
   "glRotated": {
    "status": "resolvable",
    "target": "glRotated"
@@ -1129,6 +1157,10 @@
   "glSecondaryColorPointerEXT": {
    "status": "alias",
    "target": "glSecondaryColorPointer"
+  },
+  "glSelectBuffer": {
+   "status": "resolvable",
+   "target": "glSelectBuffer"
   },
   "glShadeModel": {
    "status": "resolvable",

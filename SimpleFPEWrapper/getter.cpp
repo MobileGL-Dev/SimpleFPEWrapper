@@ -480,6 +480,58 @@ void glGetTexEnviv(GLenum target, GLenum pname, GLint* params) {
     for (int i = 0; i < count; ++i) params[i] = static_cast<GLint>(staging[i]);
 }
 
+namespace {
+int texgenCoordIndex(GLenum coord) {
+    switch (coord) {
+    case GL_S: return 0;
+    case GL_T: return 1;
+    case GL_R: return 2;
+    case GL_Q: return 3;
+    default: return -1;
+    }
+}
+} // namespace
+
+void glGetTexGenfv(GLenum coord, GLenum pname, GLfloat* params) {
+    if (!params) return;
+    const int c = texgenCoordIndex(coord);
+    if (c < 0) {
+        g_glstate.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    const int unit = std::clamp(static_cast<int>(sfpewLogicalActiveTexture() - GL_TEXTURE0), 0, MAX_TEX - 1);
+    switch (pname) {
+    case GL_TEXTURE_GEN_MODE:
+        params[0] = static_cast<GLfloat>(g_glstate.fpe_state.texture_gen_mode[unit][c]);
+        break;
+    case GL_OBJECT_PLANE:
+        memcpy(params, glm::value_ptr(g_glstate.fpe_uniform.texgen_object_plane[unit][c]), 4 * sizeof(GLfloat));
+        break;
+    case GL_EYE_PLANE:
+        memcpy(params, glm::value_ptr(g_glstate.fpe_uniform.texgen_eye_plane[unit][c]), 4 * sizeof(GLfloat));
+        break;
+    default:
+        g_glstate.set_error(GL_INVALID_ENUM);
+        break;
+    }
+}
+
+void glGetTexGeniv(GLenum coord, GLenum pname, GLint* params) {
+    if (!params) return;
+    GLfloat staging[4] = {};
+    glGetTexGenfv(coord, pname, staging);
+    const int count = pname == GL_TEXTURE_GEN_MODE ? 1 : 4;
+    for (int i = 0; i < count; ++i) params[i] = static_cast<GLint>(staging[i]);
+}
+
+void glGetTexGendv(GLenum coord, GLenum pname, GLdouble* params) {
+    if (!params) return;
+    GLfloat staging[4] = {};
+    glGetTexGenfv(coord, pname, staging);
+    const int count = pname == GL_TEXTURE_GEN_MODE ? 1 : 4;
+    for (int i = 0; i < count; ++i) params[i] = static_cast<GLdouble>(staging[i]);
+}
+
 GLboolean glIsEnabled(GLenum cap) {
     const auto& bools = g_glstate.fpe_state.fpe_bools;
     switch (cap) {

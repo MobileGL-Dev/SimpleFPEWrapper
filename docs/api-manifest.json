@@ -1,6 +1,6 @@
 {
  "source": "lookup.cpp",
- "count": 309,
+ "count": 312,
  "entries": {
   "glActiveTexture": {
    "status": "resolvable",
@@ -397,6 +397,18 @@
   "glGetTexEnviv": {
    "status": "resolvable",
    "target": "glGetTexEnviv"
+  },
+  "glGetTexGendv": {
+   "status": "resolvable",
+   "target": "glGetTexGendv"
+  },
+  "glGetTexGenfv": {
+   "status": "resolvable",
+   "target": "glGetTexGenfv"
+  },
+  "glGetTexGeniv": {
+   "status": "resolvable",
+   "target": "glGetTexGeniv"
   },
   "glGetTexLevelParameterfv": {
    "status": "resolvable",

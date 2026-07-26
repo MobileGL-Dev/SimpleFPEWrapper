@@ -45,6 +45,10 @@ struct translation_result_t {
 struct target_language_t {
     unsigned version = 300;
     bool es = true;
+    // Backend GL_MAX_DRAW_BUFFERS: sizes the fpe_FragData prelude array
+    // (OptiFine packs statically index gl_FragData up to [7], and a
+    // constant index past the declared size is a parse error).
+    unsigned max_draw_buffers = 4;
 };
 
 // Desktop GLSL (any #version 110..460, core or compatibility) -> the

@@ -597,7 +597,9 @@ in float fpe_FogFragCoord;
 )";
 
 constexpr char kFragColorOut[] = "out vec4 fpe_FragColor;\n";
-constexpr char kFragDataOut[] = "out vec4 fpe_FragData[4];\n";
+// Sized from the backend's GL_MAX_DRAW_BUFFERS at translate time:
+// OptiFine shader packs statically index gl_FragData up to [7], and a
+// constant index beyond the declared size is a parse error.
 
 bool identChar(char c) { return std::isalnum((unsigned char)c) || c == '_'; }
 
@@ -699,16 +701,19 @@ std::string rewriteBody(bool vertex, const std::string& source, bool legacy_iden
     return body;
 }
 
-std::string buildPrelude(bool vertex, bool uses_fragdata, bool with_bodies) {
+std::string buildPrelude(bool vertex, bool uses_fragdata, bool with_bodies,
+                         unsigned max_draw_buffers) {
     std::string result = "#version 450\n"; // SPIR-V rejects compatibility
     result += kSharedPrelude;
     result += vertex ? kVertexPrelude : kFragmentPrelude;
     if (vertex) {
         result += with_bodies ? kVertexPreludeFuncs : kVertexPreludeProtos;
-    } else {
+    } else if (uses_fragdata) {
         // FragColor and FragData[0] would collide on one location; declare
         // only what the shader actually writes (GL forbids mixing them).
-        result += uses_fragdata ? kFragDataOut : kFragColorOut;
+        result += "out vec4 fpe_FragData[" + std::to_string(max_draw_buffers) + "];\n";
+    } else {
+        result += kFragColorOut;
     }
     return result;
 }
@@ -725,7 +730,8 @@ std::string preprocess(GLenum stage, const std::string& source) {
 // then merges globals, resolves prototypes and rejects real conflicts
 // exactly like a desktop GLSL linker.
 std::vector<std::string> preprocessUnits(GLenum stage, const std::vector<std::string>& sources,
-                                         bool legacy_identifiers = false) {
+                                         bool legacy_identifiers = false,
+                                         unsigned max_draw_buffers = 4) {
     const bool vertex = stage == GL_VERTEX_SHADER;
     std::vector<std::string> bodies;
     bodies.reserve(sources.size());
@@ -737,7 +743,7 @@ std::vector<std::string> preprocessUnits(GLenum stage, const std::vector<std::st
     std::vector<std::string> units;
     units.reserve(bodies.size());
     for (size_t i = 0; i < bodies.size(); ++i) {
-        std::string unit = buildPrelude(vertex, uses_fragdata, i == 0);
+        std::string unit = buildPrelude(vertex, uses_fragdata, i == 0, max_draw_buffers);
         unit += "#line 1\n"; // keep glslang diagnostics on user line numbers
         unit += bodies[i];
         if (unit.back() != '\n') unit += '\n';
@@ -764,13 +770,15 @@ translation_result_t translateUnits(GLenum stage, const std::vector<std::string>
 
 translation_result_t translate(GLenum stage, const std::vector<std::string>& sources,
                                const target_language_t& target) {
-    auto result = translateUnits(stage, preprocessUnits(stage, sources), target);
+    auto result =
+        translateUnits(stage, preprocessUnits(stage, sources, false, target.max_draw_buffers), target);
     if (!result.ok && !result.parse_ok) {
         // The 450 parse may have tripped over identifiers that only became
-        // keywords after 1.10/1.20 (mat2x3, lowp, ...): retry with those
-        // renamed. Kept as a fallback because permissive drivers let
+        // keywords after 1.10/1.20 (mat2x3, lowp, texture, ...): retry with
+        // those renamed. Kept as a fallback because permissive drivers let
         // shaders claim 110 while using later-version types.
-        auto retry = translateUnits(stage, preprocessUnits(stage, sources, true), target);
+        auto retry = translateUnits(
+            stage, preprocessUnits(stage, sources, true, target.max_draw_buffers), target);
         if (retry.ok) return retry;
     }
     return result;
@@ -873,6 +881,10 @@ translation_result_t translateUnits(GLenum stage, const std::vector<std::string>
 namespace SFPEW::Shader {
 
 target_language_t detect_backend_target() {
+    // The backend tables must be resolved first or every probe below reads
+    // null function pointers and the detection silently degrades to the
+    // ESSL 300 default (translate can run before any other GL call).
+    sfpewEnsureBackend();
     // Cached per context like the other logical shadows.
     static thread_local struct {
         EGLContext context = (EGLContext)(intptr_t)-1;
@@ -898,6 +910,10 @@ target_language_t detect_backend_target() {
             target.version = (unsigned)(major * 100 + minor * 10); // 420, 450, ...
             if (target.version < 330) target.version = 330;
         }
+        GLint max_draw_buffers = 0;
+        g_glFuncs.glGetIntegerv(0x8824 /* GL_MAX_DRAW_BUFFERS */, &max_draw_buffers);
+        if (max_draw_buffers >= 1)
+            target.max_draw_buffers = (unsigned)std::min(max_draw_buffers, 8);
     }
     cache.context = current;
     cache.target = target;

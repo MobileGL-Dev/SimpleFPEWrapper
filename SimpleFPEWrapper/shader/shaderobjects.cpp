@@ -25,6 +25,8 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <mutex>
 #include <string>
@@ -152,6 +154,18 @@ void glCompileShader(GLuint shader) {
     if (!result.ok && !defer) {
         SFPEW_LOGW("shader %u: translation failed, passing original through:\n%s", shader,
                    result.log.c_str());
+        // SFPEW_DUMP_SHADERS=<dir>: write the failing source + diagnostics
+        // to a file for offline debugging (on-device logs truncate).
+        const char* dump_dir = std::getenv("SFPEW_DUMP_SHADERS");
+        if (dump_dir != nullptr && dump_dir[0] != '\0') {
+            char path[512];
+            std::snprintf(path, sizeof(path), "%s/sfpew_failed_shader_%u.txt", dump_dir, shader);
+            if (FILE* f = std::fopen(path, "w")) {
+                std::fprintf(f, "=== translator log ===\n%s\n=== original source ===\n%s\n",
+                             result.log.c_str(), original.c_str());
+                std::fclose(f);
+            }
+        }
     }
 
     if (!defer) {
@@ -185,6 +199,17 @@ void glGetShaderiv(GLuint shader, GLenum pname, GLint* params) {
         }
     }
     g_glFuncs.glGetShaderiv(shader, pname, params);
+    if (pname == GL_INFO_LOG_LENGTH) {
+        // Callers size their read buffer from this: it must cover the
+        // translator diagnostics glGetShaderInfoLog prepends, or the log
+        // comes back truncated after a few characters.
+        std::lock_guard<std::mutex> lock(g_shader_mutex);
+        auto it = shaderRecords().find(shader);
+        if (it != shaderRecords().end() && !it->second.translate_log.empty()) {
+            *params += (GLint)(it->second.translate_log.size() +
+                               sizeof("[SFPEW translator]\n\n"));
+        }
+    }
 }
 
 namespace {
@@ -483,6 +508,13 @@ void glGetProgramiv(GLuint program, GLenum pname, GLint* params) {
         }
     }
     g_glFuncs.glGetProgramiv(program, pname, params);
+    if (pname == GL_INFO_LOG_LENGTH) {
+        std::lock_guard<std::mutex> lock(g_shader_mutex);
+        auto pit = programRecords().find(program);
+        if (pit != programRecords().end() && !pit->second.link_log.empty()) {
+            *params += (GLint)(pit->second.link_log.size() + 1);
+        }
+    }
 }
 
 void glGetAttachedShaders(GLuint program, GLsizei maxCount, GLsizei* count, GLuint* shaders) {

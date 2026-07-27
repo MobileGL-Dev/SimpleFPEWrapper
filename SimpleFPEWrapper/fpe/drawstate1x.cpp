@@ -112,6 +112,17 @@ void fixed_function_draw_state_t::advance() {
         append(glm::value_ptr(current_data.color), sizes.color_size);
     }
 
+    // fog coord (slot 5). float_count above sums EVERY slot, so a slot that
+    // is sized but not appended here would shift every later attribute.
+    if (sizes.fog_size > 0) {
+        append(&current_data.fog_coord, 1);
+    }
+
+    // secondary color (slot 6)
+    if (sizes.secondary_color_size > 0) {
+        append(glm::value_ptr(current_data.secondary_color), sizes.secondary_color_size);
+    }
+
     // texcoord
     for (GLint i = 0; i < MAX_TEX; ++i) {
         if (sizes.texcoord_size[i] > 0) {
@@ -176,6 +187,34 @@ void fixed_function_draw_state_t::compile_vertexattrib(vertex_pointer_array_t& v
             //                .varying = true
         };
         offset += sizes.color_size * sizeof(GLfloat);
+    }
+
+    // fog coord (slot 5) - declaration order must match advance()'s packing
+    if (sizes.fog_size > 0) {
+        va.enabled_pointers |= vp_mask(GL_FOG_COORD_ARRAY);
+        va.attributes[vp2idx(GL_FOG_COORD_ARRAY)] = {
+            .size = 1,
+            .usage = GL_FOG_COORD_ARRAY,
+            .type = GL_FLOAT,
+            .normalized = GL_FALSE,
+            .stride = 0,
+            .pointer = (const void*)offset,
+        };
+        offset += sizeof(GLfloat);
+    }
+
+    // secondary color (slot 6)
+    if (sizes.secondary_color_size > 0) {
+        va.enabled_pointers |= vp_mask(GL_SECONDARY_COLOR_ARRAY);
+        va.attributes[vp2idx(GL_SECONDARY_COLOR_ARRAY)] = {
+            .size = sizes.secondary_color_size,
+            .usage = GL_SECONDARY_COLOR_ARRAY,
+            .type = GL_FLOAT,
+            .normalized = GL_FALSE,
+            .stride = 0,
+            .pointer = (const void*)offset,
+        };
+        offset += sizes.secondary_color_size * sizeof(GLfloat);
     }
 
     // texcoord

@@ -115,6 +115,12 @@ SFPEW_APIENTRY const GLubyte* glGetString(GLenum name);
 SFPEW_APIENTRY const GLubyte* glGetStringi(GLenum name, GLuint index);
 SFPEW_APIENTRY void glGetIntegerv(GLenum pname, GLint* params);
 SFPEW_APIENTRY void glDrawArrays(GLenum mode, GLint first, GLsizei count);
+SFPEW_APIENTRY void glDrawRangeElements(GLenum mode, GLuint start, GLuint end, GLsizei count,
+                                        GLenum type, const GLvoid* indices);
+SFPEW_APIENTRY void glMultiDrawArrays(GLenum mode, const GLint* first, const GLsizei* count,
+                                      GLsizei drawcount);
+SFPEW_APIENTRY void glMultiDrawElements(GLenum mode, const GLsizei* count, GLenum type,
+                                        const GLvoid* const* indices, GLsizei drawcount);
 SFPEW_APIENTRY void glBindBuffer(GLenum target, GLuint buffer);
 SFPEW_APIENTRY void glDeleteBuffers(GLsizei n, const GLuint* buffers);
 SFPEW_APIENTRY void glActiveTexture(GLenum texture);

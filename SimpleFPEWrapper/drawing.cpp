@@ -1278,3 +1278,49 @@ void glDrawElements(GLenum mode, GLsizei count, GLenum type, const GLvoid* indic
     drawElementsNow(mode, count, type, indices);
 }
 
+// GL 1.2 core. start/end are a promise about the index range, not state, so
+// the wrapper can honour it by simply forwarding to the glDrawElements
+// logic: legacy modes get converted, fixed-function arrays get wired and
+// the emulated alpha test uniforms get fed. Passing this through raw (the
+// previous behavior) meant GL_QUADS died on GLES and cutout foliage drawn
+// this way kept a stale alpha-test state.
+void glDrawRangeElements(GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type,
+                         const GLvoid* indices) {
+    (void)start;
+    (void)end;
+    if (!sfpewEnsureBackend()) return;
+    flushPendingImmediateDraws();
+    drawElementsNow(mode, count, type, indices);
+}
+
+// GL 1.4 core. Expressed as a loop over the single-draw path so legacy
+// modes and the fixed-function/user-program plumbing apply per sub-draw.
+void glMultiDrawArrays(GLenum mode, const GLint* first, const GLsizei* count, GLsizei drawcount) {
+    if (!sfpewEnsureBackend()) return;
+    if (drawcount < 0) {
+        g_glstate.set_error(GL_INVALID_VALUE);
+        return;
+    }
+    if (first == nullptr || count == nullptr) return;
+    flushPendingImmediateDraws();
+    for (GLsizei i = 0; i < drawcount; ++i) {
+        if (count[i] <= 0) continue;
+        drawArraysNow(mode, first[i], count[i], false);
+    }
+}
+
+void glMultiDrawElements(GLenum mode, const GLsizei* count, GLenum type,
+                         const GLvoid* const* indices, GLsizei drawcount) {
+    if (!sfpewEnsureBackend()) return;
+    if (drawcount < 0) {
+        g_glstate.set_error(GL_INVALID_VALUE);
+        return;
+    }
+    if (count == nullptr || indices == nullptr) return;
+    flushPendingImmediateDraws();
+    for (GLsizei i = 0; i < drawcount; ++i) {
+        if (count[i] <= 0) continue;
+        drawElementsNow(mode, count[i], type, indices[i]);
+    }
+}
+

@@ -166,6 +166,7 @@ void drawQuad(const void* pixels, GLsizei tex_w, GLsizei tex_h, GLenum tex_forma
     const auto to_ndc_x = [&](GLfloat wx) { return (wx - viewport[0]) / viewport[2] * 2.0f - 1.0f; };
     const auto to_ndc_y = [&](GLfloat wy) { return (wy - viewport[1]) / viewport[3] * 2.0f - 1.0f; };
 
+    sfpewInvalidateImmediateDrawState();
     g_glFuncs.glUseProgram(d.program);
     sfpewBackendBindVertexArray(d.vao);
     g_glFuncs.glUniform4f(d.loc_rect, to_ndc_x(x0), to_ndc_y(y0), to_ndc_x(x0 + wpx), to_ndc_y(y0 + hpx));
@@ -213,6 +214,7 @@ void drawFullscreenTexture(GLuint texture, const glm::vec4& color) {
     g_glFuncs.glGetIntegerv(GL_TEXTURE_BINDING_2D, &prev_tex);
 
     g_glFuncs.glBindTexture(GL_TEXTURE_2D, texture);
+    sfpewInvalidateImmediateDrawState();
     g_glFuncs.glUseProgram(d.program);
     sfpewBackendBindVertexArray(d.vao);
     g_glFuncs.glUniform4f(d.loc_rect, -1.0f, -1.0f, 1.0f, 1.0f);
@@ -224,6 +226,7 @@ void drawFullscreenTexture(GLuint texture, const glm::vec4& color) {
 
     g_glFuncs.glBindTexture(GL_TEXTURE_2D, (GLuint)prev_tex);
     g_glFuncs.glActiveTexture((GLenum)prev_active);
+    sfpewInvalidateImmediateDrawState();
     g_glFuncs.glUseProgram(prev_program);
     sfpewBackendBindVertexArray(prev_vao);
 }
@@ -317,7 +320,7 @@ void glClearAccum(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha) {
 }
 
 void glAccum(GLenum op, GLfloat value) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     if (op != GL_ACCUM && op != GL_LOAD && op != GL_ADD && op != GL_MULT && op != GL_RETURN) {
         g_glstate.set_error(GL_INVALID_ENUM);
         return;
@@ -368,7 +371,7 @@ void glAccum(GLenum op, GLfloat value) {
 
 void glBitmap(GLsizei width, GLsizei height, GLfloat xorig, GLfloat yorig, GLfloat xmove,
               GLfloat ymove, const GLubyte* bitmap) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     if (width < 0 || height < 0) {
         g_glstate.set_error(GL_INVALID_VALUE);
         return;
@@ -403,7 +406,7 @@ void glBitmap(GLsizei width, GLsizei height, GLfloat xorig, GLfloat yorig, GLflo
 }
 
 void glDrawPixels(GLsizei width, GLsizei height, GLenum format, GLenum type, const GLvoid* pixels) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     if (width < 0 || height < 0) {
         g_glstate.set_error(GL_INVALID_VALUE);
         return;
@@ -489,7 +492,7 @@ void glDrawPixels(GLsizei width, GLsizei height, GLenum format, GLenum type, con
 }
 
 void glCopyPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum type) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     if (width < 0 || height < 0) {
         g_glstate.set_error(GL_INVALID_VALUE);
         return;

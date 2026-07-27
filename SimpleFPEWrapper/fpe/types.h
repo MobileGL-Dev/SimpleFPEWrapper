@@ -597,6 +597,37 @@ struct glstate_t {
     bool backend_vao0_element_known = false;
     unsigned backend_shadow_heal_counter = 0;
 
+    // Deferred restore of the app's draw state (plans/12).
+    //
+    // A fixed-function draw binds the wrapper's own program/VAO/array buffer.
+    // Restoring the app's immediately means a run of fixed-function draws
+    // restores and re-binds the same three things per draw - about 7 driver
+    // calls a batch, measured at 3.3x of tinybatch on NVIDIA. Instead the
+    // wrapper's bindings stay put and the app's are saved here until
+    // sfpewEntryBarrier() puts them back, which every entry point outside the
+    // immediate-mode vertex family does. held == false means the backend is in
+    // the app's state and the rest of these fields mean nothing.
+    struct deferred_draw_state_t {
+        bool held = false;
+        GLint program = 0;
+        GLint vertex_array = 0;
+        GLint array_buffer = 0;
+        // -1: the restored VAO carries its own element binding.
+        GLint element_array_buffer = -1;
+    } deferred_draw;
+
+    // Deferring the restore only removes half the per-draw driver calls; the
+    // other half is the next draw re-binding what is already bound. This says
+    // "the immediate-draw program/VAO/ring buffer are live on the backend, for
+    // this program id" so drawImmediateVertices can skip its three binds.
+    //
+    // -1 = not live. Deliberately narrow: only drawImmediateVertices sets it,
+    // and every other path that binds any of those three clears it via
+    // sfpewInvalidateImmediateDrawState(). Failing to SET it only costs speed;
+    // failing to CLEAR it would skip a needed bind, so the clear belongs with
+    // the bind, not with the caller.
+    GLint immediate_live_program = -1;
+
     // Attribute stack storage (defined in attribstack.cpp); lives here so
     // it is per-context like everything else on this aggregate. shared_ptr
     // erases the deleter, so the incomplete type is fine in this header.

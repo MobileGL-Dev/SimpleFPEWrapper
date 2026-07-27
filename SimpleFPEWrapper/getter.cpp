@@ -1032,7 +1032,7 @@ void glActiveTexture(GLenum texture) {
     auto& state = getLogicalTextureBindings();
     if (getLogicalActiveTexture(state) == texture) return;
 
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     g_glFuncs.glActiveTexture(texture);
     state.activeTexture = texture;
     state.activeTextureKnown = true;
@@ -1052,7 +1052,7 @@ void glBindTexture(GLenum target, GLuint texture) {
         if (sfpewLogicalTextureBinding(target) == texture) return;
     }
 
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     g_glFuncs.glBindTexture(target, texture);
     if (query != GL_NONE) state.bindings[key] = texture;
 }
@@ -1060,7 +1060,7 @@ void glBindTexture(GLenum target, GLuint texture) {
 void glDeleteTextures(GLsizei n, const GLuint* textures) {
     if (!sfpewEnsureBackend() || g_glFuncs.glDeleteTextures == nullptr) return;
     (void)g_glstate; // entry strict resolve; the binding shadow reads the snapshot
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     g_glFuncs.glDeleteTextures(n, textures);
     if (n <= 0 || textures == nullptr) return;
 
@@ -1173,7 +1173,7 @@ void glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei widt
                   GLenum format, GLenum type, const GLvoid* pixels) {
     if (!sfpewEnsureBackend() || g_glFuncs.glTexImage2D == nullptr || g_glFuncs.glGetIntegerv == nullptr) return;
     (void)g_glstate; // entry strict resolve; the binding/proxy shadows read the snapshot
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     if (target != GL_PROXY_TEXTURE_2D) {
         thread_local std::vector<uint8_t> bgraScratch;
         if (format == GL_BGRA && !sfpewUnpackPboBound()) {

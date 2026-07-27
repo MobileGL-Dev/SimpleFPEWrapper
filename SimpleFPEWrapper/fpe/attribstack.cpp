@@ -86,7 +86,7 @@ void copy_array(T (&dst)[N], const T (&src)[N]) {
 } // namespace
 
 void glPushAttrib(GLbitfield mask) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     LIST_RECORD(glPushAttrib, {}, mask)
     auto& gs = g_glstate;
     auto& stack = attribStack();
@@ -139,7 +139,7 @@ void glPushAttrib(GLbitfield mask) {
 }
 
 void glPopAttrib() {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     LIST_RECORD(glPopAttrib, {})
     auto& gs = g_glstate;
     auto& stack = attribStack();
@@ -226,7 +226,7 @@ void glPopAttrib() {
 
 void glPushClientAttrib(GLbitfield mask) {
     auto& gs = g_glstate;
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     auto& stack = clientAttribStack();
     if (stack.size() >= kMaxAttribStackDepth) {
         gs.set_error(GL_STACK_OVERFLOW);
@@ -245,7 +245,7 @@ void glPushClientAttrib(GLbitfield mask) {
 
 void glPopClientAttrib() {
     auto& gs = g_glstate;
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     auto& stack = clientAttribStack();
     if (stack.empty()) {
         gs.set_error(GL_STACK_UNDERFLOW);

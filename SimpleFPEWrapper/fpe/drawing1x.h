@@ -15,6 +15,26 @@
 
 void flushPendingImmediateDraws();
 
+// Puts the app's program/VAO/buffers back if a fixed-function draw left the
+// wrapper's own bound (plans/12). One branch when nothing is held.
+void sfpewFlushDeferredDrawState();
+
+// What every exported entry point OUTSIDE the immediate-mode vertex family
+// calls first: drains the pending glyph batch and hands the app its draw state
+// back. Only glBegin/glEnd and the glVertex/glColor/glNormal/glTexCoord/
+// glMultiTexCoord/glFogCoord/glSecondaryColor/glEdgeFlag/glArrayElement
+// families use the bare flushPendingImmediateDraws(), because keeping the
+// wrapper's bindings across those is the entire point.
+//
+// Erring towards calling this is safe: an unnecessary call costs the restore
+// it was going to pay anyway. Omitting one where the app can observe those
+// bindings is what corrupts state, so new entry points should use this unless
+// they are demonstrably part of the vertex family.
+inline void sfpewEntryBarrier() {
+    flushPendingImmediateDraws();
+    sfpewFlushDeferredDrawState();
+}
+
 // Stream-upload into the persistent-coherent immediate ring (GL_ARRAY_BUFFER
 // must already be bound to fpe_immediate_vbo). Returns the byte offset of the
 // uploaded range inside the ring (0 on the glBufferData fallback). Shared by

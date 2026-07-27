@@ -38,6 +38,15 @@ GLuint getLogicalArrayBufferBinding() {
     auto& state = getLogicalArrayBufferState();
     if (state.known) return state.binding;
 
+    // Seeding from the backend while a fixed-function draw holds the app's
+    // state would capture the wrapper's own ring buffer as if the app had
+    // bound it (plans/12). The save carries the app's value.
+    if (g_glstate_c.deferred_draw.held) {
+        state.binding = static_cast<GLuint>(g_glstate_c.deferred_draw.array_buffer);
+        state.known = true;
+        return state.binding;
+    }
+
     if (!sfpewEnsureBackend() || g_glFuncs.glGetIntegerv == nullptr) return 0;
     GLint binding = 0;
     g_glFuncs.glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &binding);
@@ -51,6 +60,8 @@ GLuint getLogicalVertexArrayBinding() {
     // (docs/context-model.md); the draw guard heals both every 256 draws, so
     // this only has to answer from it, or seed it once.
     auto& gs = g_glstate_c;
+    // Held: backend_vao_binding is the wrapper's fpe_vao, not the app's.
+    if (gs.deferred_draw.held) return static_cast<GLuint>(gs.deferred_draw.vertex_array);
     if (gs.backend_vao_known) return static_cast<GLuint>(gs.backend_vao_binding);
 
     if (!sfpewEnsureBackend() || g_glFuncs.glGetIntegerv == nullptr) return 0;
@@ -71,7 +82,7 @@ void rememberClientArrayBufferBinding(int index) {
 void glBindBuffer(GLenum target, GLuint buffer) {
     if (!sfpewEnsureBackend() || g_glFuncs.glBindBuffer == nullptr) return;
     (void)g_glstate; // entry strict resolve; the array-buffer shadow reads the snapshot
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     g_glFuncs.glBindBuffer(target, buffer);
     if (target == GL_ARRAY_BUFFER) {
         auto& state = getLogicalArrayBufferState();
@@ -94,7 +105,7 @@ void glBindBuffer(GLenum target, GLuint buffer) {
 void glDeleteBuffers(GLsizei n, const GLuint* buffers) {
     if (!sfpewEnsureBackend() || g_glFuncs.glDeleteBuffers == nullptr) return;
     (void)g_glstate; // entry strict resolve; the array-buffer shadow reads the snapshot
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     g_glFuncs.glDeleteBuffers(n, buffers);
     if (n <= 0 || buffers == nullptr) return;
 
@@ -130,35 +141,35 @@ GLuint sfpewLogicalArrayBufferBinding() { return getLogicalArrayBufferBinding();
 void glBufferData(GLenum target, GLsizeiptr size, const void* data, GLenum usage) {
     if (!sfpewEnsureBackend() || g_glFuncs.glBufferData == nullptr) return;
     (void)g_glstate; // entry strict resolve
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     g_glFuncs.glBufferData(target, size, data, usage);
 }
 
 void glBufferSubData(GLenum target, GLintptr offset, GLsizeiptr size, const void* data) {
     if (!sfpewEnsureBackend() || g_glFuncs.glBufferSubData == nullptr) return;
     (void)g_glstate;
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     g_glFuncs.glBufferSubData(target, offset, size, data);
 }
 
 void* glMapBufferRange(GLenum target, GLintptr offset, GLsizeiptr length, GLbitfield access) {
     if (!sfpewEnsureBackend() || g_glFuncs.glMapBufferRange == nullptr) return nullptr;
     (void)g_glstate;
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     return g_glFuncs.glMapBufferRange(target, offset, length, access);
 }
 
 GLboolean glUnmapBuffer(GLenum target) {
     if (!sfpewEnsureBackend() || g_glFuncs.glUnmapBuffer == nullptr) return GL_FALSE;
     (void)g_glstate;
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     return g_glFuncs.glUnmapBuffer(target);
 }
 
 void glGetBufferParameteriv(GLenum target, GLenum pname, GLint* params) {
     if (!sfpewEnsureBackend() || g_glFuncs.glGetBufferParameteriv == nullptr) return;
     (void)g_glstate;
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     g_glFuncs.glGetBufferParameteriv(target, pname, params);
 }
 
@@ -166,7 +177,7 @@ void glVertexAttribPointer(GLuint index, GLint size, GLenum type, GLboolean norm
                            GLsizei stride, const void* pointer) {
     if (!sfpewEnsureBackend() || g_glFuncs.glVertexAttribPointer == nullptr) return;
     (void)g_glstate;
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     g_glFuncs.glVertexAttribPointer(index, size, type, normalized, stride, pointer);
 }
 
@@ -174,21 +185,21 @@ void glVertexAttribIPointer(GLuint index, GLint size, GLenum type, GLsizei strid
                             const void* pointer) {
     if (!sfpewEnsureBackend() || g_glFuncs.glVertexAttribIPointer == nullptr) return;
     (void)g_glstate;
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     g_glFuncs.glVertexAttribIPointer(index, size, type, stride, pointer);
 }
 
 void glEnableVertexAttribArray(GLuint index) {
     if (!sfpewEnsureBackend() || g_glFuncs.glEnableVertexAttribArray == nullptr) return;
     (void)g_glstate;
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     g_glFuncs.glEnableVertexAttribArray(index);
 }
 
 void glDisableVertexAttribArray(GLuint index) {
     if (!sfpewEnsureBackend() || g_glFuncs.glDisableVertexAttribArray == nullptr) return;
     (void)g_glstate;
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     g_glFuncs.glDisableVertexAttribArray(index);
 }
 
@@ -201,11 +212,9 @@ GLuint sfpewLogicalVertexArrayBinding() { return getLogicalVertexArrayBinding();
 void glBindVertexArray(GLuint array) {
     if (!sfpewEnsureBackend() || g_glFuncs.glBindVertexArray == nullptr) return;
     (void)g_glstate; // entry strict resolve; the shadows read the snapshot
-    flushPendingImmediateDraws();
-    g_glFuncs.glBindVertexArray(array);
+    sfpewEntryBarrier();
+    sfpewBackendBindVertexArray(array); // keeps the shadow and clears the fast path
     auto& gs = g_glstate_c;
-    gs.backend_vao_binding = static_cast<GLint>(array);
-    gs.backend_vao_known = true;
     // VAO 0's element binding is only tracked while VAO 0 is the bound one;
     // any other VAO carries its own, so the cached value stops applying.
     if (array != 0) gs.backend_vao0_element_known = false;
@@ -214,7 +223,7 @@ void glBindVertexArray(GLuint array) {
 void glDeleteVertexArrays(GLsizei n, const GLuint* arrays) {
     if (!sfpewEnsureBackend() || g_glFuncs.glDeleteVertexArrays == nullptr) return;
     (void)g_glstate; // entry strict resolve; the shadows read the snapshot
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     g_glFuncs.glDeleteVertexArrays(n, arrays);
     if (n <= 0 || arrays == nullptr) return;
 
@@ -238,7 +247,7 @@ GLuint getClientArrayBufferBinding(int index) {
 
 void glVertexPointer(GLint size, GLenum type, GLsizei stride, const void* pointer) {
     auto& gs = g_glstate;
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     // LOG_D("glVertexPointer, size = %d, type = %s, stride = %d, pointer = 0x%x", size, glEnumToString(type), stride,
     // pointer)
     auto& attr = gs.fpe_state.vertexpointer_array.attributes[vp2idx(GL_VERTEX_ARRAY)];
@@ -256,7 +265,7 @@ void glVertexPointer(GLint size, GLenum type, GLsizei stride, const void* pointe
 
 void glNormalPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
     auto& gs = g_glstate;
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     // LOG_D("glNormalPointer, type = %s, stride = %d, pointer = 0x%x", glEnumToString(type), stride, pointer)
     gs.fpe_state.vertexpointer_array.attributes[vp2idx(GL_NORMAL_ARRAY)] = {
         .size = 3,
@@ -277,7 +286,7 @@ void glNormalPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
 // (edge flags for PolygonMode).
 void glEdgeFlagPointer(GLsizei stride, const GLvoid* pointer) {
     auto& gs = g_glstate;
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     gs.fpe_state.vertexpointer_array.attributes[vp2idx(GL_EDGE_FLAG_ARRAY)] = {
         .size = 1,
         .usage = GL_EDGE_FLAG_ARRAY,
@@ -296,7 +305,7 @@ void glSecondaryColorPointer(GLint size, GLenum type, GLsizei stride, const GLvo
         gs.set_error(GL_INVALID_VALUE);
         return;
     }
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     gs.fpe_state.vertexpointer_array.attributes[vp2idx(GL_SECONDARY_COLOR_ARRAY)] = {
         .size = size,
         .usage = GL_SECONDARY_COLOR_ARRAY,
@@ -315,7 +324,7 @@ void glFogCoordPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
         gs.set_error(GL_INVALID_ENUM);
         return;
     }
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     gs.fpe_state.vertexpointer_array.attributes[vp2idx(GL_FOG_COORD_ARRAY)] = {
         .size = 1,
         .usage = GL_FOG_COORD_ARRAY,
@@ -330,7 +339,7 @@ void glFogCoordPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
 
 void glColorPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* pointer) {
     auto& gs = g_glstate;
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     // LOG_D("glColorPointer, size = %d, type = %s, stride = %d, pointer = 0x%x", size, glEnumToString(type), stride,
     // pointer)
     gs.fpe_state.vertexpointer_array.attributes[vp2idx(GL_COLOR_ARRAY)] = {
@@ -348,7 +357,7 @@ void glColorPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* point
 
 void glTexCoordPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* pointer) {
     auto& gs = g_glstate;
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     // LOG_D("glTexCoordPointer, size = %d, type = %s, stride = %d, pointer = 0x%x", size, glEnumToString(type), stride,
     // pointer) LOG_D("Active texture: %s", glEnumToString(g_glstate.fpe_state.client_active_texture))
     const int index = vp2idx(GL_TEXTURE_COORD_ARRAY);
@@ -367,7 +376,7 @@ void glTexCoordPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* po
 
 void glIndexPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
     auto& gs = g_glstate;
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     // LOG_D("glIndexPointer, size = %d, type = %s, stride = %d, pointer = 0x%x", glEnumToString(type), stride, pointer)
     gs.fpe_state.vertexpointer_array.attributes[vp2idx(GL_INDEX_ARRAY)] = {
         .size = 1,
@@ -384,7 +393,7 @@ void glIndexPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
 
 void glEnableClientState(GLenum cap) {
     auto& gs = g_glstate;
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     // LOG_D("glEnableClientState, cap = %s", glEnumToString(cap))
 
     auto mask = vp_mask(cap);
@@ -395,7 +404,7 @@ void glEnableClientState(GLenum cap) {
 
 void glDisableClientState(GLenum cap) {
     auto& gs = g_glstate;
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     // LOG_D("glDisableClientState, cap = %s", glEnumToString(cap))
     auto mask = vp_mask(cap);
 

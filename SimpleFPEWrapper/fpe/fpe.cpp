@@ -423,6 +423,7 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint p
         vpa.reset();
         return -1;
     }
+    sfpewInvalidateImmediateDrawState();
     g_glFuncs.glUseProgram(prog_id);
 
     // Client-memory arrays stream through the persistent-coherent immediate
@@ -602,7 +603,7 @@ bool sfpewUserProgramFixedFunctionDrawArrays(GLuint program, GLenum mode, GLint 
         vpa = raw_copy.normalize();
     }
 
-    g_glFuncs.glBindVertexArray(st.fpe_user_vao);
+    sfpewBackendBindVertexArray(st.fpe_user_vao);
 
     const bool client_memory_draw =
         reinterpret_cast<uintptr_t>(vpa.starting_pointer) > static_cast<uintptr_t>(vpa.stride);

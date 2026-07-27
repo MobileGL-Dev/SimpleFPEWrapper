@@ -14,10 +14,13 @@
 #include "vertexpointer.h"
 #include "../init.h"
 
+void sfpewFlushDeferredDrawState();
+
 #define GET_PREV_PROGRAM                                                                                               \
     GLint m_prev_program;                                                                                              \
     g_glFuncs.glGetIntegerv(GL_CURRENT_PROGRAM, &m_prev_program);
 #define SET_PREV_PROGRAM                                                                                               \
+    sfpewInvalidateImmediateDrawState();                                                                                \
     g_glFuncs.glUseProgram(m_prev_program);
 
 // Strict resolve (one eglGetCurrentContext) - use for the FIRST context
@@ -76,7 +79,16 @@ inline void sfpewBackendBindVertexArray(GLuint vao) {
     auto& gs = g_glstate_c;
     gs.backend_vao_binding = static_cast<GLint>(vao);
     gs.backend_vao_known = true;
+    // Any VAO change invalidates the immediate-draw fast path; the immediate
+    // path re-arms it after its own binds. Putting the clear here means the
+    // other FPE draw paths and the app's own glBindVertexArray get it for free.
+    gs.immediate_live_program = -1;
 }
+
+// Anything that binds a program, VAO or array buffer other than the
+// immediate-draw trio must call this, or the next immediate draw skips a bind
+// it actually needed (plans/12).
+inline void sfpewInvalidateImmediateDrawState() { g_glstate_c.immediate_live_program = -1; }
 
 inline void sfpewBackendBindElementBuffer(GLuint buffer) {
     g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, buffer);
@@ -96,6 +108,9 @@ struct fpe_backend_draw_state_guard_t {
     // Without a backend (no context yet / loader failure) the guard must be
     // inert: display-list replay reaches this even backend-less.
     bool active = false;
+    // True when THIS guard captured the save (rather than finding one already
+    // held by an earlier fixed-function draw).
+    bool holds_save = false;
 
     explicit fpe_backend_draw_state_guard_t(GLint known_program = -1,
                                             GLint known_array_buffer = -1) {
@@ -104,6 +119,18 @@ struct fpe_backend_draw_state_guard_t {
             return;
         }
         active = true;
+
+        // A previous fixed-function draw may still be holding the app's state.
+        // The save is already made and the backend is already in OUR state, so
+        // capturing again here would record the wrapper's own bindings as if
+        // they were the app's - the classic way a deferred scheme corrupts
+        // state. Leave the existing save alone.
+        if (g_glstate_c.deferred_draw.held) {
+            holds_save = false;
+            return;
+        }
+        holds_save = true;
+
         if (known_program >= 0)
             program = known_program;
         else
@@ -134,18 +161,19 @@ struct fpe_backend_draw_state_guard_t {
                 gs.backend_vao0_element_known = true;
             }
         }
+
+        // Hand the save to the context so it outlives this guard. From here
+        // the backend stays in the wrapper's draw state until
+        // sfpewEntryBarrier(), so consecutive fixed-function draws neither
+        // restore nor re-bind it.
+        gs.deferred_draw = {true, program, vertex_array, array_buffer, element_array_buffer};
     }
 
-    ~fpe_backend_draw_state_guard_t() {
-        if (!active) return;
-        g_glFuncs.glUseProgram(program);
-        sfpewBackendBindVertexArray(static_cast<GLuint>(vertex_array));
-        // A non-zero restored VAO already carries its element binding; only
-        // VAO 0's must be re-bound explicitly.
-        if (element_array_buffer >= 0)
-            sfpewBackendBindElementBuffer(static_cast<GLuint>(element_array_buffer));
-        g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, array_buffer);
-    }
+    // Deliberately does not restore: the save lives on the context and is
+    // replayed by sfpewEntryBarrier() at the next entry point that is not an
+    // immediate-mode vertex call, so a run of fixed-function draws pays the
+    // restore once instead of once per draw (plans/12).
+    ~fpe_backend_draw_state_guard_t() = default;
 
     fpe_backend_draw_state_guard_t(const fpe_backend_draw_state_guard_t&) = delete;
     fpe_backend_draw_state_guard_t& operator=(const fpe_backend_draw_state_guard_t&) = delete;

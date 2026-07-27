@@ -97,6 +97,19 @@ static void (*fReadPixels)(GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, void*
 static void (*fGetFloatv)(GLenum, GLfloat*);
 typedef int (*translate_fn)(unsigned int, const char*, char*, int);
 
+// A single check at the end can only say "something raised an error", which is
+// useless for locating it. Drain and report per phase instead, naming the phase
+// that raised it.
+static GLenum (*g_bench_get_error)(void);
+static int g_bench_error_count;
+static void bench_check_error(const char* phase) {
+    GLenum err;
+    while (g_bench_get_error != NULL && (err = g_bench_get_error()) != 0) {
+        fprintf(stderr, "FAIL: GL error 0x%x after phase '%s'\n", err, phase);
+        ++g_bench_error_count;
+    }
+}
+
 static double now_ms(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -194,6 +207,7 @@ int main(void) {
     R(fDisable, "glDisable");
     R(fFinish, "glFinish");
     R(fGetError, "glGetError");
+    g_bench_get_error = fGetError;
     R(fVertexPointer, "glVertexPointer");
     R(fColorPointer, "glColorPointer");
     R(fTexCoordPointer, "glTexCoordPointer");
@@ -240,6 +254,7 @@ int main(void) {
     const double verts = (double)frames * quads_per_frame * 4;
     printf("bench.immediate: %7.2f Mvert/s  (%6.1f ns/vert, %d frames x %d quads)\n",
            verts / immediate_ms / 1000.0, immediate_ms * 1.0e6 / verts, frames, quads_per_frame);
+    bench_check_error("immediate");
 
     // --- bench.dlist ------------------------------------------------------
     const GLuint list = fGenLists(1);
@@ -257,6 +272,7 @@ int main(void) {
     printf("bench.dlist:     %7.2f Mvert/s  (%6.1f ns/vert, replay speedup %.2fx)\n",
            verts / dlist_ms / 1000.0, dlist_ms * 1.0e6 / verts,
            dlist_ms > 0.0 ? immediate_ms / dlist_ms : 0.0);
+    bench_check_error("dlist");
 
     // --- bench.progcache --------------------------------------------------
     // Constant state: every draw resolves the SAME program-cache key.
@@ -288,6 +304,7 @@ int main(void) {
     fDisable(GL_LIGHTING);
     printf("bench.progcache: %7.2f us/draw steady, %7.2f us/draw toggling (%d draws)\n",
            steady_ms * 1000.0 / draws, toggle_ms * 1000.0 / draws, draws);
+    bench_check_error("progcache");
 
     // --- bench.translate ---------------------------------------------------
     static const char* kVS =
@@ -325,6 +342,7 @@ int main(void) {
     }
     printf("bench.translate: %7.2f ms/shader (GLSL 1.10 pair x %d)\n",
            translate_ms / (pairs * 2), pairs);
+    bench_check_error("translate");
 
     // --- bench.tinybatch ---------------------------------------------------
     // GUI drawing pattern: one quad per Begin/End, thousands per frame.
@@ -339,6 +357,7 @@ int main(void) {
     const double tiny_ms = now_ms() - t0;
     printf("bench.tinybatch: %7.2f us/batch (1 quad per Begin/End, %d batches)\n",
            tiny_ms * 1000.0 / batches, batches);
+    bench_check_error("tinybatch");
 
     // --- bench.clientarrays / bench.gatherarrays ---------------------------
     // The Minecraft chunk path: client-memory arrays drawn as GL_QUADS
@@ -379,6 +398,7 @@ int main(void) {
     const double ca_ms = now_ms() - t0;
     printf("bench.clientarrays: %7.2f Mvert/s  (%6.1f ns/vert, interleaved QUADS)\n",
            ca_verts / ca_ms / 1000.0, ca_ms * 1.0e6 / ca_verts);
+    bench_check_error("clientarrays");
 
     fVertexPointer(3, GL_FLOAT, 0, pos);
     fColorPointer(4, GL_FLOAT, 0, col);
@@ -393,6 +413,7 @@ int main(void) {
     const double ga_ms = now_ms() - t0;
     printf("bench.gatherarrays: %7.2f Mvert/s  (%6.1f ns/vert, independent allocations)\n",
            ca_verts / ga_ms / 1000.0, ga_ms * 1.0e6 / ca_verts);
+    bench_check_error("gatherarrays");
 
     // --- bench.drawelements -------------------------------------------------
     static unsigned short indices[CA_VERTS / 4 * 6];
@@ -417,6 +438,7 @@ int main(void) {
     const double de_verts = (double)ca_frames * (CA_VERTS / 4 * 6);
     printf("bench.drawelements: %7.2f Midx/s   (%6.1f ns/idx, client ushort indices)\n",
            de_verts / de_ms / 1000.0, de_ms * 1.0e6 / de_verts);
+    bench_check_error("drawelements");
     fDisableClientState(GL_VERTEX_ARRAY);
     fDisableClientState(GL_COLOR_ARRAY);
     fDisableClientState(GL_TEXTURE_COORD_ARRAY);
@@ -435,6 +457,7 @@ int main(void) {
     const double mat_ms = now_ms() - t0;
     printf("bench.matrixops: %7.1f ns/group (push+translate+rotate+pop, x%d)\n",
            mat_ms * 1.0e6 / mat_ops, mat_ops);
+    bench_check_error("matrixops");
 
     // --- bench.texupload -------------------------------------------------------
     static unsigned char texels[256 * 256 * 4];
@@ -467,6 +490,7 @@ int main(void) {
     const double full_ms = now_ms() - t0;
     printf("bench.texupload: %7.2f us/16x16 sub, %7.1f MB/s full 256x256 RGBA\n",
            sub_ms * 1000.0 / subs, (double)fulls * sizeof(texels) / (full_ms / 1000.0) / 1.0e6);
+    bench_check_error("texupload");
 
     // --- bench.texswitch ---------------------------------------------------------
     fEnable(GL_TEXTURE_2D);
@@ -484,6 +508,7 @@ int main(void) {
     fDisable(GL_TEXTURE_2D);
     printf("bench.texswitch: %7.2f us/draw (alternating glBindTexture, %d draws)\n",
            switch_ms * 1000.0 / draws, draws);
+    bench_check_error("texswitch");
 
     // --- bench.readpixels ----------------------------------------------------------
     static unsigned char readback[256 * 256 * 4];
@@ -497,6 +522,7 @@ int main(void) {
     const double read_ms = now_ms() - t0;
     printf("bench.readpixels: %6.2f us/read, %7.1f MB/s (256x256 RGBA)\n",
            read_ms * 1000.0 / reads, (double)reads * sizeof(readback) / (read_ms / 1000.0) / 1.0e6);
+    bench_check_error("readpixels");
 
     // --- bench.getter -----------------------------------------------------------------
     static GLfloat matrix_out[16];
@@ -508,6 +534,7 @@ int main(void) {
     const double get_ms = now_ms() - t0;
     printf("bench.getter:    %7.1f ns/glGetFloatv(GL_MODELVIEW_MATRIX) (x%d)\n",
            get_ms * 1.0e6 / gets, gets);
+    bench_check_error("getter");
 
     // --- bench.progcompile --------------------------------------------------------------
     // First-touch program generation across 16 enable combinations. Runs
@@ -530,8 +557,9 @@ int main(void) {
     for (int bit = 0; bit < 4; ++bit) fDisable(combo_bits[bit]);
     printf("bench.progcompile: %5.2f ms/program (16 fog/alpha/light/tex combos, first touch)\n",
            compile_ms / 16.0);
+    bench_check_error("progcompile");
 
-    if (fGetError() != 0) {
+    if (g_bench_error_count != 0 || fGetError() != 0) {
         fprintf(stderr, "FAIL: GL error raised during benchmarks\n");
         return 1;
     }

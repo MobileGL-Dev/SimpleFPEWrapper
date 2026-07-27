@@ -256,7 +256,7 @@ bool hijack_fpe_states(GLenum cap, bool enable, fixed_function_bool_t* bools) {
 }
 
 void glEnable(GLenum cap) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     // LOG()
     // LOG_D("glEnable, cap = %s", glEnumToString(cap));
 
@@ -270,7 +270,7 @@ void glEnable(GLenum cap) {
 }
 
 void glDisable(GLenum cap) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     // LOG()
     // LOG_D("glDisable, cap = %s", glEnumToString(cap))
 
@@ -284,7 +284,7 @@ void glDisable(GLenum cap) {
 }
 
 void glClientActiveTexture(GLenum texture) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     // LOG()
     // LOG_D("glClientActiveTexture(GL_TEXTURE%d)", texture - GL_TEXTURE0)
 
@@ -319,7 +319,7 @@ void glFogCoorddv(const GLdouble* coord) {
 }
 
 void glAlphaFunc(GLenum func, GLclampf ref) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     // LOG()
     // LOG_D("glAlphaFunc(%s, %f)", glEnumToString(func), ref)
 
@@ -339,7 +339,7 @@ void glAlphaFunc(GLenum func, GLclampf ref) {
 }
 
 void glFogf(GLenum pname, GLfloat param) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     // LOG()
     // LOG_D("glFogf(%s, %f)", glEnumToString(pname), param)
 
@@ -371,7 +371,7 @@ void glFogf(GLenum pname, GLfloat param) {
 }
 
 void glFogi(GLenum pname, GLint param) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     // LOG()
     // LOG_D("glFogi(%s, %s)", glEnumToString(pname), glEnumToString(param))
 
@@ -412,7 +412,7 @@ void glFogi(GLenum pname, GLint param) {
 }
 
 void glFogfv(GLenum pname, const GLfloat* params) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     // LOG()
     // LOG_D("glFogfv(%s, [...])", glEnumToString(pname))
 
@@ -445,7 +445,7 @@ void glFogfv(GLenum pname, const GLfloat* params) {
 }
 
 void glFogiv(GLenum pname, const GLint* params) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     // LOG()
     // LOG_D("glFogiv(%s, [...])", glEnumToString(pname))
 
@@ -480,7 +480,7 @@ void glFogiv(GLenum pname, const GLint* params) {
 }
 
 void glShadeModel(GLenum mode) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     // LOG()
     // LOG_D("glShadeModel(%s)", glEnumToString(mode))
 
@@ -496,7 +496,7 @@ void glShadeModel(GLenum mode) {
 }
 
 void glLightf(GLenum light, GLenum pname, GLfloat param) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     // LOG()
     // LOG_D("glLightf(%s, %s, %f)", glEnumToString(light), glEnumToString(pname), param)
 
@@ -530,7 +530,7 @@ void glLightf(GLenum light, GLenum pname, GLfloat param) {
 }
 
 void glLighti(GLenum light, GLenum pname, GLint param) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     // LOG()
     // LOG_D("glLighti(%s, %s, %d)", glEnumToString(light), glEnumToString(pname), param)
 
@@ -540,7 +540,7 @@ void glLighti(GLenum light, GLenum pname, GLint param) {
 }
 
 void glLightfv(GLenum light, GLenum pname, const GLfloat* params) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     // LOG()
     // LOG_D("glLightfv(%s, %s, [...])", glEnumToString(light), glEnumToString(pname))
 
@@ -598,7 +598,7 @@ void glLightfv(GLenum light, GLenum pname, const GLfloat* params) {
 }
 
 void glLightiv(GLenum light, GLenum pname, const GLint* params) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     // LOG()
     // LOG_D("glLightiv(%s, %s, [...])", glEnumToString(light), glEnumToString(pname))
 
@@ -641,7 +641,7 @@ void glLightiv(GLenum light, GLenum pname, const GLint* params) {
 }
 
 void glLightModelf(GLenum pname, GLfloat param) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     // LOG()
     // LOG_D("glLightModelf(%s, %f)", glEnumToString(pname), param)
 
@@ -661,7 +661,7 @@ void glLightModelf(GLenum pname, GLfloat param) {
 }
 
 void glLightModeli(GLenum pname, GLint param) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     // LOG()
     // LOG_D("glLightModelf(%s, %d)", glEnumToString(pname), param)
 
@@ -685,7 +685,7 @@ void glLightModeli(GLenum pname, GLint param) {
 }
 
 void glLightModelfv(GLenum pname, const GLfloat* params) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     // LOG()
     // LOG_D("glLightModelfv(%s, [...])", glEnumToString(pname))
 
@@ -709,7 +709,7 @@ void glLightModelfv(GLenum pname, const GLfloat* params) {
 }
 
 void glLightModeliv(GLenum pname, const GLint* params) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     // LOG()
     // LOG_D("glLightModeliv(%s, [...])", glEnumToString(pname))
 
@@ -736,7 +736,7 @@ void glLightModeliv(GLenum pname, const GLint* params) {
 }
 
 void glColorMaterial(GLenum face, GLenum mode) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     LIST_RECORD(glColorMaterial, {}, face, mode)
 
     if (face != GL_FRONT && face != GL_BACK && face != GL_FRONT_AND_BACK) return;
@@ -756,7 +756,7 @@ void glColorMaterial(GLenum face, GLenum mode) {
 }
 
 void glMaterialf(GLenum face, GLenum pname, GLfloat param) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     LIST_RECORD(glMaterialf, {}, face, pname, param)
 
     if (pname != GL_SHININESS || param < 0.0f || param > 128.0f) return;
@@ -764,14 +764,14 @@ void glMaterialf(GLenum face, GLenum pname, GLfloat param) {
 }
 
 void glMateriali(GLenum face, GLenum pname, GLint param) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     LIST_RECORD(glMateriali, {}, face, pname, param)
 
     SELF_CALL(glMaterialf, face, pname, (GLfloat)param)
 }
 
 void glMaterialfv(GLenum face, GLenum pname, const GLfloat* params) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     if (params == nullptr) return;
     LIST_RECORD(glMaterialfv, {{2, material_param_count(pname) * sizeof(GLfloat)}}, face, pname, params)
 
@@ -807,7 +807,7 @@ void glMaterialfv(GLenum face, GLenum pname, const GLfloat* params) {
 }
 
 void glMaterialiv(GLenum face, GLenum pname, const GLint* params) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     if (params == nullptr) return;
     LIST_RECORD(glMaterialiv, {{2, material_param_count(pname) * sizeof(GLint)}}, face, pname, params)
 
@@ -826,7 +826,7 @@ void glMaterialiv(GLenum face, GLenum pname, const GLint* params) {
 }
 
 void glTexEnvf(GLenum target, GLenum pname, GLfloat param) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     LIST_RECORD(glTexEnvf, {}, target, pname, param)
 
     auto& gs = g_glstate;
@@ -851,14 +851,14 @@ void glTexEnvf(GLenum target, GLenum pname, GLfloat param) {
 }
 
 void glTexEnvi(GLenum target, GLenum pname, GLint param) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     LIST_RECORD(glTexEnvi, {}, target, pname, param)
 
     tex_env_set_int(g_glstate, target, pname, param);
 }
 
 void glTexEnvfv(GLenum target, GLenum pname, const GLfloat* params) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     if (params == nullptr) return;
     LIST_RECORD(glTexEnvfv, {{2, tex_env_param_count(pname) * sizeof(GLfloat)}}, target, pname, params)
 
@@ -888,7 +888,7 @@ void glTexEnvfv(GLenum target, GLenum pname, const GLfloat* params) {
 }
 
 void glTexEnviv(GLenum target, GLenum pname, const GLint* params) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     if (params == nullptr) return;
     LIST_RECORD(glTexEnviv, {{2, tex_env_param_count(pname) * sizeof(GLint)}}, target, pname, params)
 
@@ -1209,7 +1209,7 @@ bool texgen_mode_valid(GLenum coord, GLenum mode) {
 } // namespace
 
 void glTexGeni(GLenum coord, GLenum pname, GLint param) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     const int c = texgen_coord_index(coord);
     auto& gs = g_glstate;
     if (c < 0 || pname != GL_TEXTURE_GEN_MODE) {
@@ -1228,7 +1228,7 @@ void glTexGenf(GLenum coord, GLenum pname, GLfloat param) { glTexGeni(coord, pna
 void glTexGend(GLenum coord, GLenum pname, GLdouble param) { glTexGeni(coord, pname, (GLint)param); }
 
 void glTexGenfv(GLenum coord, GLenum pname, const GLfloat* params) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     const int c = texgen_coord_index(coord);
     auto& gs = g_glstate;
     if (c < 0) {
@@ -1272,7 +1272,7 @@ void glTexGendv(GLenum coord, GLenum pname, const GLdouble* params) {
 }
 
 void glPixelZoom(GLfloat xfactor, GLfloat yfactor) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     LIST_RECORD(glPixelZoom, {}, xfactor, yfactor)
     auto& gs = g_glstate;
     gs.fpe_uniform.pixel_zoom_x = xfactor;
@@ -1280,7 +1280,7 @@ void glPixelZoom(GLfloat xfactor, GLfloat yfactor) {
 }
 
 void glPixelTransferf(GLenum pname, GLfloat param) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     LIST_RECORD(glPixelTransferf, {}, pname, param)
     auto& gs = g_glstate;
     auto& un = gs.fpe_uniform;
@@ -1311,7 +1311,7 @@ void glPixelTransferf(GLenum pname, GLfloat param) {
 void glPixelTransferi(GLenum pname, GLint param) { glPixelTransferf(pname, (GLfloat)param); }
 
 void glPolygonStipple(const GLubyte* mask) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     if (mask == nullptr) return;
     LIST_RECORD(glPolygonStipple, {{0, 128}}, mask)
     auto& gs = g_glstate;
@@ -1339,7 +1339,7 @@ void glGetPolygonStipple(GLubyte* mask) {
 }
 
 void glLineStipple(GLint factor, GLushort pattern) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     if (factor < 1) factor = 1;
     if (factor > 256) factor = 256;
     LIST_RECORD(glLineStipple, {}, factor, pattern)
@@ -1355,7 +1355,7 @@ namespace {
 // Shared glRasterPos backend: run the full fixed-function transform and
 // store the resulting window coordinates (plans/08, 8.1).
 void set_raster_pos(GLfloat x, GLfloat y, GLfloat z, GLfloat w) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     auto& gs = g_glstate;
     auto& un = gs.fpe_uniform;
     const glm::vec4 clip = un.transformation.matrices[matrix_idx(GL_PROJECTION)] *
@@ -1379,7 +1379,7 @@ void set_raster_pos(GLfloat x, GLfloat y, GLfloat z, GLfloat w) {
 }
 
 void set_window_pos(GLfloat x, GLfloat y, GLfloat z) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     auto& gs = g_glstate;
     auto& st = gs.fpe_uniform;
     st.raster_position = {x, y, z, 1.0f};
@@ -1432,7 +1432,7 @@ DEFINE_WINDOWPOS_FAMILY(i, GLint)
 DEFINE_WINDOWPOS_FAMILY(s, GLshort)
 
 void glPolygonMode(GLenum face, GLenum mode) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     auto& gs = g_glstate;
     if (mode != GL_FILL && mode != GL_LINE && mode != GL_POINT) {
         gs.set_error(GL_INVALID_ENUM);
@@ -1450,7 +1450,7 @@ void glPolygonMode(GLenum face, GLenum mode) {
 }
 
 void glClipPlane(GLenum plane, const GLdouble* equation) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     auto& gs = g_glstate;
     if (plane < GL_CLIP_PLANE0 || plane >= GL_CLIP_PLANE0 + 6) {
         gs.set_error(GL_INVALID_ENUM);
@@ -1478,7 +1478,7 @@ void glGetClipPlane(GLenum plane, GLdouble* equation) {
 }
 
 void glPointSize(GLfloat size) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     auto& gs = g_glstate;
     if (size <= 0.0f) {
         gs.set_error(GL_INVALID_VALUE);

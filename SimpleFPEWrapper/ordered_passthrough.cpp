@@ -45,9 +45,20 @@ GLint sfpewLogicalProgram() {
     // draws keeps the FPE interception decision self-healing (plans/07).
     thread_local unsigned reconcile_counter = 0;
     const bool reconcile = (++reconcile_counter & 0xFFu) == 0u;
-    if (!state.known || reconcile) {
+    // While a fixed-function draw is holding the app's state (plans/12), the
+    // backend has the WRAPPER's program bound, so asking it would poison the
+    // shadow with an internal program id - and every later draw would then
+    // take the user-program path and pass GL_QUADS straight to GLES. The save
+    // on the context is the app's truth here; the reconcile just waits for the
+    // next unheld query.
+    const bool held = g_glstate_c.deferred_draw.held;
+    if (!state.known || (reconcile && !held)) {
         if (!sfpewEnsureBackend() || g_glFuncs.glGetIntegerv == nullptr) return 0;
-        g_glFuncs.glGetIntegerv(GL_CURRENT_PROGRAM, &state.program);
+        if (held) {
+            state.program = g_glstate_c.deferred_draw.program;
+        } else {
+            g_glFuncs.glGetIntegerv(GL_CURRENT_PROGRAM, &state.program);
+        }
         state.known = true;
     }
     return state.program;
@@ -56,7 +67,7 @@ GLint sfpewLogicalProgram() {
 #define ORDERED_PASSTHROUGH(name, declaration, arguments)                                                             \
     void name declaration {                                                                                           \
         if (!sfpewEnsureBackend()) return;                                                                            \
-        flushPendingImmediateDraws();                                                                                 \
+        sfpewEntryBarrier();                                                                                 \
         if (g_glFuncs.name != nullptr) g_glFuncs.name arguments;                                                      \
     }
 
@@ -67,7 +78,7 @@ GLint sfpewLogicalProgram() {
 #define RECORDED_PASSTHROUGH(name, declaration, arguments)                                                            \
     void name declaration {                                                                                           \
         if (!sfpewEnsureBackend()) return;                                                                            \
-        flushPendingImmediateDraws();                                                                                 \
+        sfpewEntryBarrier();                                                                                 \
         LIST_RECORD(name, {}, OP_ARGS arguments)                                                                      \
         if (g_glFuncs.name != nullptr) g_glFuncs.name arguments;                                                      \
     }
@@ -77,7 +88,7 @@ RECORDED_PASSTHROUGH(glClear, (GLbitfield mask), (mask))
 void glReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type,
                   GLvoid* pixels) {
     if (!sfpewEnsureBackend() || g_glFuncs.glReadPixels == nullptr) return;
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     // Desktop apps read GL_BGRA, which GLES3 core does not offer: read RGBA
     // and swap in place (tight rows, the common screenshot/AWT case).
     if (format == GL_BGRA && type == GL_UNSIGNED_BYTE && pixels != nullptr && width > 0 && height > 0 &&
@@ -97,8 +108,9 @@ ORDERED_PASSTHROUGH(glBindFramebuffer, (GLenum target, GLuint framebuffer), (tar
 void glUseProgram(GLuint program) {
     if (!sfpewEnsureBackend()) return;
     (void)g_glstate; // entry strict resolve; the program shadow reads the snapshot
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     if (g_glFuncs.glUseProgram == nullptr) return;
+    sfpewInvalidateImmediateDrawState();
     g_glFuncs.glUseProgram(program);
 
     // Use the backend's post-call value so an invalid/unlinked program cannot
@@ -115,7 +127,7 @@ void glUseProgram(GLuint program) {
 // function corrupts every later translucent draw).
 void glBlendColor(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha) {
     if (!sfpewEnsureBackend()) return;
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     LIST_RECORD(glBlendColor, {}, red, green, blue, alpha)
     auto& cb = g_glstate.fpe_state.color_buffer;
     cb.blend_color[0] = red;
@@ -127,7 +139,7 @@ void glBlendColor(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha) {
 
 void glBlendEquation(GLenum mode) {
     if (!sfpewEnsureBackend()) return;
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     LIST_RECORD(glBlendEquation, {}, mode)
     auto& cb = g_glstate.fpe_state.color_buffer;
     cb.equation_rgb = mode;
@@ -137,7 +149,7 @@ void glBlendEquation(GLenum mode) {
 
 void glBlendEquationSeparate(GLenum modeRGB, GLenum modeAlpha) {
     if (!sfpewEnsureBackend()) return;
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     LIST_RECORD(glBlendEquationSeparate, {}, modeRGB, modeAlpha)
     auto& cb = g_glstate.fpe_state.color_buffer;
     cb.equation_rgb = modeRGB;
@@ -148,7 +160,7 @@ void glBlendEquationSeparate(GLenum modeRGB, GLenum modeAlpha) {
 
 void glBlendFunc(GLenum sfactor, GLenum dfactor) {
     if (!sfpewEnsureBackend()) return;
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     LIST_RECORD(glBlendFunc, {}, sfactor, dfactor)
     auto& cb = g_glstate.fpe_state.color_buffer;
     cb.src_rgb = cb.src_alpha = sfactor;
@@ -159,7 +171,7 @@ void glBlendFunc(GLenum sfactor, GLenum dfactor) {
 void glBlendFuncSeparate(GLenum sfactorRGB, GLenum dfactorRGB, GLenum sfactorAlpha,
                          GLenum dfactorAlpha) {
     if (!sfpewEnsureBackend()) return;
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     LIST_RECORD(glBlendFuncSeparate, {}, sfactorRGB, dfactorRGB, sfactorAlpha, dfactorAlpha)
     auto& cb = g_glstate.fpe_state.color_buffer;
     cb.src_rgb = sfactorRGB;
@@ -172,7 +184,7 @@ void glBlendFuncSeparate(GLenum sfactorRGB, GLenum dfactorRGB, GLenum sfactorAlp
 
 void glColorMask(GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha) {
     if (!sfpewEnsureBackend()) return;
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     LIST_RECORD(glColorMask, {}, red, green, blue, alpha)
     auto& cb = g_glstate.fpe_state.color_buffer;
     cb.color_mask[0] = red;
@@ -226,7 +238,7 @@ bool sfpewHandleGenerateMipmapParam(GLenum target, GLenum pname, GLint param) {
 
 void glTexParameterf(GLenum target, GLenum pname, GLfloat param) {
     (void)g_glstate; // entry strict resolve; mipmap tracking reads the binding shadow
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     LIST_RECORD(glTexParameterf, {}, target, pname, param)
     if (sfpewHandleGenerateMipmapParam(target, pname, (GLint)param)) return;
     if (g_glFuncs.glTexParameterf == nullptr) return;
@@ -236,7 +248,7 @@ void glTexParameterf(GLenum target, GLenum pname, GLfloat param) {
 }
 
 void glTexParameterfv(GLenum target, GLenum pname, const GLfloat* params) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     if (g_glFuncs.glTexParameterfv == nullptr || params == nullptr) return;
     LIST_RECORD(glTexParameterfv,
                 {{2, (pname == GL_TEXTURE_BORDER_COLOR ? 4u : 1u) * sizeof(GLfloat)}}, target, pname,
@@ -251,7 +263,7 @@ void glTexParameterfv(GLenum target, GLenum pname, const GLfloat* params) {
 
 void glTexParameteri(GLenum target, GLenum pname, GLint param) {
     (void)g_glstate; // entry strict resolve; mipmap tracking reads the binding shadow
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     LIST_RECORD(glTexParameteri, {}, target, pname, param)
     if (sfpewHandleGenerateMipmapParam(target, pname, param)) return;
     if (g_glFuncs.glTexParameteri != nullptr)
@@ -259,7 +271,7 @@ void glTexParameteri(GLenum target, GLenum pname, GLint param) {
 }
 
 void glTexParameteriv(GLenum target, GLenum pname, const GLint* params) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     if (g_glFuncs.glTexParameteriv == nullptr || params == nullptr) return;
     LIST_RECORD(glTexParameteriv,
                 {{2, (pname == GL_TEXTURE_BORDER_COLOR ? 4u : 1u) * sizeof(GLint)}}, target, pname,
@@ -275,7 +287,7 @@ void glTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, G
                      GLsizei height, GLenum format, GLenum type, const GLvoid* pixels) {
     if (!sfpewEnsureBackend() || g_glFuncs.glTexSubImage2D == nullptr) return;
     (void)g_glstate; // entry strict resolve; mipmap tracking reads the binding shadow
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     // Legacy formats must match the RED/RG storage glTexImage2D allocated
     // for them; BGRA is swapped on the CPU (tight rows assumed, mirroring
     // the allocation path in getter.cpp).
@@ -308,7 +320,7 @@ void glTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, G
 
 void glDepthRange(GLdouble nearVal, GLdouble farVal) {
     if (!sfpewEnsureBackend() || g_glFuncs.glDepthRangef == nullptr) return;
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     g_glFuncs.glDepthRangef(static_cast<GLfloat>(nearVal), static_cast<GLfloat>(farVal));
 }
 
@@ -322,7 +334,7 @@ void glHint(GLenum target, GLenum mode) {
     case GL_GENERATE_MIPMAP_HINT:
     case GL_FRAGMENT_SHADER_DERIVATIVE_HINT:
         if (!sfpewEnsureBackend() || g_glFuncs.glHint == nullptr) return;
-        flushPendingImmediateDraws();
+        sfpewEntryBarrier();
         g_glFuncs.glHint(target, mode);
         return;
     // Legal GL 2.1 hints with no GLES equivalent: accepting them as a no-op
@@ -359,7 +371,7 @@ void glPixelStorei(GLenum pname, GLint param) {
         // Everything else (ALIGNMENT, ROW_LENGTH, SKIP_*, IMAGE_HEIGHT...)
         // is native ES 3.0 state; let the backend validate the value.
         if (!sfpewEnsureBackend() || g_glFuncs.glPixelStorei == nullptr) return;
-        flushPendingImmediateDraws();
+        sfpewEntryBarrier();
         g_glFuncs.glPixelStorei(pname, param);
         return;
     }

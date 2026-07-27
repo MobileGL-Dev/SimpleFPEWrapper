@@ -277,11 +277,13 @@ void applyUniformInitializers(GLuint program,
     }
     GLint previous = 0;
     g_glFuncs.glGetIntegerv(GL_CURRENT_PROGRAM, &previous);
+    sfpewInvalidateImmediateDrawState();
     g_glFuncs.glUseProgram(program);
     for (const auto& init : inits) {
         const GLint loc = g_glFuncs.glGetUniformLocation(program, init.name.c_str());
         if (loc >= 0) applyOneInitializer(init, loc);
     }
+    sfpewInvalidateImmediateDrawState();
     g_glFuncs.glUseProgram((GLuint)previous);
 }
 

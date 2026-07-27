@@ -250,7 +250,7 @@ void drawImmediateVertices(GLenum primitive, const GLfloat* vertices, size_t flo
             state.fpe_user_vao_enabled = 0;
         }
         if (state.fpe_user_vao != 0) {
-            g_glFuncs.glBindVertexArray(state.fpe_user_vao);
+            sfpewBackendBindVertexArray(state.fpe_user_vao);
             g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, state.fpe_immediate_vbo);
             const GLintptr userVertexOffset =
                 sfpewUploadImmediateVertexData(vertices, floatCount * sizeof(GLfloat));
@@ -285,9 +285,16 @@ void drawImmediateVertices(GLenum primitive, const GLfloat* vertices, size_t flo
         return;
     }
 
-    g_glFuncs.glUseProgram(programId);
-    sfpewBackendBindVertexArray(state.fpe_vao);
-    g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, state.fpe_immediate_vbo);
+    // A preceding immediate draw may have left exactly this trio bound, in
+    // which case re-issuing it is pure cost - half the per-batch driver
+    // traffic (plans/12). Only valid while the app's state is still held; the
+    // barrier clears the flag when it hands the state back.
+    if (gs.immediate_live_program != programId || !gs.deferred_draw.held) {
+        g_glFuncs.glUseProgram(programId);
+        sfpewBackendBindVertexArray(state.fpe_vao); // clears the flag
+        g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, state.fpe_immediate_vbo);
+        gs.immediate_live_program = programId; // re-arm after the binds
+    }
 
     const GLintptr vertexOffset =
         sfpewUploadImmediateVertexData(vertices, floatCount * sizeof(GLfloat));
@@ -364,6 +371,27 @@ bool queueGlyphTriangleStrip(const fixed_function_draw_state_t& draw) {
 }
 
 } // namespace
+
+void sfpewFlushDeferredDrawState() {
+    // Reads the snapshot: callers have already done their entry's strict
+    // resolve (docs/context-model.md).
+    auto& held = g_glstate_c.deferred_draw;
+    if (!held.held) return;
+    held.held = false;
+
+    if (g_glFuncs.glUseProgram == nullptr || g_glFuncs.glBindVertexArray == nullptr ||
+        g_glFuncs.glBindBuffer == nullptr) {
+        return;
+    }
+    sfpewInvalidateImmediateDrawState();
+    g_glFuncs.glUseProgram(held.program);
+    sfpewBackendBindVertexArray(static_cast<GLuint>(held.vertex_array));
+    // A non-zero restored VAO already carries its element binding; only VAO 0's
+    // must be re-bound explicitly.
+    if (held.element_array_buffer >= 0)
+        sfpewBackendBindElementBuffer(static_cast<GLuint>(held.element_array_buffer));
+    g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, held.array_buffer);
+}
 
 void flushPendingImmediateDraws() {
     auto& batch = pendingGlyphBatch;

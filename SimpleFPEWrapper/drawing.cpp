@@ -866,7 +866,7 @@ bool userProgramDrawElements(GLuint program, GLenum mode, GLsizei count, GLenum 
         vpa = raw_copy.normalize();
     }
 
-    g_glFuncs.glBindVertexArray(st.fpe_user_vao);
+    sfpewBackendBindVertexArray(st.fpe_user_vao);
     const bool client_memory_draw =
         reinterpret_cast<uintptr_t>(vpa.starting_pointer) > static_cast<uintptr_t>(vpa.stride);
     const GLuint attribute_buffer = (logical_array_buffer == 0 || client_memory_draw)
@@ -1246,7 +1246,7 @@ bool tryExecuteCapturedDisplayLists(const GLuint* listIds, size_t listCount) {
 void glDrawArrays(GLenum mode, GLint first, GLsizei count) {
     if (!sfpewEnsureBackend()) return;
     (void)g_glstate; // entry strict resolve; commit/capture path reads the snapshot
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     if (!disableRecording && DisplayListManager::shouldRecord()) {
         std::unique_ptr<GLCmd> command;
 
@@ -1275,7 +1275,7 @@ void glDrawArrays(GLenum mode, GLint first, GLsizei count) {
 void glDrawElements(GLenum mode, GLsizei count, GLenum type, const GLvoid* indices) {
     if (!sfpewEnsureBackend()) return;
     (void)g_glstate; // entry strict resolve; commit path reads the snapshot
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     // Display-list capture of indexed draws lands with plans/06; while
     // recording, execution matches the previous passthrough behavior.
     drawElementsNow(mode, count, type, indices);
@@ -1292,7 +1292,7 @@ void glDrawRangeElements(GLenum mode, GLuint start, GLuint end, GLsizei count, G
     (void)start;
     (void)end;
     if (!sfpewEnsureBackend()) return;
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     drawElementsNow(mode, count, type, indices);
 }
 
@@ -1305,7 +1305,7 @@ void glMultiDrawArrays(GLenum mode, const GLint* first, const GLsizei* count, GL
         return;
     }
     if (first == nullptr || count == nullptr) return;
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     for (GLsizei i = 0; i < drawcount; ++i) {
         if (count[i] <= 0) continue;
         drawArraysNow(mode, first[i], count[i], false);
@@ -1320,7 +1320,7 @@ void glMultiDrawElements(GLenum mode, const GLsizei* count, GLenum type,
         return;
     }
     if (count == nullptr || indices == nullptr) return;
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     for (GLsizei i = 0; i < drawcount; ++i) {
         if (count[i] <= 0) continue;
         drawElementsNow(mode, count[i], type, indices[i]);

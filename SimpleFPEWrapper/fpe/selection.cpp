@@ -133,7 +133,7 @@ void sfpewSelectionProcessVertices(GLenum mode, const GLfloat* positions, size_t
 }
 
 GLint glRenderMode(GLenum mode) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     auto& gs = g_glstate;
     if (mode != GL_RENDER && mode != GL_SELECT && mode != GL_FEEDBACK) {
         gs.set_error(GL_INVALID_ENUM);

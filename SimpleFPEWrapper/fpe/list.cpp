@@ -68,7 +68,7 @@ GLboolean glIsList(GLuint list) {
 }
 
 void glNewList(GLuint list, GLenum mode) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     // LOG()
     // LOG_D("glNewList(%d, %s)", list, glEnumToString(mode))
     if (list == 0) {
@@ -100,7 +100,7 @@ void glCallList(GLuint list) {
     // Entry strict resolve: replayed commands (matrix transforms, captured
     // draws) use the relaxed snapshot accessor and rely on this anchor.
     (void)g_glstate;
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     // LOG()
     // LOG_D("glCallList(%d)", list)
 
@@ -120,7 +120,7 @@ void glCallList(GLuint list) {
 void glCallLists(GLsizei n, GLenum type, const GLvoid* lists) {
     // Entry strict resolve; see glCallList.
     (void)g_glstate;
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     // LOG()
     // LOG_D("glCallLists(%i, %s, %p)", n, glEnumToString(type), lists)
 

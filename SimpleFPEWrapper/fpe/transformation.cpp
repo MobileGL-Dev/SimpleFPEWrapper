@@ -85,7 +85,7 @@ public:
         // their order while avoiding repeated virtual dispatch, state lookup,
         // and pending-draw checks for adjacent display-list transforms.
         // Replay runs under the glCallList entry resolve, so relaxed access.
-        flushPendingImmediateDraws();
+        sfpewEntryBarrier();
         auto& matrix = current_matrix(g_glstate_c.fpe_uniform.transformation);
         apply(matrix);
     }
@@ -121,7 +121,7 @@ public:
         : transform(std::move(transform)), draw(std::move(draw)) {}
 
     void execute() const override {
-        flushPendingImmediateDraws();
+        sfpewEntryBarrier();
         auto& matrix = current_matrix(g_glstate_c.fpe_uniform.transformation);
         const glm::mat4 saved = matrix;
         transform->apply(matrix);
@@ -140,7 +140,7 @@ public:
         : linearTransform(linearTransform), draw(std::move(draw)) {}
 
     void execute() const override {
-        flushPendingImmediateDraws();
+        sfpewEntryBarrier();
         auto& matrix = current_matrix(g_glstate_c.fpe_uniform.transformation);
         const glm::mat4 saved = matrix;
         matrix *= linearTransform;
@@ -275,7 +275,7 @@ void glMatrixMode(GLenum mode) {
 }
 
 void glLoadIdentity() {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     // LOG()
     //  LOG_D("glLoadIdentity")
 
@@ -300,7 +300,7 @@ void glOrtho(GLdouble left, GLdouble right, GLdouble bottom, GLdouble top, GLdou
 }
 
 void glOrthof(GLfloat left, GLfloat right, GLfloat bottom, GLfloat top, GLfloat zNear, GLfloat zFar) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     // LOG()
     //  LOG_D("glOrthof(%f, %f, %f, %f, %f, %f)", left, right, bottom, top, zNear, zFar)
 
@@ -324,7 +324,7 @@ void glFrustum(GLdouble left, GLdouble right, GLdouble bottom, GLdouble top, GLd
 }
 
 void glFrustumf(GLfloat left, GLfloat right, GLfloat bottom, GLfloat top, GLfloat zNear, GLfloat zFar) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     LIST_RECORD(glFrustumf, {}, left, right, bottom, top, zNear, zFar)
 
     auto& transformation = g_glstate.fpe_uniform.transformation;
@@ -333,7 +333,7 @@ void glFrustumf(GLfloat left, GLfloat right, GLfloat bottom, GLfloat top, GLfloa
 }
 
 void glScalef(GLfloat x, GLfloat y, GLfloat z) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     // LOG()
     //  LOG_D("glScalef(%f, %f, %f)", x, y, z)
 
@@ -348,7 +348,7 @@ void glScalef(GLfloat x, GLfloat y, GLfloat z) {
 }
 
 void glTranslatef(GLfloat x, GLfloat y, GLfloat z) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     // LOG()
     //  LOG_D("glTranslatef(%f, %f, %f)", x, y, z)
 
@@ -363,7 +363,7 @@ void glTranslatef(GLfloat x, GLfloat y, GLfloat z) {
 }
 
 void glRotatef(GLfloat angle, GLfloat x, GLfloat y, GLfloat z) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     // LOG()
     //  LOG_D("glRotatef, angle = %.2f, x = %.2f, y = %.2f, z = %.2f", angle, x, y, z)
 
@@ -417,7 +417,7 @@ void glLoadMatrixd(const GLdouble* m) {
 }
 
 void glLoadMatrixf(const GLfloat* m) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     LIST_RECORD(glLoadMatrixf, {{0, sizeof(GLfloat) * 16}}, m)
 
     if (!m) return;
@@ -436,7 +436,7 @@ void glMultMatrixd(const GLdouble* m) {
 }
 
 void glMultMatrixf(const GLfloat* m) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     // LOG()
     //  LOG_D("glMultMatrixf(%p)", m)
 
@@ -459,7 +459,7 @@ void glMultMatrixf(const GLfloat* m) {
 }
 
 void glPushMatrix(void) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     // LOG()
     //  LOG_D("glPushMatrix()")
 
@@ -481,7 +481,7 @@ void glPushMatrix(void) {
 }
 
 void glPopMatrix(void) {
-    flushPendingImmediateDraws();
+    sfpewEntryBarrier();
     // LOG()
     //  LOG_D("glPopMatrix()")
 

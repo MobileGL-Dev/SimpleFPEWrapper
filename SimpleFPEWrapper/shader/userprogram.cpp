@@ -37,6 +37,8 @@ struct user_program_uniforms_t {
     GLint light_model_ambient = -1;
     GLint back_ambient = -1, back_diffuse = -1, back_specular = -1, back_emission = -1,
           back_shininess = -1;
+    // Emulated alpha test (GL 2.1 per-fragment op; absent from GLES).
+    GLint alpha_test_func = -1, alpha_test_ref = -1;
     GLint light_ambient[MAX_LIGHTS], light_diffuse[MAX_LIGHTS], light_specular[MAX_LIGHTS],
         light_position[MAX_LIGHTS], light_half_vector[MAX_LIGHTS], light_spot_direction[MAX_LIGHTS],
         light_spot_exponent[MAX_LIGHTS], light_spot_cutoff[MAX_LIGHTS],
@@ -83,6 +85,8 @@ void resolve(GLuint program, user_program_uniforms_t& u) {
     u.back_specular = loc("fpe_BackMaterial.specular");
     u.back_emission = loc("fpe_BackMaterial.emission");
     u.back_shininess = loc("fpe_BackMaterial.shininess");
+    u.alpha_test_func = loc("fpe_AlphaTestFunc");
+    u.alpha_test_ref = loc("fpe_AlphaTestRef");
     char name[64];
     const auto light_loc = [&](int i, const char* field) {
         std::snprintf(name, sizeof(name), "fpe_LightSource[%d].%s", i, field);
@@ -104,7 +108,7 @@ void resolve(GLuint program, user_program_uniforms_t& u) {
     }
     u.any = u.model_view >= 0 || u.projection >= 0 || u.mvp >= 0 || u.normal >= 0 ||
             u.texture_matrix >= 0 || u.front_ambient >= 0 || u.back_ambient >= 0 ||
-            u.fog_color >= 0 || u.light_model_ambient >= 0;
+            u.fog_color >= 0 || u.light_model_ambient >= 0 || u.alpha_test_func >= 0;
     for (int i = 0; i < MAX_LIGHTS && !u.any; ++i)
         u.any = u.light_ambient[i] >= 0 || u.light_diffuse[i] >= 0 || u.light_position[i] >= 0 ||
                 u.light_const_atten[i] >= 0 || u.light_spot_direction[i] >= 0;
@@ -268,6 +272,17 @@ void sfpewFeedUserProgramUniforms(GLuint program) {
     }
     if (u->light_model_ambient >= 0)
         g_glFuncs.glUniform4fv(u->light_model_ambient, 1, glm::value_ptr(un.light_model_ambient));
+
+    // The generated main() reads these; func 0 means "test disabled" so a
+    // GL_ALWAYS state and a disabled state both skip the branch cheaply.
+    if (u->alpha_test_func >= 0) {
+        const GLint func = g_glstate.fpe_state.fpe_bools.alpha_test_enable
+                               ? (GLint)g_glstate.fpe_state.alpha_func
+                               : 0;
+        g_glFuncs.glUniform1i(u->alpha_test_func, func == GL_ALWAYS ? 0 : func);
+    }
+    if (u->alpha_test_ref >= 0)
+        g_glFuncs.glUniform1f(u->alpha_test_ref, un.alpha_ref);
 
     const auto& back = un.materials[1];
     if (u->back_ambient >= 0) g_glFuncs.glUniform4fv(u->back_ambient, 1, glm::value_ptr(back.ambient));

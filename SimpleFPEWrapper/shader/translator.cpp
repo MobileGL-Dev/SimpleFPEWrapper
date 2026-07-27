@@ -623,6 +623,36 @@ in float fpe_FogFragCoord;
 )";
 
 constexpr char kFragColorOut[] = "out vec4 fpe_FragColor;\n";
+
+// GL 2.1 alpha test is a per-fragment operation AFTER the fragment
+// shader, so it applies to user programs too - and GLES dropped it
+// entirely. The user's main() is renamed and called from a generated one
+// that applies the test to the fragment's color-0 alpha. The func lives
+// in a uniform (0 = disabled) so a state change never forces a
+// retranslation; the branch is uniform-uniform and fully coherent.
+// Legacy Minecraft leans on this for cutout foliage (grass, leaves).
+constexpr char kAlphaTestPrelude[] = R"(
+uniform int fpe_AlphaTestFunc;
+uniform float fpe_AlphaTestRef;
+void fpe_ApplyAlphaTest(float fpe_alpha) {
+    int fpe_func = fpe_AlphaTestFunc;
+    if (fpe_func == 0) return;
+    bool fpe_pass;
+    if (fpe_func == 512) fpe_pass = false;                          // GL_NEVER
+    else if (fpe_func == 513) fpe_pass = fpe_alpha <  fpe_AlphaTestRef;  // LESS
+    else if (fpe_func == 514) fpe_pass = fpe_alpha == fpe_AlphaTestRef;  // EQUAL
+    else if (fpe_func == 515) fpe_pass = fpe_alpha <= fpe_AlphaTestRef;  // LEQUAL
+    else if (fpe_func == 516) fpe_pass = fpe_alpha >  fpe_AlphaTestRef;  // GREATER
+    else if (fpe_func == 517) fpe_pass = fpe_alpha != fpe_AlphaTestRef;  // NOTEQUAL
+    else if (fpe_func == 518) fpe_pass = fpe_alpha >= fpe_AlphaTestRef;  // GEQUAL
+    else fpe_pass = true;                                           // GL_ALWAYS
+    if (!fpe_pass) discard;
+}
+)";
+constexpr char kAlphaTestPrototypes[] =
+    "uniform int fpe_AlphaTestFunc;\n"
+    "uniform float fpe_AlphaTestRef;\n"
+    "void fpe_ApplyAlphaTest(float fpe_alpha);\n";
 // Sized from the backend's GL_MAX_DRAW_BUFFERS at translate time:
 // OptiFine shader packs statically index gl_FragData up to [7], and a
 // constant index beyond the declared size is a parse error.
@@ -738,14 +768,43 @@ std::string buildPrelude(bool vertex, bool uses_fragdata, bool with_bodies,
     result += vertex ? kVertexPrelude : kFragmentPrelude;
     if (vertex) {
         result += with_bodies ? kVertexPreludeFuncs : kVertexPreludeProtos;
-    } else if (uses_fragdata) {
-        // FragColor and FragData[0] would collide on one location; declare
-        // only what the shader actually writes (GL forbids mixing them).
-        result += "out vec4 fpe_FragData[" + std::to_string(max_draw_buffers) + "];\n";
     } else {
-        result += kFragColorOut;
+        if (uses_fragdata) {
+            // FragColor and FragData[0] would collide on one location;
+            // declare only what the shader writes (GL forbids mixing them).
+            result += "out vec4 fpe_FragData[" + std::to_string(max_draw_buffers) + "];\n";
+        } else {
+            result += kFragColorOut;
+        }
+        result += with_bodies ? kAlphaTestPrelude : kAlphaTestPrototypes;
     }
     return result;
+}
+
+// Renames the user's entry point so a generated main() can run the alpha
+// test on its result. Returns false when the shader has no plain `main`
+// definition to wrap (nothing to do).
+bool renameEntryPoint(std::string& body) {
+    size_t pos = 0;
+    while ((pos = body.find("main", pos)) != std::string::npos) {
+        const bool word_start = pos == 0 || !identChar(body[pos - 1]);
+        const bool word_end = pos + 4 >= body.size() || !identChar(body[pos + 4]);
+        if (!word_start || !word_end) {
+            pos += 4;
+            continue;
+        }
+        // Must look like a definition/declaration: `main` then optional
+        // spaces then '('.
+        size_t paren = pos + 4;
+        while (paren < body.size() && (body[paren] == ' ' || body[paren] == '\t')) ++paren;
+        if (paren >= body.size() || body[paren] != '(') {
+            pos += 4;
+            continue;
+        }
+        body.replace(pos, 4, "fpe_user_main");
+        pos += sizeof("fpe_user_main") - 1;
+    }
+    return body.find("fpe_user_main") != std::string::npos;
 }
 
 } // namespace
@@ -770,6 +829,22 @@ std::vector<std::string> preprocessUnits(GLenum stage, const std::vector<std::st
         bodies.push_back(rewriteBody(vertex, source, rename_level));
         uses_fragdata = uses_fragdata || bodies.back().find("fpe_FragData") != std::string::npos;
     }
+    // Wrap the fragment entry point so the emulated alpha test runs on the
+    // shader's own output (see kAlphaTestPrelude). Only the TU that owns
+    // main() is touched; the others keep their helper functions.
+    std::string generated_main;
+    if (!vertex) {
+        for (auto& body : bodies) {
+            if (!renameEntryPoint(body)) continue;
+            const char* alpha_source = uses_fragdata ? "fpe_FragData[0].a" : "fpe_FragColor.a";
+            generated_main = std::string("\nvoid main() {\n"
+                                         "    fpe_user_main();\n"
+                                         "    fpe_ApplyAlphaTest(") +
+                             alpha_source + ");\n}\n";
+            break;
+        }
+    }
+
     std::vector<std::string> units;
     units.reserve(bodies.size());
     for (size_t i = 0; i < bodies.size(); ++i) {
@@ -777,6 +852,9 @@ std::vector<std::string> preprocessUnits(GLenum stage, const std::vector<std::st
         unit += "#line 1\n"; // keep glslang diagnostics on user line numbers
         unit += bodies[i];
         if (unit.back() != '\n') unit += '\n';
+        // The generated main lives with the renamed entry point's TU.
+        if (!generated_main.empty() && bodies[i].find("fpe_user_main") != std::string::npos)
+            unit += generated_main;
         units.push_back(std::move(unit));
     }
     return units;

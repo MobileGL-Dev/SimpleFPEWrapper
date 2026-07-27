@@ -31,6 +31,7 @@
 #include <dlfcn.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
 #include <EGL/egl.h>
@@ -152,11 +153,23 @@ int main(void) {
     eglBindAPI(EGL_OPENGL_ES_API);
     static const EGLint ctx_attribs[] = {EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE};
     EGLContext context = eglCreateContext(display, config, EGL_NO_CONTEXT, ctx_attribs);
-    if (surface == EGL_NO_SURFACE || context == EGL_NO_CONTEXT ||
-        !eglMakeCurrent(display, surface, surface, context)) {
+    // Route eglMakeCurrent through the wrapper the way a launcher does: that
+    // is what lets the wrapper track the current context exactly instead of
+    // asking libEGL on every state access. SFPEW_BENCH_DIRECT_EGL=1 calls
+    // libEGL directly so the two paths can be compared.
+    EGLBoolean (*wrapperMakeCurrent)(EGLDisplay, EGLSurface, EGLSurface, EGLContext) = NULL;
+    if (getenv("SFPEW_BENCH_DIRECT_EGL") == NULL)
+        *(void**)(&wrapperMakeCurrent) = resolve("eglMakeCurrent");
+    const int made_current =
+        wrapperMakeCurrent != NULL
+            ? wrapperMakeCurrent(display, surface, surface, context)
+            : eglMakeCurrent(display, surface, surface, context);
+    if (surface == EGL_NO_SURFACE || context == EGL_NO_CONTEXT || !made_current) {
         printf("SKIP: could not make an ES3 pbuffer context current\n");
         return 77;
     }
+    printf("bench.egl: current-context tracking = %s\n",
+           wrapperMakeCurrent != NULL ? "wrapper (exact)" : "polled via libEGL");
 
 #define R(dst, name)                                                                               \
     do {                                                                                           \
@@ -205,6 +218,11 @@ int main(void) {
     if (scale_env != NULL) scale = atof(scale_env);
     if (scale <= 0.0) scale = 1.0;
 
+    // SFPEW_BENCH_ONLY=<substring> runs just the phases whose name matches,
+    // so a profiler sees one workload instead of all fourteen interleaved.
+    const char* only = getenv("SFPEW_BENCH_ONLY");
+#define PHASE(name) (only == NULL || strstr(name, only) != NULL)
+
     fClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     fClear(GL_COLOR_BUFFER_BIT);
 
@@ -214,7 +232,9 @@ int main(void) {
     draw_quads(quads_per_frame); // warmup: first draw compiles the program
     fFinish();
     double t0 = now_ms();
-    for (int frm = 0; frm < frames; ++frm) draw_quads(quads_per_frame);
+    if (PHASE("immediate")) {
+        for (int frm = 0; frm < frames; ++frm) draw_quads(quads_per_frame);
+    }
     fFinish();
     double immediate_ms = now_ms() - t0;
     const double verts = (double)frames * quads_per_frame * 4;
@@ -229,7 +249,9 @@ int main(void) {
     fCallList(list); // warmup replay
     fFinish();
     t0 = now_ms();
-    for (int frm = 0; frm < frames; ++frm) fCallList(list);
+    if (PHASE("dlist")) {
+        for (int frm = 0; frm < frames; ++frm) fCallList(list);
+    }
     fFinish();
     double dlist_ms = now_ms() - t0;
     printf("bench.dlist:     %7.2f Mvert/s  (%6.1f ns/vert, replay speedup %.2fx)\n",
@@ -242,7 +264,9 @@ int main(void) {
     draw_quads(1);
     fFinish();
     t0 = now_ms();
-    for (int i = 0; i < draws; ++i) draw_quads(1);
+    if (PHASE("progcache")) {
+        for (int i = 0; i < draws; ++i) draw_quads(1);
+    }
     fFinish();
     const double steady_ms = now_ms() - t0;
     // Toggling state: alternating keys, still 100% cache hits after the
@@ -252,10 +276,12 @@ int main(void) {
     fDisable(GL_LIGHTING);
     fFinish();
     t0 = now_ms();
-    for (int i = 0; i < draws; ++i) {
-        if (i & 1) fEnable(GL_LIGHTING);
-        else fDisable(GL_LIGHTING);
-        draw_quads(1);
+    if (PHASE("progcache")) {
+        for (int i = 0; i < draws; ++i) {
+            if (i & 1) fEnable(GL_LIGHTING);
+            else fDisable(GL_LIGHTING);
+            draw_quads(1);
+        }
     }
     fFinish();
     const double toggle_ms = now_ms() - t0;
@@ -283,17 +309,20 @@ int main(void) {
         "}\n";
     static char out_buf[1 << 16];
     const int pairs = (int)(20 * scale) > 0 ? (int)(20 * scale) : 1;
-    if (translate(0x8B31, kVS, out_buf, sizeof(out_buf)) != 0 ||
-        translate(0x8B30, kFS, out_buf, sizeof(out_buf)) != 0) { // warmup + sanity
-        fprintf(stderr, "FAIL: translation benchmark shader does not translate\n");
-        return 1;
+    double translate_ms = 0.0;
+    if (PHASE("translate")) {
+        if (translate(0x8B31, kVS, out_buf, sizeof(out_buf)) != 0 ||
+            translate(0x8B30, kFS, out_buf, sizeof(out_buf)) != 0) { // warmup + sanity
+            fprintf(stderr, "FAIL: translation benchmark shader does not translate\n");
+            return 1;
+        }
+        t0 = now_ms();
+        for (int i = 0; i < pairs; ++i) {
+            translate(0x8B31, kVS, out_buf, sizeof(out_buf));
+            translate(0x8B30, kFS, out_buf, sizeof(out_buf));
+        }
+        translate_ms = now_ms() - t0;
     }
-    t0 = now_ms();
-    for (int i = 0; i < pairs; ++i) {
-        translate(0x8B31, kVS, out_buf, sizeof(out_buf));
-        translate(0x8B30, kFS, out_buf, sizeof(out_buf));
-    }
-    const double translate_ms = now_ms() - t0;
     printf("bench.translate: %7.2f ms/shader (GLSL 1.10 pair x %d)\n",
            translate_ms / (pairs * 2), pairs);
 
@@ -303,7 +332,9 @@ int main(void) {
     draw_quads(1);
     fFinish();
     t0 = now_ms();
-    for (int i = 0; i < batches; ++i) draw_quads(1);
+    if (PHASE("tinybatch")) {
+        for (int i = 0; i < batches; ++i) draw_quads(1);
+    }
     fFinish();
     const double tiny_ms = now_ms() - t0;
     printf("bench.tinybatch: %7.2f us/batch (1 quad per Begin/End, %d batches)\n",
@@ -341,7 +372,9 @@ int main(void) {
     fDrawArrays(GL_QUADS, 0, CA_VERTS);
     fFinish();
     t0 = now_ms();
-    for (int frm = 0; frm < ca_frames; ++frm) fDrawArrays(GL_QUADS, 0, CA_VERTS);
+    if (PHASE("clientarrays")) {
+        for (int frm = 0; frm < ca_frames; ++frm) fDrawArrays(GL_QUADS, 0, CA_VERTS);
+    }
     fFinish();
     const double ca_ms = now_ms() - t0;
     printf("bench.clientarrays: %7.2f Mvert/s  (%6.1f ns/vert, interleaved QUADS)\n",
@@ -353,7 +386,9 @@ int main(void) {
     fDrawArrays(GL_QUADS, 0, CA_VERTS);
     fFinish();
     t0 = now_ms();
-    for (int frm = 0; frm < ca_frames; ++frm) fDrawArrays(GL_QUADS, 0, CA_VERTS);
+    if (PHASE("gatherarrays")) {
+        for (int frm = 0; frm < ca_frames; ++frm) fDrawArrays(GL_QUADS, 0, CA_VERTS);
+    }
     fFinish();
     const double ga_ms = now_ms() - t0;
     printf("bench.gatherarrays: %7.2f Mvert/s  (%6.1f ns/vert, independent allocations)\n",
@@ -373,8 +408,10 @@ int main(void) {
     fDrawElements(GL_TRIANGLES, CA_VERTS / 4 * 6, GL_UNSIGNED_SHORT, indices);
     fFinish();
     t0 = now_ms();
-    for (int frm = 0; frm < ca_frames; ++frm)
-        fDrawElements(GL_TRIANGLES, CA_VERTS / 4 * 6, GL_UNSIGNED_SHORT, indices);
+    if (PHASE("drawelements")) {
+        for (int frm = 0; frm < ca_frames; ++frm)
+            fDrawElements(GL_TRIANGLES, CA_VERTS / 4 * 6, GL_UNSIGNED_SHORT, indices);
+    }
     fFinish();
     const double de_ms = now_ms() - t0;
     const double de_verts = (double)ca_frames * (CA_VERTS / 4 * 6);
@@ -387,11 +424,13 @@ int main(void) {
     // --- bench.matrixops -----------------------------------------------------
     const int mat_ops = (int)(200000 * scale) > 0 ? (int)(200000 * scale) : 1;
     t0 = now_ms();
-    for (int i = 0; i < mat_ops; ++i) {
-        fPushMatrix();
-        fTranslatef(0.1f, 0.2f, 0.3f);
-        fRotatef(17.0f, 0.0f, 1.0f, 0.0f);
-        fPopMatrix();
+    if (PHASE("matrixops")) {
+        for (int i = 0; i < mat_ops; ++i) {
+            fPushMatrix();
+            fTranslatef(0.1f, 0.2f, 0.3f);
+            fRotatef(17.0f, 0.0f, 1.0f, 0.0f);
+            fPopMatrix();
+        }
     }
     const double mat_ms = now_ms() - t0;
     printf("bench.matrixops: %7.1f ns/group (push+translate+rotate+pop, x%d)\n",
@@ -411,15 +450,19 @@ int main(void) {
     const int subs = (int)(5000 * scale) > 0 ? (int)(5000 * scale) : 1;
     fFinish();
     t0 = now_ms();
-    for (int i = 0; i < subs; ++i)
-        fTexSubImage2D(GL_TEXTURE_2D, 0, (i & 7) * 16, ((i >> 3) & 7) * 16, 16, 16, GL_RGBA,
-                       GL_UNSIGNED_BYTE, texels);
+    if (PHASE("texupload")) {
+        for (int i = 0; i < subs; ++i)
+            fTexSubImage2D(GL_TEXTURE_2D, 0, (i & 7) * 16, ((i >> 3) & 7) * 16, 16, 16, GL_RGBA,
+                           GL_UNSIGNED_BYTE, texels);
+    }
     fFinish();
     const double sub_ms = now_ms() - t0;
     const int fulls = (int)(200 * scale) > 0 ? (int)(200 * scale) : 1;
     t0 = now_ms();
-    for (int i = 0; i < fulls; ++i)
-        fTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, texels);
+    if (PHASE("texupload")) {
+        for (int i = 0; i < fulls; ++i)
+            fTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, texels);
+    }
     fFinish();
     const double full_ms = now_ms() - t0;
     printf("bench.texupload: %7.2f us/16x16 sub, %7.1f MB/s full 256x256 RGBA\n",
@@ -430,9 +473,11 @@ int main(void) {
     draw_quads(1);
     fFinish();
     t0 = now_ms();
-    for (int i = 0; i < draws; ++i) {
-        fBindTexture(GL_TEXTURE_2D, textures[i & 1]);
-        draw_quads(1);
+    if (PHASE("texswitch")) {
+        for (int i = 0; i < draws; ++i) {
+            fBindTexture(GL_TEXTURE_2D, textures[i & 1]);
+            draw_quads(1);
+        }
     }
     fFinish();
     const double switch_ms = now_ms() - t0;
@@ -445,8 +490,10 @@ int main(void) {
     const int reads = (int)(200 * scale) > 0 ? (int)(200 * scale) : 1;
     fReadPixels(0, 0, 256, 256, GL_RGBA, GL_UNSIGNED_BYTE, readback);
     t0 = now_ms();
-    for (int i = 0; i < reads; ++i)
-        fReadPixels(0, 0, 256, 256, GL_RGBA, GL_UNSIGNED_BYTE, readback);
+    if (PHASE("readpixels")) {
+        for (int i = 0; i < reads; ++i)
+            fReadPixels(0, 0, 256, 256, GL_RGBA, GL_UNSIGNED_BYTE, readback);
+    }
     const double read_ms = now_ms() - t0;
     printf("bench.readpixels: %6.2f us/read, %7.1f MB/s (256x256 RGBA)\n",
            read_ms * 1000.0 / reads, (double)reads * sizeof(readback) / (read_ms / 1000.0) / 1.0e6);
@@ -455,7 +502,9 @@ int main(void) {
     static GLfloat matrix_out[16];
     const int gets = (int)(500000 * scale) > 0 ? (int)(500000 * scale) : 1;
     t0 = now_ms();
-    for (int i = 0; i < gets; ++i) fGetFloatv(GL_MODELVIEW_MATRIX, matrix_out);
+    if (PHASE("getter")) {
+        for (int i = 0; i < gets; ++i) fGetFloatv(GL_MODELVIEW_MATRIX, matrix_out);
+    }
     const double get_ms = now_ms() - t0;
     printf("bench.getter:    %7.1f ns/glGetFloatv(GL_MODELVIEW_MATRIX) (x%d)\n",
            get_ms * 1.0e6 / gets, gets);
@@ -467,12 +516,14 @@ int main(void) {
     fBindTexture(GL_TEXTURE_2D, textures[0]);
     fFinish();
     t0 = now_ms();
-    for (int combo = 0; combo < 16; ++combo) {
-        for (int bit = 0; bit < 4; ++bit) {
-            if (combo & (1 << bit)) fEnable(combo_bits[bit]);
-            else fDisable(combo_bits[bit]);
+    if (PHASE("progcompile")) {
+        for (int combo = 0; combo < 16; ++combo) {
+            for (int bit = 0; bit < 4; ++bit) {
+                if (combo & (1 << bit)) fEnable(combo_bits[bit]);
+                else fDisable(combo_bits[bit]);
+            }
+            draw_quads(1);
         }
-        draw_quads(1);
     }
     fFinish();
     const double compile_ms = now_ms() - t0;

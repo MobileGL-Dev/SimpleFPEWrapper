@@ -238,6 +238,30 @@ void glClientActiveTexture(GLenum texture) {
     g_glstate.fpe_state.client_active_texture = texture;
 }
 
+// glFogCoord* (GL 1.4 core / EXT_fog_coord). Only meaningful once
+// glFogi(GL_FOG_COORD_SRC, GL_FOG_COORD) selects it as the fog distance;
+// these were missing entirely, so callers resolved the backend's desktop
+// symbol and got GL_INVALID_OPERATION on a GLES context.
+void glFogCoordf(GLfloat coord) {
+    LIST_RECORD(glFogCoordf, {}, coord)
+    mglFogCoord(coord);
+}
+
+void glFogCoordd(GLdouble coord) {
+    LIST_RECORD(glFogCoordd, {}, coord)
+    mglFogCoord(coord);
+}
+
+void glFogCoordfv(const GLfloat* coord) {
+    if (coord == nullptr) return;
+    glFogCoordf(coord[0]);
+}
+
+void glFogCoorddv(const GLdouble* coord) {
+    if (coord == nullptr) return;
+    glFogCoordd(coord[0]);
+}
+
 void glAlphaFunc(GLenum func, GLclampf ref) {
     flushPendingImmediateDraws();
     // LOG()

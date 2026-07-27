@@ -27,6 +27,15 @@ void mglNormal(std::array<Type, N> normal) {
     }
 }
 
+// glFogCoord* feeds attribute slot 5. It only reaches the shader when
+// glFogi(GL_FOG_COORD_SRC, GL_FOG_COORD) selects it as the fog distance.
+template <typename Type>
+void mglFogCoord(Type coord) {
+    auto& state = g_glstate.fpe_state.fpe_draw;
+    state.set_attribute_size(5, 1);
+    state.current_data.fog_coord = (GLfloat)coord;
+}
+
 template <typename Type, GLint N>
 void mglTexCoord(std::array<Type, N> uv, GLint texid) {
     auto& state = g_glstate.fpe_state.fpe_draw;

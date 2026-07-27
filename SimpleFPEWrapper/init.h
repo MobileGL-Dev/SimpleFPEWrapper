@@ -93,6 +93,10 @@ SFPEW_APIENTRY void glWindowPos3sv(const GLshort* v);
 
 SFPEW_APIENTRY void glSecondaryColorPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* pointer);
 SFPEW_APIENTRY void glFogCoordPointer(GLenum type, GLsizei stride, const GLvoid* pointer);
+SFPEW_APIENTRY void glFogCoordf(GLfloat coord);
+SFPEW_APIENTRY void glFogCoordd(GLdouble coord);
+SFPEW_APIENTRY void glFogCoordfv(const GLfloat* coord);
+SFPEW_APIENTRY void glFogCoorddv(const GLdouble* coord);
 SFPEW_APIENTRY GLboolean glIsEnabled(GLenum cap);
 SFPEW_APIENTRY void glGetBooleanv(GLenum pname, GLboolean* params);
 SFPEW_APIENTRY void glGetDoublev(GLenum pname, GLdouble* params);

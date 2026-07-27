@@ -712,6 +712,25 @@ SFPEW_APIENTRY __eglMustCastToProperFunctionPointerType eglGetProcAddress(const 
     if (std::strcmp("glFogCoordPointerEXT", name) == 0) {
         return (__eglMustCastToProperFunctionPointerType)glFogCoordPointer;
     }
+    // Immediate-mode fog coord (GL 1.4 core / EXT_fog_coord). Missing
+    // entirely before, so callers fell through to the backend's desktop
+    // symbol and hit GL_INVALID_OPERATION on a GLES context.
+    GETPROC(glFogCoordf, name)
+    GETPROC(glFogCoordd, name)
+    GETPROC(glFogCoordfv, name)
+    GETPROC(glFogCoorddv, name)
+    if (std::strcmp("glFogCoordfEXT", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glFogCoordf;
+    }
+    if (std::strcmp("glFogCoorddEXT", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glFogCoordd;
+    }
+    if (std::strcmp("glFogCoordfvEXT", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glFogCoordfv;
+    }
+    if (std::strcmp("glFogCoorddvEXT", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glFogCoorddv;
+    }
     GETPROC(glArrayElement, name)
     GETPROC(glEnableClientState, name)
     GETPROC(glDisableClientState, name)

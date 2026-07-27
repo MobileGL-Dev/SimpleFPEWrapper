@@ -1,6 +1,6 @@
 {
  "source": "lookup.cpp",
- "count": 451,
+ "count": 459,
  "entries": {
   "glAccum": {
    "status": "resolvable",
@@ -453,6 +453,38 @@
   "glFogCoordPointerEXT": {
    "status": "alias",
    "target": "glFogCoordPointer"
+  },
+  "glFogCoordd": {
+   "status": "resolvable",
+   "target": "glFogCoordd"
+  },
+  "glFogCoorddEXT": {
+   "status": "alias",
+   "target": "glFogCoordd"
+  },
+  "glFogCoorddv": {
+   "status": "resolvable",
+   "target": "glFogCoorddv"
+  },
+  "glFogCoorddvEXT": {
+   "status": "alias",
+   "target": "glFogCoorddv"
+  },
+  "glFogCoordf": {
+   "status": "resolvable",
+   "target": "glFogCoordf"
+  },
+  "glFogCoordfEXT": {
+   "status": "alias",
+   "target": "glFogCoordf"
+  },
+  "glFogCoordfv": {
+   "status": "resolvable",
+   "target": "glFogCoordfv"
+  },
+  "glFogCoordfvEXT": {
+   "status": "alias",
+   "target": "glFogCoordfv"
   },
   "glFogf": {
    "status": "resolvable",

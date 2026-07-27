@@ -170,6 +170,8 @@ struct fixed_function_draw_data_t {
     glm::vec4 vertex = {0, 0, 0, 1};
     glm::vec3 normal = {0, 0, 1};
     glm::vec4 color = {1, 1, 1, 1};
+    glm::vec4 secondary_color = {0, 0, 0, 1};
+    GLfloat fog_coord = 0.0f; // glFogCoord* (GL 1.4 / EXT_fog_coord)
     glm::vec4 texcoord[MAX_TEX];
 
     fixed_function_draw_size_t sizes;

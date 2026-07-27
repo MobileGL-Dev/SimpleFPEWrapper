@@ -25,6 +25,9 @@ GLenum sfpewLogicalActiveTexture();
 GLuint sfpewLogicalTextureBinding(GLenum target);
 GLint sfpewLogicalProgram();
 GLuint sfpewLogicalArrayBufferBinding();
+GLuint sfpewLogicalVertexArrayBinding();
+SFPEW_APIENTRY void glBindVertexArray(GLuint array);
+SFPEW_APIENTRY void glDeleteVertexArrays(GLsizei n, const GLuint* arrays);
 GLuint sfpewLogicalElementArrayBufferBinding();
 GLuint sfpewLogicalVAOBinding();
 // True when a pixel pack/unpack buffer is bound: CPU pixel conversions

@@ -279,6 +279,10 @@ SFPEW_APIENTRY __eglMustCastToProperFunctionPointerType eglGetProcAddress(const 
     GETPROC(glTexParameteriv, name)
     GETPROC(glTexSubImage2D, name)
     GETPROC(glBindBuffer, name)
+    // Wrapped so the fixed-function draw guard can restore the app's VAO
+    // from a shadow instead of querying the driver on every draw.
+    GETPROC(glBindVertexArray, name)
+    GETPROC(glDeleteVertexArrays, name)
     GETPROC(glDeleteBuffers, name)
     if (std::strcmp("glBindBufferARB", name) == 0) {
         return (__eglMustCastToProperFunctionPointerType)glBindBuffer;

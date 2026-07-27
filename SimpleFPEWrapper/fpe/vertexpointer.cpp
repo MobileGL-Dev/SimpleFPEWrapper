@@ -23,6 +23,27 @@ struct logical_array_buffer_state_t {
 
 thread_local logical_array_buffer_state_t logicalArrayBufferState;
 
+// The app's vertex array object, shadowed for the same reason as the array
+// buffer: every fixed-function draw has to put it back afterwards, and
+// asking the driver for it first turns a bookkeeping detail into a
+// synchronous query on the hot path.
+struct logical_vertex_array_state_t {
+    EGLContext context = EGL_NO_CONTEXT;
+    GLuint binding = 0;
+    bool known = false;
+};
+
+thread_local logical_vertex_array_state_t logicalVertexArrayState;
+
+logical_vertex_array_state_t& getLogicalVertexArrayState() {
+    const EGLContext context = sfpewCurrentContext();
+    if (logicalVertexArrayState.context != context) {
+        logicalVertexArrayState = {};
+        logicalVertexArrayState.context = context;
+    }
+    return logicalVertexArrayState;
+}
+
 logical_array_buffer_state_t& getLogicalArrayBufferState() {
     const EGLContext context =
         sfpewCurrentContext();
@@ -40,6 +61,24 @@ GLuint getLogicalArrayBufferBinding() {
     if (!sfpewEnsureBackend() || g_glFuncs.glGetIntegerv == nullptr) return 0;
     GLint binding = 0;
     g_glFuncs.glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &binding);
+    state.binding = static_cast<GLuint>(binding);
+    state.known = true;
+    return state.binding;
+}
+
+GLuint getLogicalVertexArrayBinding() {
+    auto& state = getLogicalVertexArrayState();
+    // Callers that bypass the glBindVertexArray wrapper (JNI direct
+    // dispatch, layered wrappers) would desynchronize this shadow forever,
+    // so the truth is re-read every 256 queries - one glGetIntegerv per
+    // ~256 draws keeps it self-healing (plans/07).
+    thread_local unsigned reconcile_counter = 0;
+    if (state.known && ++reconcile_counter < 256u) return state.binding;
+    reconcile_counter = 0;
+
+    if (!sfpewEnsureBackend() || g_glFuncs.glGetIntegerv == nullptr) return state.binding;
+    GLint binding = 0;
+    g_glFuncs.glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &binding);
     state.binding = static_cast<GLuint>(binding);
     state.known = true;
     return state.binding;
@@ -80,6 +119,36 @@ void glDeleteBuffers(GLsizei n, const GLuint* buffers) {
 }
 
 GLuint sfpewLogicalArrayBufferBinding() { return getLogicalArrayBufferBinding(); }
+
+GLuint sfpewLogicalVertexArrayBinding() { return getLogicalVertexArrayBinding(); }
+
+// Wrapped only to keep the shadow above current; the call itself is a
+// straight pass-through.
+void glBindVertexArray(GLuint array) {
+    if (!sfpewEnsureBackend() || g_glFuncs.glBindVertexArray == nullptr) return;
+    flushPendingImmediateDraws();
+    g_glFuncs.glBindVertexArray(array);
+    auto& state = getLogicalVertexArrayState();
+    state.binding = array;
+    state.known = true;
+}
+
+void glDeleteVertexArrays(GLsizei n, const GLuint* arrays) {
+    if (!sfpewEnsureBackend() || g_glFuncs.glDeleteVertexArrays == nullptr) return;
+    flushPendingImmediateDraws();
+    g_glFuncs.glDeleteVertexArrays(n, arrays);
+    if (n <= 0 || arrays == nullptr) return;
+
+    // Deleting the bound VAO reverts the binding to zero.
+    auto& state = getLogicalVertexArrayState();
+    if (!state.known) return;
+    for (GLsizei i = 0; i < n; ++i) {
+        if (arrays[i] == state.binding) {
+            state.binding = 0;
+            break;
+        }
+    }
+}
 
 GLuint getClientArrayBufferBinding(int index) {
     if (index < 0 || index >= VERTEX_POINTER_COUNT) return 0;

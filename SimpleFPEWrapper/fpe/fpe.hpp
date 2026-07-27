@@ -84,19 +84,27 @@ struct fpe_backend_draw_state_guard_t {
             program = known_program;
         else
             g_glFuncs.glGetIntegerv(GL_CURRENT_PROGRAM, &program);
-        g_glFuncs.glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &vertex_array);
+        // Every value comes from a shadow: a synchronous glGetIntegerv per
+        // draw was a measurable share of the fixed per-draw cost, and it
+        // bought nothing the wrapper does not already track.
+        vertex_array = static_cast<GLint>(sfpewLogicalVertexArrayBinding());
         if (known_array_buffer >= 0)
             array_buffer = known_array_buffer;
         else
             g_glFuncs.glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &array_buffer);
-        g_glFuncs.glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &element_array_buffer);
+        // The element array buffer binding is VAO state, so restoring a
+        // non-zero VAO restores it as well. Only the default VAO keeps it
+        // in context state, where it has to be put back by hand.
+        if (vertex_array == 0)
+            g_glFuncs.glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &element_array_buffer);
     }
 
     ~fpe_backend_draw_state_guard_t() {
         if (!active) return;
         g_glFuncs.glUseProgram(program);
         g_glFuncs.glBindVertexArray(vertex_array);
-        g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, element_array_buffer);
+        if (vertex_array == 0)
+            g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, element_array_buffer);
         g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, array_buffer);
     }
 

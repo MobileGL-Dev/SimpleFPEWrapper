@@ -1,6 +1,6 @@
 {
  "source": "lookup.cpp",
- "count": 459,
+ "count": 461,
  "entries": {
   "glAccum": {
    "status": "resolvable",
@@ -53,6 +53,10 @@
   "glBindTexture": {
    "status": "resolvable",
    "target": "glBindTexture"
+  },
+  "glBindVertexArray": {
+   "status": "resolvable",
+   "target": "glBindVertexArray"
   },
   "glBitmap": {
    "status": "resolvable",
@@ -317,6 +321,10 @@
   "glDeleteTextures": {
    "status": "resolvable",
    "target": "glDeleteTextures"
+  },
+  "glDeleteVertexArrays": {
+   "status": "resolvable",
+   "target": "glDeleteVertexArrays"
   },
   "glDepthFunc": {
    "status": "resolvable",

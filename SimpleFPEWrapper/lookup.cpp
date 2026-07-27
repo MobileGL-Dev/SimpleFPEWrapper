@@ -46,6 +46,21 @@ SFPEW_APIENTRY __eglMustCastToProperFunctionPointerType eglGetProcAddress(const 
     GETPROC(glGetTexGendv, name)
     GETPROC(glDrawArrays, name)
     GETPROC(glDrawElements, name)
+    // GL 1.2/1.4 core draw entry points. Passing these through raw skipped
+    // legacy-mode conversion, fixed-function array wiring and the emulated
+    // alpha-test uniforms.
+    GETPROC(glDrawRangeElements, name)
+    GETPROC(glMultiDrawArrays, name)
+    GETPROC(glMultiDrawElements, name)
+    if (std::strcmp("glDrawRangeElementsEXT", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glDrawRangeElements;
+    }
+    if (std::strcmp("glMultiDrawArraysEXT", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glMultiDrawArrays;
+    }
+    if (std::strcmp("glMultiDrawElementsEXT", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glMultiDrawElements;
+    }
     GETPROC(glClear, name)
     GETPROC(glReadPixels, name)
     GETPROC(glFlush, name)
@@ -212,6 +227,27 @@ SFPEW_APIENTRY __eglMustCastToProperFunctionPointerType eglGetProcAddress(const 
     GETPROC(glBlendEquationSeparate, name)
     GETPROC(glBlendFunc, name)
     GETPROC(glBlendFuncSeparate, name)
+    // The blend extensions the wrapper advertises resolve by their EXT/ARB
+    // spellings too: LWJGL only enables GL_EXT_blend_func_separate &c. when
+    // every function of the extension resolves, and legacy Minecraft calls
+    // glBlendFuncSeparateEXT on that path (translucent foliage/water).
+    // These map to the wrapper's own entry points so display-list recording
+    // and state tracking stay intact.
+    if (std::strcmp("glBlendFuncSeparateEXT", name) == 0 ||
+        std::strcmp("glBlendFuncSeparateARB", name) == 0 ||
+        std::strcmp("glBlendFuncSeparateINGR", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glBlendFuncSeparate;
+    }
+    if (std::strcmp("glBlendEquationEXT", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glBlendEquation;
+    }
+    if (std::strcmp("glBlendEquationSeparateEXT", name) == 0 ||
+        std::strcmp("glBlendEquationSeparateATI", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glBlendEquationSeparate;
+    }
+    if (std::strcmp("glBlendColorEXT", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)glBlendColor;
+    }
     GETPROC(glDepthFunc, name)
     GETPROC(glDepthMask, name)
     GETPROC(glColorMask, name)

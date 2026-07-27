@@ -44,10 +44,15 @@ struct evaluator_state_t {
 // Process-global would leak across contexts; follow the per-context cache
 // pattern used elsewhere.
 evaluator_state_t& evalState() {
-    static thread_local struct {
+    struct cache_t {
         EGLContext context = (EGLContext)(intptr_t)-1;
         evaluator_state_t state{};
-    } cache;
+    };
+    // Heap-backed: keeps the module's TLS block inside glibc's static-TLS
+    // surplus so tls_model initial-exec stays usable (plans/12).
+    static thread_local std::unique_ptr<cache_t> storage;
+    if (storage == nullptr) storage = std::make_unique<cache_t>();
+    cache_t& cache = *storage;
     // Reconciles against the calling entry's strict-resolve snapshot so the
     // evaluator cache and the vertex sink always agree on one context
     // (docs/context-model.md); evaluator entries anchor explicitly.

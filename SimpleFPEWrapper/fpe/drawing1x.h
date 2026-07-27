@@ -35,6 +35,21 @@ inline void sfpewEntryBarrier() {
     sfpewFlushDeferredDrawState();
 }
 
+// For entry points that CANNOT observe the program, VAO or buffer bindings -
+// texture state being the case that matters in practice. The pending batch
+// still has to drain, because it was collected under the state this call is
+// about to change; but handing the app back bindings it cannot look at only
+// forces the next fixed-function draw to re-establish ours. A texture switch
+// between draws paid a full save/restore cycle for nothing (plans/12).
+//
+// The bar for using this instead of sfpewEntryBarrier is high: the entry must
+// neither read nor write GL_CURRENT_PROGRAM, GL_VERTEX_ARRAY_BINDING,
+// GL_ARRAY_BUFFER_BINDING or GL_ELEMENT_ARRAY_BUFFER_BINDING, and must not
+// hand control to anything that could. When in doubt use the full barrier: the
+// cost of an unnecessary restore is speed, the cost of a missing one is the app
+// drawing with the wrapper's state.
+inline void sfpewTextureStateBarrier() { flushPendingImmediateDraws(); }
+
 // Stream-upload into the persistent-coherent immediate ring (GL_ARRAY_BUFFER
 // must already be bound to fpe_immediate_vbo). Returns the byte offset of the
 // uploaded range inside the ring (0 on the glBufferData fallback). Shared by

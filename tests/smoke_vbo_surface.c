@@ -39,6 +39,8 @@ typedef unsigned int GLbitfield;
 typedef long GLsizeiptr, GLintptr;
 
 #define GL_ARRAY_BUFFER 0x8892
+#define GL_TEXTURE_2D 0x0DE1
+#define GL_TEXTURE0 0x84C0
 #define GL_STATIC_DRAW 0x88E4
 #define GL_BUFFER_SIZE 0x8764
 #define GL_MAP_READ_BIT 0x0001
@@ -97,6 +99,8 @@ static void (*fColor4f)(GLfloat, GLfloat, GLfloat, GLfloat);
 static void (*fVertex2f)(GLfloat, GLfloat);
 static void (*fReadPixels)(GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, void*);
 static GLenum (*fGetError)(void);
+static void (*fBindTexture)(GLenum, GLuint);
+static void (*fActiveTexture)(GLenum);
 
 // Draws whatever is in the bound array buffer, tinted by a uniform-free
 // constant so the colour identifies which path produced the pixel.
@@ -165,6 +169,25 @@ static const GLfloat kQuad[] = {
     1.0f,  1.0f,  0.0f, 1.0f, 0.0f, -1.0f, -1.0f, 0.0f, 1.0f, 0.0f,
     1.0f,  1.0f,  0.0f, 1.0f, 0.0f, -1.0f, 1.0f,  0.0f, 1.0f, 0.0f,
 };
+
+// A fixed-function immediate run long enough that the small-run merger declines
+// it, so it draws at glEnd and leaves the wrapper's program/VAO/buffers live.
+// A 4-vertex run would instead sit pending until the next barrier, and that
+// barrier restores right after flushing - which is exactly the window the C2/C3
+// checks below need to exist in order to police it.
+static void fpeDrawUnmerged(void) {
+    fBegin(GL_QUADS);
+    fColor4f(1.0f, 0.0f, 0.0f, 1.0f);
+    for (int i = 0; i < 20; ++i) { // 80 vertices, past the 64-vertex merge limit
+        const GLfloat y0 = -0.5f + (GLfloat)i * 0.05f;
+        const GLfloat y1 = y0 + 0.05f;
+        fVertex2f(-0.5f, y0);
+        fVertex2f(0.5f, y0);
+        fVertex2f(0.5f, y1);
+        fVertex2f(-0.5f, y1);
+    }
+    fEnd();
+}
 
 static int drawVbo(GLuint prog, GLuint vbo, GLint locPos, GLint locColor, const char* tag, int r,
                    int g, int b) {
@@ -263,18 +286,42 @@ static int run(void) {
     fEnableVertexAttribArray((GLuint)locPos);
     fEnableVertexAttribArray((GLuint)locColor);
 
-    fBegin(GL_QUADS); // wrapper binds its own program / VAO / ring buffer here
-    fColor4f(1.0f, 0.0f, 0.0f, 1.0f);
-    fVertex2f(-0.5f, -0.5f);
-    fVertex2f(0.5f, -0.5f);
-    fVertex2f(0.5f, 0.5f);
-    fVertex2f(-0.5f, 0.5f);
-    fEnd();
+    fpeDrawUnmerged(); // wrapper binds its own program / VAO / ring buffer here
 
     fClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     fClear(GL_COLOR_BUFFER_BIT);
     fDrawArrays(GL_TRIANGLES, 0, 6); // no re-bind: relies on the state above
     if (!checkCenter("C2: pre-FPE program/buffer/attribute state survived glEnd", 0, 255, 0))
+        return 1;
+
+    // C3: same as C2, but a texture bind sits between the fixed-function draw
+    // and the app's draw. glBindTexture deliberately does NOT hand the app's
+    // program/VAO/buffers back (it cannot observe them, and restoring there
+    // cost a full save/restore cycle per texture switch - plans/12), so the
+    // wrapper's state stays live across it. glDrawArrays' own barrier is then
+    // the only thing standing between that and the app drawing with the
+    // wrapper's program.
+    fUseProgram(prog);
+    fBindBuffer(GL_ARRAY_BUFFER, vbo);
+    fVertexAttribPointer((GLuint)locPos, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(GLfloat), (void*)0);
+    fVertexAttribPointer((GLuint)locColor, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(GLfloat),
+                         (void*)(2 * sizeof(GLfloat)));
+    fEnableVertexAttribArray((GLuint)locPos);
+    fEnableVertexAttribArray((GLuint)locColor);
+
+    // The clear goes BEFORE the fixed-function draw on purpose: glClearColor
+    // and glClear both fire the full barrier, so placing them after the texture
+    // bind would restore the app's state and this check could never fail.
+    // glDrawArrays' own barrier is then the only restore left in the sequence.
+    fClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    fClear(GL_COLOR_BUFFER_BIT);
+
+    fpeDrawUnmerged();
+    fBindTexture(GL_TEXTURE_2D, 0); // the narrowed barrier: deliberately no restore
+    fActiveTexture(GL_TEXTURE0);
+
+    fDrawArrays(GL_TRIANGLES, 0, 6); // still no re-bind
+    if (!checkCenter("C3: app state survived an FPE draw followed by a texture bind", 0, 255, 0))
         return 1;
 
     // D: glBufferSubData through the wrapper repaints the quad blue, proving
@@ -369,5 +416,7 @@ int main(void) {
     R(fVertex2f, "glVertex2f");
     R(fReadPixels, "glReadPixels");
     R(fGetError, "glGetError");
+    R(fBindTexture, "glBindTexture");
+    R(fActiveTexture, "glActiveTexture");
     return run();
 }

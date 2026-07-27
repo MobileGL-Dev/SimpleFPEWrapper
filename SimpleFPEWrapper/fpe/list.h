@@ -435,7 +435,15 @@ public:
             const GLCmd* command = nullptr;
         };
         constexpr size_t kCacheSize = 256;
-        thread_local std::array<cache_entry_t, kCacheSize> cache;
+        // Heap-backed rather than a thread_local array: the module's whole TLS
+        // block has to fit glibc's static-TLS surplus for tls_model
+        // initial-exec to be usable, and this cache alone was 6144 of the 9216
+        // bytes. One pointer load and a null check replace what would otherwise
+        // be a __tls_get_addr call per access (plans/12).
+        using cache_t = std::array<cache_entry_t, kCacheSize>;
+        thread_local std::unique_ptr<cache_t> cacheStorage;
+        if (cacheStorage == nullptr) cacheStorage = std::make_unique<cache_t>();
+        cache_t& cache = *cacheStorage;
 
         const uint64_t currentGeneration = mutationGeneration;
         auto& entry = cache[(static_cast<size_t>(listID) * 2654435761u) & (kCacheSize - 1u)];

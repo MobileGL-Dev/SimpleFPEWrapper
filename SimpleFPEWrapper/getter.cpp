@@ -1032,7 +1032,7 @@ void glActiveTexture(GLenum texture) {
     auto& state = getLogicalTextureBindings();
     if (getLogicalActiveTexture(state) == texture) return;
 
-    sfpewEntryBarrier();
+    sfpewTextureStateBarrier();
     g_glFuncs.glActiveTexture(texture);
     state.activeTexture = texture;
     state.activeTextureKnown = true;
@@ -1052,7 +1052,7 @@ void glBindTexture(GLenum target, GLuint texture) {
         if (sfpewLogicalTextureBinding(target) == texture) return;
     }
 
-    sfpewEntryBarrier();
+    sfpewTextureStateBarrier();
     g_glFuncs.glBindTexture(target, texture);
     if (query != GL_NONE) state.bindings[key] = texture;
 }

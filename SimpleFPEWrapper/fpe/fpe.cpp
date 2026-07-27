@@ -42,7 +42,9 @@ EGLContext sfpewCurrentContext() {
         // the logical shadows use (plans/07). One libEGL query per ~256 GL
         // calls keeps the fast path essentially free while bounding how long
         // a bypassed switch can go unnoticed.
-        thread_local unsigned reconcile_counter = 0;
+        // Read on every strict resolve, so it gets the same initial-exec
+        // treatment as the snapshot pair below (4 more bytes).
+        thread_local __attribute__((tls_model("initial-exec"))) unsigned reconcile_counter = 0;
         if (++reconcile_counter < 256u) return g_authoritative_context;
         reconcile_counter = 0;
         if (g_eglFuncs.eglGetCurrentContext != nullptr)
@@ -55,8 +57,16 @@ EGLContext sfpewCurrentContext() {
 namespace {
 // Thread-local snapshot of the last strict resolve. Shared by
 // get_instance() / current() / current_vertex_data() / cached_context().
-thread_local EGLContext tls_snapshot_context = (EGLContext)(intptr_t)-1;
-thread_local glstate_t* tls_snapshot_state = nullptr;
+// initial-exec, deliberately only here. Every exported entry point reads these
+// two, and the general-dynamic model costs a _dl_tlsdesc_dynamic_xsave call per
+// access (measured at ~4% of a draw loop; matrixops 116 -> 79 ns/group when the
+// whole module used initial-exec). The model is NOT applied module-wide: that
+// would claim ~1.1 KB of glibc's ~1.6 KB static-TLS surplus process-wide, and a
+// host that has already spent it could then fail to dlopen this library at all.
+// Sixteen bytes is a rounding error against that budget.
+#define SFPEW_TLS_HOT __attribute__((tls_model("initial-exec")))
+thread_local SFPEW_TLS_HOT EGLContext tls_snapshot_context = (EGLContext)(intptr_t)-1;
+thread_local SFPEW_TLS_HOT glstate_t* tls_snapshot_state = nullptr;
 
 // SFPEW_RELAXED_CONTEXT=1: the app promises each thread uses at most one
 // EGL context for the process lifetime (true for Minecraft-era launchers).

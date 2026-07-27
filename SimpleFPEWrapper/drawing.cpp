@@ -1085,7 +1085,12 @@ bool tryExecuteCapturedDisplayLists(const GLuint* listIds, size_t listCount) {
         return false;
     }
 
-    thread_local captured_display_list_batch_cache_t cache;
+    // Heap-backed: keeps the module's TLS block inside glibc's static-TLS
+    // surplus so tls_model initial-exec stays usable (plans/12).
+    thread_local std::unique_ptr<captured_display_list_batch_cache_t> cacheStorage;
+    if (cacheStorage == nullptr)
+        cacheStorage = std::make_unique<captured_display_list_batch_cache_t>();
+    captured_display_list_batch_cache_t& cache = *cacheStorage;
     const uint64_t listGeneration = DisplayListManager::generation();
     if (cache.generation != listGeneration) {
         cache.generation = listGeneration;

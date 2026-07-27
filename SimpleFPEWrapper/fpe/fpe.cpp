@@ -7,20 +7,23 @@
 // End of Source File Header
 
 #include "fpe.hpp"
+#include "drawing1x.h"
 #include <memory>
 #include <mutex>
 #include <glm/gtc/type_ptr.hpp>
 #include <limits>
 #include <cstring>
+#include <cstdlib>
 #include <vector>
+#include <algorithm>
 
 #define DEBUG 0
 
 // Set by the wrapper's own eglMakeCurrent when the app routes EGL through
-// us. From then on this thread's current context is known exactly and the
-// hot path needs no EGL call at all - the difference between one plain
-// pointer read and one libEGL entry per GL call, which on some loaders
-// (Mesa's CheckFork) costs a getpid() syscall each time.
+// us. From then on this thread's current context is known exactly and even
+// the strict resolve needs no EGL call at all - the difference between one
+// plain pointer read and one libEGL entry per entry point, which on glvnd
+// costs ~425ns (getpid fork check + dispatch mutex).
 namespace {
 thread_local EGLContext g_authoritative_context = EGL_NO_CONTEXT;
 thread_local bool g_authoritative_context_known = false;
@@ -49,12 +52,35 @@ EGLContext sfpewCurrentContext() {
     return g_eglFuncs.eglGetCurrentContext ? g_eglFuncs.eglGetCurrentContext() : EGL_NO_CONTEXT;
 }
 
+namespace {
+// Thread-local snapshot of the last strict resolve. Shared by
+// get_instance() / current() / current_vertex_data() / cached_context().
+thread_local EGLContext tls_snapshot_context = (EGLContext)(intptr_t)-1;
+thread_local glstate_t* tls_snapshot_state = nullptr;
+
+// SFPEW_RELAXED_CONTEXT=1: the app promises each thread uses at most one
+// EGL context for the process lifetime (true for Minecraft-era launchers).
+// Strict resolves then trust the snapshot after a thread's first resolve,
+// removing the per-entry eglGetCurrentContext - which costs ~425ns per call
+// on glvnd desktops (getpid fork check + dispatch mutex). Default: off,
+// full lazy reconciliation per docs/context-model.md.
+bool sfpew_relaxed_context() {
+    static const bool relaxed = [] {
+        const char* value = getenv("SFPEW_RELAXED_CONTEXT");
+        return value != nullptr && value[0] != '\0' && value[0] != '0';
+    }();
+    return relaxed;
+}
+} // namespace
+
 glstate_t& glstate_t::get_instance() {
-    // Per-EGL-context FPE state (plans/07). When the app calls
-    // eglMakeCurrent through the wrapper the current context is tracked
-    // exactly; otherwise it is resolved lazily on access with a
-    // thread-local one-entry cache, the same reconciliation pattern the
-    // logical shadows use.
+    // Per-EGL-context FPE state (plans/07). The current context is resolved
+    // lazily with a thread-local snapshot: this strict resolve runs once per
+    // exported entry point and everything downstream uses current()
+    // (docs/context-model.md). The resolve itself goes through
+    // sfpewCurrentContext(), so an app that routes eglMakeCurrent through the
+    // wrapper pays a TLS read rather than the ~425ns glvnd
+    // eglGetCurrentContext (getpid fork check + dispatch mutex).
     //
     // Known limits (documented in plans/07): contexts cannot be observed
     // being destroyed, so their CPU-side state objects persist for the
@@ -65,11 +91,25 @@ glstate_t& glstate_t::get_instance() {
     static std::mutex instances_mutex;
     static glstate_t no_context_state; // keeps backend-less calls crash-free
 
-    thread_local EGLContext cached_context = (EGLContext)(intptr_t)-1;
-    thread_local glstate_t* cached_state = nullptr;
+    if (sfpew_relaxed_context() && tls_snapshot_state != nullptr &&
+        tls_snapshot_context != EGL_NO_CONTEXT) {
+        return *tls_snapshot_state;
+    }
 
     const EGLContext context = sfpewCurrentContext();
-    if (context == cached_context && cached_state != nullptr) return *cached_state;
+
+    if (context == tls_snapshot_context && tls_snapshot_state != nullptr)
+        return *tls_snapshot_state;
+
+    // The thread switched contexts. If the outgoing snapshot still holds an
+    // open Begin/End batch, that batch was abandoned mid-collection: clear it
+    // here so the vertex-data pin cannot route later calls (made on other
+    // contexts) into the stale batch. This runs only on actual switches and
+    // implements the documented drop-the-batch semantics (context-model.md).
+    if (tls_snapshot_state != nullptr && tls_snapshot_context != EGL_NO_CONTEXT &&
+        tls_snapshot_state->fpe_state.fpe_draw.primitive != GL_NONE) {
+        tls_snapshot_state->fpe_state.fpe_draw.reset();
+    }
 
     glstate_t* state = &no_context_state;
     if (context != EGL_NO_CONTEXT) {
@@ -78,9 +118,32 @@ glstate_t& glstate_t::get_instance() {
         if (!slot) slot = std::make_unique<glstate_t>();
         state = slot.get();
     }
-    cached_context = context;
-    cached_state = state;
+    tls_snapshot_context = context;
+    tls_snapshot_state = state;
     return *state;
+}
+
+glstate_t& glstate_t::current() {
+    if (tls_snapshot_state != nullptr) return *tls_snapshot_state;
+    return get_instance();
+}
+
+glstate_t& glstate_t::current_vertex_data() {
+    // Pin only to a real context: a Begin issued with no current context
+    // lands on no_context_state, and vertices arriving after the app then
+    // makes a context current must resolve strictly (and be dropped by the
+    // primitive==GL_NONE guard) exactly like the pre-snapshot behavior.
+    glstate_t* state = tls_snapshot_state;
+    if (state != nullptr && state->fpe_state.fpe_draw.primitive != GL_NONE &&
+        tls_snapshot_context != EGL_NO_CONTEXT) {
+        return *state;
+    }
+    return get_instance();
+}
+
+void* glstate_t::cached_context() {
+    if (tls_snapshot_state == nullptr) get_instance();
+    return tls_snapshot_context;
 }
 
 GLsizei type_size(GLenum type) {
@@ -106,7 +169,7 @@ GLsizei type_size(GLenum type) {
 }
 
 bool prepare_quad_indices(GLsizei n, GLuint first) {
-    auto& state = g_glstate.fpe_state;
+    auto& state = g_glstate_c.fpe_state;
     const size_t num_quads = n > 0 ? static_cast<size_t>(n) / 4u : 0u;
     const uint64_t max_index = num_quads == 0
                                    ? static_cast<uint64_t>(first)
@@ -155,20 +218,20 @@ bool prepare_quad_indices(GLsizei n, GLuint first) {
 }
 
 const void* quad_index_data() {
-    const auto& state = g_glstate.fpe_state;
+    const auto& state = g_glstate_c.fpe_state;
     return state.fpe_ib_type == GL_UNSIGNED_SHORT
                ? static_cast<const void*>(state.fpe_ib16.data())
                : static_cast<const void*>(state.fpe_ib.data());
 }
 
 size_t quad_index_size_bytes() {
-    const auto& state = g_glstate.fpe_state;
+    const auto& state = g_glstate_c.fpe_state;
     return state.fpe_ib_type == GL_UNSIGNED_SHORT ? state.fpe_ib16.size() * sizeof(uint16_t)
                                                   : state.fpe_ib.size() * sizeof(uint32_t);
 }
 
 GLenum quad_index_type() {
-    return g_glstate.fpe_state.fpe_ib_type;
+    return g_glstate_c.fpe_state.fpe_ib_type;
 }
 
 #if DEBUG || GLOBAL_DEBUG
@@ -199,7 +262,7 @@ void log_vtx_attrib_data(const void* ptr, GLenum type, int size, int stride, int
 int init_fpe() {
     // LOG_I("Initializing fixed-function pipeline...")
 
-    if (g_glstate.fpe_ready) return 0;
+    if (g_glstate_c.fpe_ready) return 0;
 
     if (g_eglFuncs.eglGetCurrentContext == nullptr || g_eglFuncs.eglGetCurrentContext() == EGL_NO_CONTEXT) {
         return -1;
@@ -214,45 +277,45 @@ int init_fpe() {
         return -1;
     }
 
-    g_glFuncs.glGenVertexArrays(1, &g_glstate.fpe_state.fpe_vao);
+    g_glFuncs.glGenVertexArrays(1, &g_glstate_c.fpe_state.fpe_vao);
 
-    g_glFuncs.glGenBuffers(1, &g_glstate.fpe_state.fpe_vbo);
+    g_glFuncs.glGenBuffers(1, &g_glstate_c.fpe_state.fpe_vbo);
 
-    g_glFuncs.glGenBuffers(1, &g_glstate.fpe_state.fpe_immediate_vbo);
-    g_glstate.fpe_state.fpe_immediate_vbo_capacity = 0;
-    g_glstate.fpe_state.fpe_immediate_vbo_offset = 0;
-    g_glstate.fpe_state.fpe_immediate_vbo_map = nullptr;
-    g_glstate.fpe_state.fpe_immediate_vbo_persistent_attempted = false;
+    g_glFuncs.glGenBuffers(1, &g_glstate_c.fpe_state.fpe_immediate_vbo);
+    g_glstate_c.fpe_state.fpe_immediate_vbo_capacity = 0;
+    g_glstate_c.fpe_state.fpe_immediate_vbo_offset = 0;
+    g_glstate_c.fpe_state.fpe_immediate_vbo_map = nullptr;
+    g_glstate_c.fpe_state.fpe_immediate_vbo_persistent_attempted = false;
 
-    g_glFuncs.glGenBuffers(1, &g_glstate.fpe_state.fpe_ibo);
+    g_glFuncs.glGenBuffers(1, &g_glstate_c.fpe_state.fpe_ibo);
 
-    // LOG_D("fpe_vao: %d", g_glstate.fpe_state.fpe_vao)
-    // LOG_D("fpe_vbo: %d", g_glstate.fpe_state.fpe_vbo)
-    // LOG_D("fpe_ibo: %d", g_glstate.fpe_state.fpe_ibo)
+    // LOG_D("fpe_vao: %d", g_glstate_c.fpe_state.fpe_vao)
+    // LOG_D("fpe_vbo: %d", g_glstate_c.fpe_state.fpe_vbo)
+    // LOG_D("fpe_ibo: %d", g_glstate_c.fpe_state.fpe_ibo)
 
-    if (g_glstate.fpe_state.fpe_vao == 0 || g_glstate.fpe_state.fpe_vbo == 0 ||
-        g_glstate.fpe_state.fpe_immediate_vbo == 0 ||
-        g_glstate.fpe_state.fpe_ibo == 0) {
-        if (g_glstate.fpe_state.fpe_vao != 0)
-            g_glFuncs.glDeleteVertexArrays(1, &g_glstate.fpe_state.fpe_vao);
-        if (g_glstate.fpe_state.fpe_vbo != 0)
-            g_glFuncs.glDeleteBuffers(1, &g_glstate.fpe_state.fpe_vbo);
-        if (g_glstate.fpe_state.fpe_immediate_vbo != 0)
-            g_glFuncs.glDeleteBuffers(1, &g_glstate.fpe_state.fpe_immediate_vbo);
-        if (g_glstate.fpe_state.fpe_ibo != 0)
-            g_glFuncs.glDeleteBuffers(1, &g_glstate.fpe_state.fpe_ibo);
-        g_glstate.fpe_state.fpe_vao = 0;
-        g_glstate.fpe_state.fpe_vbo = 0;
-        g_glstate.fpe_state.fpe_immediate_vbo = 0;
-        g_glstate.fpe_state.fpe_immediate_vbo_capacity = 0;
-        g_glstate.fpe_state.fpe_immediate_vbo_offset = 0;
-        g_glstate.fpe_state.fpe_immediate_vbo_map = nullptr;
-        g_glstate.fpe_state.fpe_immediate_vbo_persistent_attempted = false;
-        g_glstate.fpe_state.fpe_ibo = 0;
+    if (g_glstate_c.fpe_state.fpe_vao == 0 || g_glstate_c.fpe_state.fpe_vbo == 0 ||
+        g_glstate_c.fpe_state.fpe_immediate_vbo == 0 ||
+        g_glstate_c.fpe_state.fpe_ibo == 0) {
+        if (g_glstate_c.fpe_state.fpe_vao != 0)
+            g_glFuncs.glDeleteVertexArrays(1, &g_glstate_c.fpe_state.fpe_vao);
+        if (g_glstate_c.fpe_state.fpe_vbo != 0)
+            g_glFuncs.glDeleteBuffers(1, &g_glstate_c.fpe_state.fpe_vbo);
+        if (g_glstate_c.fpe_state.fpe_immediate_vbo != 0)
+            g_glFuncs.glDeleteBuffers(1, &g_glstate_c.fpe_state.fpe_immediate_vbo);
+        if (g_glstate_c.fpe_state.fpe_ibo != 0)
+            g_glFuncs.glDeleteBuffers(1, &g_glstate_c.fpe_state.fpe_ibo);
+        g_glstate_c.fpe_state.fpe_vao = 0;
+        g_glstate_c.fpe_state.fpe_vbo = 0;
+        g_glstate_c.fpe_state.fpe_immediate_vbo = 0;
+        g_glstate_c.fpe_state.fpe_immediate_vbo_capacity = 0;
+        g_glstate_c.fpe_state.fpe_immediate_vbo_offset = 0;
+        g_glstate_c.fpe_state.fpe_immediate_vbo_map = nullptr;
+        g_glstate_c.fpe_state.fpe_immediate_vbo_persistent_attempted = false;
+        g_glstate_c.fpe_state.fpe_ibo = 0;
         return -1;
     }
 
-    g_glstate.fpe_ready = true;
+    g_glstate_c.fpe_ready = true;
     return 0;
 }
 
@@ -267,6 +330,10 @@ bool gather_client_arrays(const vertex_pointer_array_t& raw, GLint first, GLsize
     int enabled_count = 0;
     size_t element_bytes[VERTEX_POINTER_COUNT] = {};
     size_t total_stride = 0;
+    GLsizei shared_stride = -1;
+    bool all_explicit_stride = true;
+    uintptr_t window_begin = UINTPTR_MAX;
+    uintptr_t window_end = 0;
     for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
         if (!((raw.enabled_pointers >> i) & 1u)) continue;
         const auto& attr = raw.attributes[i];
@@ -275,8 +342,26 @@ bool gather_client_arrays(const vertex_pointer_array_t& raw, GLint first, GLsize
         ++enabled_count;
         element_bytes[i] = (size_t)attr.size * (size_t)type_size(attr.type);
         total_stride += element_bytes[i];
+        if (attr.stride == 0) all_explicit_stride = false;
+        const GLsizei effective_stride =
+            attr.stride != 0 ? attr.stride : (GLsizei)element_bytes[i];
+        if (shared_stride < 0) shared_stride = effective_stride;
+        else if (effective_stride != shared_stride) shared_stride = 0;
+        const auto ptr = reinterpret_cast<uintptr_t>(attr.pointer);
+        window_begin = std::min(window_begin, ptr);
+        window_end = std::max(window_end, ptr + element_bytes[i]);
     }
     if (enabled_count < 2 || total_stride == 0) return false;
+
+    // Already-interleaved layout (the Minecraft chunk shape): every enabled
+    // attribute declares the SAME explicit stride and lives inside a single
+    // stride window, so normalize()'s single-block zero-copy path covers it.
+    // Tight (stride 0) arrays stay on the gather - normalize's rebase logic
+    // does not handle aliased or adjacent tight arrays.
+    if (all_explicit_stride && shared_stride > 0 &&
+        window_end - window_begin <= (uintptr_t)shared_stride) {
+        return false;
+    }
 
     static thread_local std::vector<uint8_t> gathered;
     const size_t total_size = (size_t)count * total_stride;
@@ -308,120 +393,104 @@ bool gather_client_arrays(const vertex_pointer_array_t& raw, GLint first, GLsize
 int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint previous_array_buffer) {
     // LOG()
 
-    if (!g_glstate.fpe_ready) {
+    if (!g_glstate_c.fpe_ready) {
         if (init_fpe() != 0) return -1;
     }
 
     // Need to generate_compressed_index first (shadergen will use that)
-    auto& raw_vpa = g_glstate.fpe_state.vertexpointer_array;
-    auto& vpa = g_glstate.fpe_state.normalized_vpa;
+    auto& raw_vpa = g_glstate_c.fpe_state.vertexpointer_array;
+    auto& vpa = g_glstate_c.fpe_state.normalized_vpa;
     if (gather_client_arrays(raw_vpa, *first, *count, &vpa)) {
         *first = 0; // the gather already applied the base offset
     } else {
         vpa = raw_vpa.normalize();
     }
-    vpa.generate_compressed_index(g_glstate.fpe_state.fpe_draw.current_data.sizes.data);
+    vpa.generate_compressed_index(g_glstate_c.fpe_state.fpe_draw.current_data.sizes.data);
     // kinda cursed...
-    raw_vpa.generate_compressed_index(g_glstate.fpe_state.fpe_draw.current_data.sizes.data);
+    raw_vpa.generate_compressed_index(g_glstate_c.fpe_state.fpe_draw.current_data.sizes.data);
     //    g_glFuncs.glGenVertexArrays(1, &vpa.fpe_vao);
-    // LOG_D("fpe_vao: %d", g_glstate.fpe_state.fpe_vao)
-    g_glFuncs.glBindVertexArray(g_glstate.fpe_state.fpe_vao);
+    // LOG_D("fpe_vao: %d", g_glstate_c.fpe_state.fpe_vao)
+    sfpewBackendBindVertexArray(g_glstate_c.fpe_state.fpe_vao);
 
-    auto key = g_glstate.program_hash();
+    auto key = g_glstate_c.program_hash();
     // LOG_D("%s: key=0x%x", __func__, key)
-    auto& prog = g_glstate.get_or_generate_program(key);
+    auto& prog = g_glstate_c.get_or_generate_program(key);
     int prog_id = prog.get_program();
     if (prog_id <= 0) {
         // Generated program failed to compile/link: the draw is dropped, and
         // per the error contract that must be observable, not silent.
-        g_glstate.set_error(GL_INVALID_OPERATION);
+        g_glstate_c.set_error(GL_INVALID_OPERATION);
         vpa.reset();
         return -1;
     }
     g_glFuncs.glUseProgram(prog_id);
 
-    // Client-memory arrays are uploaded with glBufferData below. That upload
-    // must NEVER target the caller's bound VBO: route it into fpe_vbo even
-    // when the caller had a buffer bound, or their buffer contents would be
-    // destroyed by the draw.
+    // Client-memory arrays stream through the persistent-coherent immediate
+    // ring (no per-draw buffer orphan). The upload must NEVER target the
+    // caller's bound VBO, or their buffer contents would be destroyed.
     const bool client_memory_draw =
         reinterpret_cast<uintptr_t>(vpa.starting_pointer) > static_cast<uintptr_t>(vpa.stride);
 
-    // Ugh...Why binding vbo is required BEFORE calling VertexAttrib* functions?
-    if (previous_array_buffer == 0 || client_memory_draw) {
-        g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, g_glstate.fpe_state.fpe_vbo);
-    }
-
-    // LOG_D("starting_ptr = %p", vpa.starting_pointer)
-    // LOG_D("stride = %d", vpa.stride)
-
-    const GLuint attribute_array_buffer = (previous_array_buffer == 0 || client_memory_draw)
-                                              ? g_glstate.fpe_state.fpe_vbo
-                                              : static_cast<GLuint>(previous_array_buffer);
-    g_glstate.send_vertex_attributes(vpa, attribute_array_buffer);
-    vpa.dirty = false;
-
     int ret = 0;
 
-    // Making sure it is a valid pointer rather than an offset into the buffer
     if (client_memory_draw) {
-        // LOG_D("VB @ 0x%x, size = %d * %d = %d", vpa.starting_pointer, *count, vpa.stride, *count * vpa.stride)
-
-#if DEBUG || GLOBAL_DEBUG
-        //    for (int j = 0; j < *count; ++j) {
-//        for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
-//            bool enabled = ((vpa.enabled_pointers >> i) & 1);
-//
-//            if (!enabled)
-//                continue;
-//
-//            auto &vp = vpa.pointers[i];
-//
-//            // const void* ptr, GLenum type, int size, int stride, int offset, int i
-//            log_vtx_attrib_data(vpa.starting_pointer, vp.type, vp.size, vp.stride,
-//                                (const char*)vp.pointer - (const char*)vpa.starting_pointer, j);
-//
-//        }
-//        // LOG_D("")
-//    }
-#endif
-
-        // LOG_D("glBufferData: size = %d, data = 0x%x -> GL_ARRAY_BUFFER (%d)", *count * vpa.stride,
-        // vpa.starting_pointer,
-        //      g_glstate.fpe_state.fpe_vbo)
-
         // 64-bit size math: GLsizei * GLsizei overflowed for large draws,
-        // handing glBufferData a negative or wrapped size.
-        const int64_t upload_size = (int64_t)*count * (int64_t)vpa.stride;
+        // handing the upload a negative or wrapped size. The final row is
+        // trimmed to its last attribute byte: reading a full stride past the
+        // last vertex would over-read the client allocation when the row has
+        // tail padding (interleaved layouts with window < stride).
+        int64_t row_tail = 0;
+        for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
+            if (!((vpa.enabled_pointers >> i) & 1u)) continue;
+            const auto& attr = vpa.attributes[i];
+            const int64_t tail = (int64_t)(uintptr_t)attr.pointer +
+                                 (int64_t)attr.size * (int64_t)type_size(attr.type);
+            row_tail = std::max(row_tail, tail);
+        }
+        if (row_tail <= 0 || row_tail > (int64_t)vpa.stride) row_tail = (int64_t)vpa.stride;
+        const int64_t upload_size = (int64_t)(*count - 1) * (int64_t)vpa.stride + row_tail;
         const int64_t skip = (int64_t)*first * (int64_t)vpa.stride;
-        if (upload_size <= 0 || upload_size > (int64_t)std::numeric_limits<GLsizei>::max() || skip < 0) {
-            g_glstate.set_error(GL_INVALID_VALUE);
+        if (*count <= 0 || upload_size <= 0 ||
+            upload_size > (int64_t)std::numeric_limits<GLsizei>::max() || skip < 0) {
+            g_glstate_c.set_error(GL_INVALID_VALUE);
             vpa.reset();
             return -1;
         }
         const auto* draw_start = static_cast<const uint8_t*>(vpa.starting_pointer) + skip;
-        g_glFuncs.glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)upload_size, draw_start, GL_DYNAMIC_DRAW);
+        auto& st = g_glstate_c.fpe_state;
+        g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, st.fpe_immediate_vbo);
+        const GLintptr ring_offset =
+            sfpewUploadImmediateVertexData(draw_start, (size_t)upload_size);
+        g_glstate_c.send_vertex_attributes(vpa, st.fpe_immediate_vbo, ring_offset);
         *first = 0;
-
     } else {
-        // LOG_D("Using already bound VB")
+        // Buffer-based arrays: attributes reference the caller's VBO (or
+        // fpe_vbo when nothing is bound, matching the legacy layout).
+        if (previous_array_buffer == 0) {
+            g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, g_glstate_c.fpe_state.fpe_vbo);
+        }
+        const GLuint attribute_array_buffer = previous_array_buffer == 0
+                                                  ? g_glstate_c.fpe_state.fpe_vbo
+                                                  : static_cast<GLuint>(previous_array_buffer);
+        g_glstate_c.send_vertex_attributes(vpa, attribute_array_buffer);
     }
+    vpa.dirty = false;
 
     // plans/08 8.3: GL_LINE/GL_POINT polygon modes (uniform across faces -
     // per-face split needs CPU facing tests and stays a documented gap).
-    const GLenum polygon_mode = g_glstate.fpe_uniform.polygon_mode_front;
+    const GLenum polygon_mode = g_glstate_c.fpe_uniform.polygon_mode_front;
     const bool filled_primitive = *mode == GL_TRIANGLES || *mode == GL_TRIANGLE_STRIP ||
                                   *mode == GL_TRIANGLE_FAN || *mode == GL_QUADS ||
                                   *mode == GL_QUAD_STRIP || *mode == GL_POLYGON;
-    if (filled_primitive && polygon_mode == g_glstate.fpe_uniform.polygon_mode_back &&
+    if (filled_primitive && polygon_mode == g_glstate_c.fpe_uniform.polygon_mode_back &&
         polygon_mode == GL_POINT) {
         // Vertices repeat across shared corners; visually identical to spec.
         *mode = GL_POINTS;
-        g_glstate.send_uniforms(prog);
+        g_glstate_c.send_uniforms(prog);
         vpa.reset();
         return 0;
     }
-    if (filled_primitive && polygon_mode == g_glstate.fpe_uniform.polygon_mode_back &&
+    if (filled_primitive && polygon_mode == g_glstate_c.fpe_uniform.polygon_mode_back &&
         polygon_mode == GL_LINE) {
         // Expand every triangle (or quad) into its outline edges. Shared
         // edges draw twice, which matches the visual result of wireframe.
@@ -445,16 +514,16 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint p
             for (uint32_t i = 1; i + 1 < n; ++i) { edge(0, i); edge(i, i + 1); edge(i + 1, 0); }
         }
         if (!wire.empty()) {
-            auto& st = g_glstate.fpe_state;
+            auto& st = g_glstate_c.fpe_state;
             if (st.fpe_element_ibo == 0) g_glFuncs.glGenBuffers(1, &st.fpe_element_ibo);
-            g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, st.fpe_element_ibo);
+            sfpewBackendBindElementBuffer(st.fpe_element_ibo);
             st.fpe_ibo_bound = false; // fpe_vao's element binding changed
             g_glFuncs.glBufferData(GL_ELEMENT_ARRAY_BUFFER,
                                    (GLsizeiptr)(wire.size() * sizeof(uint32_t)), wire.data(),
                                    GL_DYNAMIC_DRAW);
             *mode = GL_LINES;
             *count = (GLsizei)wire.size();
-            g_glstate.send_uniforms(prog);
+            g_glstate_c.send_uniforms(prog);
             vpa.reset();
             return 2; // wireframe: GL_UNSIGNED_INT indices at offset 0
         }
@@ -473,12 +542,12 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint p
         const bool upload_indices = prepare_quad_indices(*count, index_first);
 
         // LOG_D("glBufferData: size = %d, data = 0x%x -> GL_ELEMENT_ARRAY_BUFFER (%d)",
-        //      g_glstate.fpe_state.fpe_ib.size() * sizeof(uint32_t), g_glstate.fpe_state.fpe_ib.data(),
-        //      g_glstate.fpe_state.fpe_ibo)
+        //      g_glstate_c.fpe_state.fpe_ib.size() * sizeof(uint32_t), g_glstate_c.fpe_state.fpe_ib.data(),
+        //      g_glstate_c.fpe_state.fpe_ibo)
 
-        if (!g_glstate.fpe_state.fpe_ibo_bound) {
-            g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_glstate.fpe_state.fpe_ibo);
-            g_glstate.fpe_state.fpe_ibo_bound = true;
+        if (!g_glstate_c.fpe_state.fpe_ibo_bound) {
+            sfpewBackendBindElementBuffer(g_glstate_c.fpe_state.fpe_ibo);
+            g_glstate_c.fpe_state.fpe_ibo_bound = true;
         }
 
         if (upload_indices) {
@@ -492,7 +561,7 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint p
         ret = 1;
     }
 
-    g_glstate.send_uniforms(prog);
+    g_glstate_c.send_uniforms(prog);
     vpa.reset();
     //    vpa.starting_pointer = 0;
     //    vpa.stride = 0;

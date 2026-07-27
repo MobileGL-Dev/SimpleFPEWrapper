@@ -190,10 +190,31 @@ struct fixed_function_draw_state_t {
 
     size_t vertex_count = 0;
 
+    // advance() fast path: compact copy plan derived from sizes. Rebuilt
+    // whenever the sizes snapshot below stops matching current_data.sizes
+    // (a 92-byte compare), which also catches wholesale sizes overwrites
+    // (attrib-stack restore, immediate-draw guard) without hooks.
+    struct packed_span_t {
+        uint16_t src_offset; // in floats, from the start of current_data
+        uint16_t count;
+    };
+    packed_span_t packed_spans[VERTEX_POINTER_COUNT];
+    int packed_span_count = -1; // -1: never built
+    size_t packed_floats = 0;
+    fixed_function_draw_size_t packed_layout_sizes;
+
+    // Set when set_attribute_size had to repack already-collected vertices
+    // (an attribute introduced mid-primitive). The display-list compiler
+    // bails on such runs: the repack backfill would freeze compile-time
+    // values where a live replay uses replay-time current values.
+    bool repacked = false;
+
     void reset();
 
     // Put one vertex into vb, from current draw state
     void advance();
+
+    void rebuild_packed_layout();
 
     // Declare attribute `slot` as size `requested` for the primitive being
     // collected. First attribute use after vertices were already collected
@@ -565,12 +586,47 @@ struct glstate_t {
     const char* fpe_vtx_shader_src;
     const char* fpe_frag_shader_src;
 
+    // Backend binding shadows: the VAO the wrapper last bound on the backend,
+    // and the element-array binding of VAO 0 (element bindings are VAO state;
+    // only VAO 0's needs explicit save/restore). They replace the draw
+    // guard's two synchronous glGetIntegerv round-trips and self-heal with a
+    // real query every 256 draws, mirroring the logical program shadow.
+    GLint backend_vao_binding = 0;
+    bool backend_vao_known = false;
+    GLint backend_vao0_element_binding = 0;
+    bool backend_vao0_element_known = false;
+    unsigned backend_shadow_heal_counter = 0;
+
     // Attribute stack storage (defined in attribstack.cpp); lives here so
     // it is per-context like everything else on this aggregate. shared_ptr
     // erases the deleter, so the incomplete type is fine in this header.
     std::shared_ptr<struct attrib_stacks_t> attrib_stacks;
 
+    // Strict context resolve: calls eglGetCurrentContext() and refreshes the
+    // thread-local snapshot. Every context-sensitive exported entry point must
+    // reach this exactly once (its first context access); on glvnd desktops
+    // one call costs ~425ns (getpid + dispatch mutex inside the driver), so
+    // everything downstream of the entry uses current() instead.
     static glstate_t& get_instance();
+
+    // Relaxed accessor: returns the snapshot of the last strict resolve on
+    // this thread (a TLS read), resolving strictly only if the thread has
+    // never resolved. Safe anywhere downstream of an entry's strict resolve:
+    // the current context cannot change mid-call on the calling thread.
+    static glstate_t& current();
+
+    // Vertex-data accessor for glVertex/glColor/glTexCoord/glNormal-class
+    // entries: while a Begin/End batch is collecting (primitive != GL_NONE)
+    // the batch stays pinned to the snapshot context and skips the strict
+    // resolve entirely (a context switch mid-Begin/End is undefined; we
+    // define it as "the batch belongs to the Begin context"). Outside a
+    // batch this is a strict resolve, preserving the documented contract.
+    static glstate_t& current_vertex_data();
+
+    // The EGLContext observed by the last strict resolve on this thread.
+    // Logical shadows reconcile against this instead of re-calling
+    // eglGetCurrentContext; freshness is provided by the entry's resolve.
+    static void* cached_context();
 
     void send_uniforms(program_t& program);
 

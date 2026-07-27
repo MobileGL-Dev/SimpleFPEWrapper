@@ -28,7 +28,7 @@ int vp2idx(GLenum vp) {
     case GL_SECONDARY_COLOR_ARRAY:
         return 6;
     case GL_TEXTURE_COORD_ARRAY:
-        return 7 + (g_glstate.fpe_state.client_active_texture - GL_TEXTURE0);
+        return 7 + (g_glstate_c.fpe_state.client_active_texture - GL_TEXTURE0);
     }
     // LOG_E("ERROR: 1280")
     return -1;

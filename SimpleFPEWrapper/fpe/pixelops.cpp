@@ -167,7 +167,7 @@ void drawQuad(const void* pixels, GLsizei tex_w, GLsizei tex_h, GLenum tex_forma
     const auto to_ndc_y = [&](GLfloat wy) { return (wy - viewport[1]) / viewport[3] * 2.0f - 1.0f; };
 
     g_glFuncs.glUseProgram(d.program);
-    g_glFuncs.glBindVertexArray(d.vao);
+    sfpewBackendBindVertexArray(d.vao);
     g_glFuncs.glUniform4f(d.loc_rect, to_ndc_x(x0), to_ndc_y(y0), to_ndc_x(x0 + wpx), to_ndc_y(y0 + hpx));
     g_glFuncs.glUniform1f(d.loc_depth, depth * 2.0f - 1.0f);
     g_glFuncs.glUniform4f(d.loc_color, color.r, color.g, color.b, color.a);
@@ -214,7 +214,7 @@ void drawFullscreenTexture(GLuint texture, const glm::vec4& color) {
 
     g_glFuncs.glBindTexture(GL_TEXTURE_2D, texture);
     g_glFuncs.glUseProgram(d.program);
-    g_glFuncs.glBindVertexArray(d.vao);
+    sfpewBackendBindVertexArray(d.vao);
     g_glFuncs.glUniform4f(d.loc_rect, -1.0f, -1.0f, 1.0f, 1.0f);
     g_glFuncs.glUniform1f(d.loc_depth, 0.0f);
     g_glFuncs.glUniform4f(d.loc_color, color.r, color.g, color.b, color.a);
@@ -225,7 +225,7 @@ void drawFullscreenTexture(GLuint texture, const glm::vec4& color) {
     g_glFuncs.glBindTexture(GL_TEXTURE_2D, (GLuint)prev_tex);
     g_glFuncs.glActiveTexture((GLenum)prev_active);
     g_glFuncs.glUseProgram(prev_program);
-    g_glFuncs.glBindVertexArray(prev_vao);
+    sfpewBackendBindVertexArray(prev_vao);
 }
 
 } // namespace

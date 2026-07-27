@@ -15,6 +15,7 @@ void fixed_function_draw_state_t::reset() {
     primitive = GL_NONE;
     vertex_count = 0;
     vb.clear();
+    repacked = false;
 }
 
 void fixed_function_draw_state_t::set_attribute_size(int slot, GLint requested) {
@@ -52,8 +53,9 @@ void fixed_function_draw_state_t::set_attribute_size(int slot, GLint requested) 
         previous_value = glm::value_ptr(current_data.texcoord[slot - 7]);
     static constexpr GLfloat kComponentDefaults[4] = {0.0f, 0.0f, 0.0f, 1.0f};
 
-    std::vector<GLfloat> repacked;
-    repacked.reserve((old_stride + (size_t)(requested - stored)) * vertex_count);
+    repacked = true;
+    std::vector<GLfloat> repacked_vb;
+    repacked_vb.reserve((old_stride + (size_t)(requested - stored)) * vertex_count);
     for (size_t v = 0; v < vertex_count; ++v) {
         const GLfloat* src = vb.data() + v * old_stride;
         size_t consumed = 0;
@@ -62,76 +64,81 @@ void fixed_function_draw_state_t::set_attribute_size(int slot, GLint requested) 
             if (s == slot) {
                 for (GLint c = 0; c < requested; ++c) {
                     if (c < sz)
-                        repacked.push_back(src[consumed + c]);
+                        repacked_vb.push_back(src[consumed + c]);
                     else if (sz == 0)
-                        repacked.push_back(previous_value[c]);
+                        repacked_vb.push_back(previous_value[c]);
                     else
-                        repacked.push_back(kComponentDefaults[c]);
+                        repacked_vb.push_back(kComponentDefaults[c]);
                 }
             } else {
-                for (GLint c = 0; c < sz; ++c) repacked.push_back(src[consumed + c]);
+                for (GLint c = 0; c < sz; ++c) repacked_vb.push_back(src[consumed + c]);
             }
             consumed += (size_t)sz;
         }
     }
-    vb = std::move(repacked);
+    vb = std::move(repacked_vb);
     stored = requested;
+}
+
+void fixed_function_draw_state_t::rebuild_packed_layout() {
+    packed_span_count = 0;
+    packed_floats = 0;
+    const auto* base = reinterpret_cast<const GLfloat*>(&current_data);
+    const auto add = [&](const GLfloat* src, GLint count) {
+        if (count <= 0) return;
+        const auto offset = static_cast<uint16_t>(src - base);
+        // Merge with the previous span when the source is contiguous; the
+        // destination always is.
+        if (packed_span_count > 0) {
+            auto& last = packed_spans[packed_span_count - 1];
+            if (last.src_offset + last.count == offset) {
+                last.count = static_cast<uint16_t>(last.count + count);
+                packed_floats += static_cast<size_t>(count);
+                return;
+            }
+        }
+        packed_spans[packed_span_count++] = {offset, static_cast<uint16_t>(count)};
+        packed_floats += static_cast<size_t>(count);
+    };
+
+    const auto& sizes = current_data.sizes;
+    add(glm::value_ptr(current_data.vertex), sizes.vertex_size);
+    add(glm::value_ptr(current_data.normal), sizes.normal_size);
+    add(glm::value_ptr(current_data.color), sizes.color_size);
+    // Slots 5 and 6. compile_vertexattrib() sizes EVERY slot it sees, so a
+    // slot that is sized but never packed here shifts every later attribute
+    // (fog coord and secondary color both land before the texcoords).
+    add(&current_data.fog_coord, sizes.fog_size > 0 ? 1 : 0);
+    add(glm::value_ptr(current_data.secondary_color), sizes.secondary_color_size);
+    for (GLint i = 0; i < MAX_TEX; ++i) {
+        add(glm::value_ptr(current_data.texcoord[i]), sizes.texcoord_size[i]);
+    }
+    packed_layout_sizes = sizes;
 }
 
 void fixed_function_draw_state_t::advance() {
     ++vertex_count;
 
-    const auto& sizes = current_data.sizes;
-    size_t float_count = 0;
-    for (GLint count : sizes.data) {
-        if (count > 0) float_count += static_cast<size_t>(count);
+    // One 92-byte compare replaces the old per-vertex 23-slot rescan and
+    // 16-unit texcoord walk; it also revalidates after wholesale sizes
+    // overwrites (attrib-stack restore, immediate-draw guards).
+    if (packed_span_count < 0 ||
+        std::memcmp(&packed_layout_sizes, &current_data.sizes, sizeof(packed_layout_sizes)) != 0) {
+        rebuild_packed_layout();
     }
 
     const size_t old_size = vb.size();
-    vb.resize(old_size + float_count);
+    vb.resize(old_size + packed_floats);
     GLfloat* output = vb.data() + old_size;
-    const auto append = [&output](const GLfloat* values, GLint count) {
-        if (count <= 0) return;
-        const size_t byte_count = static_cast<size_t>(count) * sizeof(GLfloat);
-        std::memcpy(output, values, byte_count);
+    const auto* base = reinterpret_cast<const GLfloat*>(&current_data);
+    for (int s = 0; s < packed_span_count; ++s) {
+        const auto [src_offset, count] = packed_spans[s];
+        const GLfloat* src = base + src_offset;
+        for (uint16_t c = 0; c < count; ++c) output[c] = src[c];
         output += count;
-    };
-
-    // vertex
-    if (sizes.vertex_size > 0) {
-        append(glm::value_ptr(current_data.vertex), sizes.vertex_size);
     }
-
-    // normal
-    if (sizes.normal_size > 0) {
-        append(glm::value_ptr(current_data.normal), sizes.normal_size);
-    }
-
-    // color
-    if (sizes.color_size > 0) {
-        append(glm::value_ptr(current_data.color), sizes.color_size);
-    }
-
-    // fog coord (slot 5). float_count above sums EVERY slot, so a slot that
-    // is sized but not appended here would shift every later attribute.
-    if (sizes.fog_size > 0) {
-        append(&current_data.fog_coord, 1);
-    }
-
-    // secondary color (slot 6)
-    if (sizes.secondary_color_size > 0) {
-        append(glm::value_ptr(current_data.secondary_color), sizes.secondary_color_size);
-    }
-
-    // texcoord
-    for (GLint i = 0; i < MAX_TEX; ++i) {
-        if (sizes.texcoord_size[i] > 0) {
-            append(glm::value_ptr(current_data.texcoord[i]), sizes.texcoord_size[i]);
-        }
-    }
-
-    // LOG_D("advance(): vertexcount = %d, vbsize = %d", vertex_count, vb.size() * sizeof(GLfloat))
 }
+
 
 void fixed_function_draw_state_t::compile_vertexattrib(vertex_pointer_array_t& va) const {
     va.reset();

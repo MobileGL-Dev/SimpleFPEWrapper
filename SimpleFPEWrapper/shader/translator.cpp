@@ -952,9 +952,46 @@ translation_result_t translateUnits(GLenum stage, const std::vector<std::string>
 
 translation_result_t translate(GLenum stage, const std::vector<std::string>& sources,
                                const target_language_t& target) {
+    // A pure function of `sources`, so the cache key below (which spans every
+    // source byte) already discriminates on it; it needs no key of its own.
     bool explicit_input_locations = false;
     for (const auto& source : sources)
         explicit_input_locations = explicit_input_locations || declaresInputLocation(source);
+
+    // Source-hash memoization (plans/09): shader reloads and multi-context
+    // recompiles re-translate byte-identical sources, and one glslang ->
+    // SPIR-V -> SPIRV-Cross round trip costs ~1ms. Failures are cached too -
+    // identical input reproduces identical diagnostics. Process-global and
+    // mutex-guarded (translation is cold); bounded by total bytes, cleared
+    // wholesale on overflow (pathological churn only re-translates).
+    static std::mutex cache_mutex;
+    static std::unordered_map<std::string, translation_result_t> cache;
+    static size_t cache_bytes = 0;
+    constexpr size_t kCacheByteLimit = 16u * 1024u * 1024u;
+
+    std::string key;
+    {
+        size_t total = 32;
+        for (const auto& source : sources) total += source.size() + 16;
+        key.reserve(total);
+        key += std::to_string(stage);
+        key += '\x1f';
+        key += std::to_string(target.version);
+        key += target.es ? 'e' : 'd';
+        key += std::to_string(target.max_draw_buffers);
+        for (const auto& source : sources) {
+            key += '\x1f';
+            key += std::to_string(source.size());
+            key += ':';
+            key += source;
+        }
+    }
+    {
+        std::lock_guard<std::mutex> lock(cache_mutex);
+        auto hit = cache.find(key);
+        if (hit != cache.end()) return hit->second;
+    }
+
     auto result = translateUnits(stage, preprocessUnits(stage, sources, 0, target.max_draw_buffers),
                                  target, explicit_input_locations);
     // Escalating rename retries, keeping the PLAIN attempt's diagnostics
@@ -965,7 +1002,25 @@ translation_result_t translate(GLenum stage, const std::vector<std::string>& sou
         auto retry =
             translateUnits(stage, preprocessUnits(stage, sources, level, target.max_draw_buffers),
                            target, explicit_input_locations);
-        if (retry.ok) return retry;
+        if (retry.ok) {
+            result = std::move(retry);
+            break;
+        }
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(cache_mutex);
+        size_t entry_bytes = key.size() + result.essl.size() + result.log.size() +
+                             result.preprocessed.size() + 256;
+        for (const auto& initializer : result.uniform_initializers)
+            entry_bytes += sizeof(initializer) + initializer.name.size();
+        if (cache_bytes + entry_bytes > kCacheByteLimit) {
+            cache.clear();
+            cache_bytes = 0;
+        }
+        // Concurrent misses on the same key both translate; only the thread
+        // whose emplace actually inserts may account the bytes.
+        if (cache.emplace(std::move(key), result).second) cache_bytes += entry_bytes;
     }
     return result;
 }

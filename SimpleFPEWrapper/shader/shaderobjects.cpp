@@ -681,6 +681,7 @@ void sfpewGetInfoLogARB(GLuint object, GLsizei maxLength, GLsizei* length, GLcha
 
 GLuint sfpewGetHandleARB(GLenum pname) {
     if (pname != 0x8B8D /* GL_PROGRAM_OBJECT_ARB */) return 0;
+    (void)g_glstate; // entry strict resolve; the program shadow reads the snapshot
     return (GLuint)sfpewLogicalProgram();
 }
 

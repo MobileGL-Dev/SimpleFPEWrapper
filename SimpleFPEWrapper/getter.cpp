@@ -299,6 +299,45 @@ inline bool containsMobileGLDev(const std::string& str) {
     return str.find("MobileGL-Dev") != std::string::npos;
 }
 
+// The desktop GL level the wrapper presents when the backend is GLES.
+// Desktop GL loaders parse "<major>.<minor>" out of GL_VERSION and abort on
+// "OpenGL ES ...", and the numeric queries must agree with the string, so
+// both go through here. The mapping is the industry-standard equivalence
+// (ES 3.0 = GL 3.3, ES 3.1 = GL 4.3, ES 3.2 = GL 4.5); it never downgrades
+// what the backend can do and the backend's own version string stays
+// visible in the suffix. Returns false for a desktop backend, whose version
+// already parses and is reported verbatim.
+bool sfpewDesktopGLVersion(int* major, int* minor) {
+    static int cached_major = 0, cached_minor = 0, cached_is_es = -1;
+    if (cached_is_es < 0) {
+        const GLubyte* raw =
+            g_glFuncs.glGetString != nullptr ? g_glFuncs.glGetString(GL_VERSION) : nullptr;
+        if (raw == nullptr) return false; // no context yet: do not cache
+        const char* es = std::strstr((const char*)raw, "OpenGL ES ");
+        if (es == nullptr) {
+            cached_is_es = 0;
+        } else {
+            int es_major = 3, es_minor = 0;
+            std::sscanf(es + 10, "%d.%d", &es_major, &es_minor);
+            if (es_major > 3 || (es_major == 3 && es_minor >= 2)) {
+                cached_major = 4;
+                cached_minor = 5;
+            } else if (es_major == 3 && es_minor == 1) {
+                cached_major = 4;
+                cached_minor = 3;
+            } else {
+                cached_major = 3;
+                cached_minor = 3;
+            }
+            cached_is_es = 1;
+        }
+    }
+    if (cached_is_es != 1) return false;
+    if (major != nullptr) *major = cached_major;
+    if (minor != nullptr) *minor = cached_minor;
+    return true;
+}
+
 // The DESKTOP extension surface the wrapper implements. LWJGL-era engines
 // parse this list (not the backend's GL_OES_* one) to switch on their
 // FBO/shader/VBO paths, and resolve the corresponding EXT/ARB entry
@@ -357,6 +396,8 @@ bool isWrapperIntegerPname(GLenum pname) {
     switch (pname) {
     case GL_CONTEXT_PROFILE_MASK:
     case GL_CONTEXT_FLAGS:
+    case GL_MAJOR_VERSION:
+    case GL_MINOR_VERSION:
     case GL_NUM_EXTENSIONS:
     case GL_CURRENT_PROGRAM:
     case GL_ARRAY_BUFFER_BINDING:
@@ -719,9 +760,35 @@ const GLubyte* glGetString(GLenum name) {
         if (cachedVersionString.empty()) {
             const GLubyte* backend = g_glFuncs.glGetString(GL_VERSION);
             if (!backend) return nullptr;
-            cachedVersionString = std::string((const char*)backend) + " (with Simple FPE Wrapper)";
+            int major = 0, minor = 0;
+            if (sfpewDesktopGLVersion(&major, &minor)) {
+                // Desktop-parseable level first, backend identity after it.
+                cachedVersionString = std::to_string(major) + "." + std::to_string(minor) +
+                                      " SFPEW (" + (const char*)backend + ")";
+            } else {
+                cachedVersionString =
+                    std::string((const char*)backend) + " (with Simple FPE Wrapper)";
+            }
         }
         return (const GLubyte*)cachedVersionString.c_str();
+    }
+    case GL_SHADING_LANGUAGE_VERSION: {
+        // Must pair with the GL level above: GL 3.3 -> GLSL 3.30, GL 4.x ->
+        // GLSL 4.x0. The translator accepts any input version regardless.
+        static std::string cachedGlslString;
+        if (cachedGlslString.empty()) {
+            int major = 0, minor = 0;
+            if (sfpewDesktopGLVersion(&major, &minor)) {
+                const GLubyte* backend = g_glFuncs.glGetString(GL_SHADING_LANGUAGE_VERSION);
+                cachedGlslString = std::to_string(major) + "." + std::to_string(minor) +
+                                   "0 SFPEW (" + (backend ? (const char*)backend : "") + ")";
+            } else {
+                const GLubyte* backend = g_glFuncs.glGetString(GL_SHADING_LANGUAGE_VERSION);
+                if (!backend) return nullptr;
+                cachedGlslString = (const char*)backend;
+            }
+        }
+        return (const GLubyte*)cachedGlslString.c_str();
     }
     case GL_EXTENSIONS: {
         // ADDITIVE surface: everything the backend really exposes, plus the
@@ -794,6 +861,19 @@ void glGetIntegerv(GLenum pname, GLint* params) {
     case GL_CONTEXT_FLAGS:
         *params = 0;
         break;
+    case GL_MAJOR_VERSION:
+    case GL_MINOR_VERSION: {
+        // Must agree with the desktop level glGetString(GL_VERSION) reports:
+        // a loader that trusts one and validates the other would otherwise
+        // see GL 4.5 in the string and 3.2 in the integers.
+        int major = 0, minor = 0;
+        if (sfpewDesktopGLVersion(&major, &minor)) {
+            *params = pname == GL_MAJOR_VERSION ? major : minor;
+        } else {
+            g_glFuncs.glGetIntegerv(pname, params);
+        }
+        break;
+    }
     case GL_NUM_EXTENSIONS: {
         static GLint cachedNumExtensions = -1;
         if (cachedNumExtensions < 0) {

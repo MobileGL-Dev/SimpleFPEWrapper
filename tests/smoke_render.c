@@ -443,6 +443,69 @@ int main(void) {
     }
     printf("OK: phase 12 saturated linear fog renders the fog color\n");
 
+    // --- Phase 13: TEXTURE-alpha cutout, the vanilla foliage shape. Phase 9
+    // drives the alpha test from the vertex color, which cannot catch a
+    // texture path that loses its alpha channel (legacy internalformat
+    // mapping, texenv). Grass/leaves instead rely on texel alpha: a
+    // GL_RGBA texture whose left half is alpha 0 and right half alpha 255,
+    // under GL_MODULATE + glAlphaFunc(GL_GREATER, 0.1), must cull exactly
+    // the transparent half.
+    {
+        static const GLubyte cutout_texels[2 * 4] = {
+            255, 0, 0, 0,   // left texel: red, fully transparent -> culled
+            255, 0, 0, 255, // right texel: red, opaque -> kept
+        };
+        GLuint cutout_texture = 0;
+        fGenTextures(1, &cutout_texture);
+        fBindTexture(0x0DE1, cutout_texture);
+        fTexImage2D(0x0DE1, 0, GL_RGBA, 2, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, cutout_texels);
+        fTexParameteri(0x0DE1, 0x2801 /* MIN_FILTER */, 0x2600 /* NEAREST */);
+        fTexParameteri(0x0DE1, 0x2800 /* MAG_FILTER */, 0x2600 /* NEAREST */);
+        fEnable(0x0DE1 /* GL_TEXTURE_2D */);
+        fEnable(0x0BC0 /* GL_ALPHA_TEST */);
+        fAlphaFunc(0x0204 /* GL_GREATER */, 0.1f);
+        fClearColor(0.0f, 0.0f, 1.0f, 1.0f); // blue background
+        fClear(GL_COLOR_BUFFER_BIT);
+        fBegin(GL_QUADS);
+        fColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+        fTexCoord2f(0.0f, 0.0f);
+        fVertex2f(-1.0f, -1.0f);
+        fTexCoord2f(1.0f, 0.0f);
+        fVertex2f(1.0f, -1.0f);
+        fTexCoord2f(1.0f, 1.0f);
+        fVertex2f(1.0f, 1.0f);
+        fTexCoord2f(0.0f, 1.0f);
+        fVertex2f(-1.0f, 1.0f);
+        fEnd();
+        fDisable(0x0BC0);
+        fDisable(0x0DE1);
+
+        GLubyte transparent_half[4] = {0, 0, 0, 0};
+        GLubyte opaque_half[4] = {0, 0, 0, 0};
+        fReadPixels(16, 32, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, transparent_half);
+        fReadPixels(48, 32, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, opaque_half);
+        if (fGetError() != 0) {
+            fprintf(stderr, "FAIL: phase 13 raised a GL error\n");
+            return 1;
+        }
+        if (transparent_half[2] < 200 || transparent_half[0] > 50) {
+            fprintf(stderr,
+                    "FAIL: phase 13 alpha-0 texels NOT culled: pixel (%u,%u,%u), expected "
+                    "background blue. The texture alpha channel is being lost or the alpha "
+                    "test does not see it.\n",
+                    transparent_half[0], transparent_half[1], transparent_half[2]);
+            return 1;
+        }
+        if (opaque_half[0] < 200 || opaque_half[2] > 50) {
+            fprintf(stderr,
+                    "FAIL: phase 13 opaque texels wrongly culled: pixel (%u,%u,%u), expected "
+                    "red\n",
+                    opaque_half[0], opaque_half[1], opaque_half[2]);
+            return 1;
+        }
+        printf("OK: phase 13 texture-alpha cutout culls exactly the transparent texels\n");
+    }
+
     printf("OK: all FPE render phases passed on the real GLES3 device\n");
     return 0;
 }

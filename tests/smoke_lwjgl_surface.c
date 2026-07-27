@@ -45,6 +45,11 @@ static const char* kMustResolve[] = {
     "glDisableVertexAttribArrayARB", "glVertexAttrib4fARB", "glVertexAttrib4fvARB",
     // ARB_draw_buffers
     "glDrawBuffersARB", "glDrawBuffers",
+    // Blend extensions the wrapper advertises: legacy Minecraft calls
+    // glBlendFuncSeparateEXT for translucent foliage/water, and LWJGL only
+    // enables the capability when every function of the extension resolves.
+    "glBlendFuncSeparateEXT", "glBlendEquationEXT", "glBlendEquationSeparateEXT",
+    "glBlendColorEXT", "glBlendFuncSeparate", "glBlendEquationSeparate", "glBlendColor",
     // ARB_vertex_buffer_object / GL15
     "glGenBuffersARB", "glBindBufferARB", "glBufferDataARB", "glBufferSubDataARB",
     "glDeleteBuffersARB", "glIsBufferARB", "glGetBufferParameterivARB", "glMapBufferARB",

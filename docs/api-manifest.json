@@ -1,6 +1,6 @@
 {
  "source": "lookup.cpp",
- "count": 441,
+ "count": 451,
  "entries": {
   "glAccum": {
    "status": "resolvable",
@@ -62,12 +62,24 @@
    "status": "resolvable",
    "target": "glBlendColor"
   },
+  "glBlendColorEXT": {
+   "status": "alias",
+   "target": "glBlendColor"
+  },
   "glBlendEquation": {
    "status": "resolvable",
    "target": "glBlendEquation"
   },
+  "glBlendEquationEXT": {
+   "status": "alias",
+   "target": "glBlendEquation"
+  },
   "glBlendEquationSeparate": {
    "status": "resolvable",
+   "target": "glBlendEquationSeparate"
+  },
+  "glBlendEquationSeparateATI": {
+   "status": "alias",
    "target": "glBlendEquationSeparate"
   },
   "glBlendFunc": {
@@ -76,6 +88,10 @@
   },
   "glBlendFuncSeparate": {
    "status": "resolvable",
+   "target": "glBlendFuncSeparate"
+  },
+  "glBlendFuncSeparateINGR": {
+   "status": "alias",
    "target": "glBlendFuncSeparate"
   },
   "glCallList": {
@@ -341,6 +357,14 @@
   "glDrawPixels": {
    "status": "resolvable",
    "target": "glDrawPixels"
+  },
+  "glDrawRangeElements": {
+   "status": "resolvable",
+   "target": "glDrawRangeElements"
+  },
+  "glDrawRangeElementsEXT": {
+   "status": "alias",
+   "target": "glDrawRangeElements"
   },
   "glEdgeFlagPointer": {
    "status": "resolvable",
@@ -785,6 +809,22 @@
   "glMultMatrixf": {
    "status": "resolvable",
    "target": "glMultMatrixf"
+  },
+  "glMultiDrawArrays": {
+   "status": "resolvable",
+   "target": "glMultiDrawArrays"
+  },
+  "glMultiDrawArraysEXT": {
+   "status": "alias",
+   "target": "glMultiDrawArrays"
+  },
+  "glMultiDrawElements": {
+   "status": "resolvable",
+   "target": "glMultiDrawElements"
+  },
+  "glMultiDrawElementsEXT": {
+   "status": "alias",
+   "target": "glMultiDrawElements"
   },
   "glMultiTexCoord1d": {
    "status": "resolvable",

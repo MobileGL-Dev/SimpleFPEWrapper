@@ -10,6 +10,7 @@
 
 #include <GL/gl.h>
 #include "../log.h"
+#include "types.h" // fixed_function_draw_size_t, for compiled immediate blocks
 #include <glm/mat4x4.hpp>
 #include <glm/vec3.hpp>
 #include <array>
@@ -50,6 +51,23 @@ using DisplayList = std::vector<std::unique_ptr<GLCmd>>;
 
 void optimizeDisplayListCommands(DisplayList& commands);
 
+// One compiled glBegin/glEnd block: the interleaved vertex bytes the
+// immediate path had already accumulated, replayed as a single draw.
+class compiled_immediate_cmd_t : public GLCmd {
+    GLenum primitive;
+    std::vector<GLfloat> vertices;
+    size_t vertex_count;
+    fixed_function_draw_size_t sizes;
+
+public:
+    compiled_immediate_cmd_t(GLenum mode, const GLfloat* data, size_t floatCount,
+                             size_t vertexCount, const fixed_function_draw_size_t& attributeSizes)
+        : primitive(mode), vertices(data, data + floatCount), vertex_count(vertexCount),
+          sizes(attributeSizes) {}
+
+    void execute() const override;
+};
+
 template <auto FuncPtr, typename... Args>
 class GLFuncCmd : public GLCmd {
     using StoredArgs = std::tuple<std::decay_t<Args>...>;
@@ -81,6 +99,16 @@ class DisplayListManager {
             std::forward<ProcessedArgs>(args)..., std::move(buffers)));
     }
 
+public:
+    // The list currently being recorded, so the immediate-block compiler can
+    // re-execute the command it just appended for GL_COMPILE_AND_EXECUTE.
+    const DisplayList& recordingCommands() const {
+        static const DisplayList empty;
+        auto it = lists.find(currentListID);
+        return it == lists.end() ? empty : it->second;
+    }
+
+private:
     static void bumpMutationGeneration() {
         ++mutationGeneration;
         // Zero is reserved for an uninitialised consumer cache. Unsigned
@@ -248,6 +276,14 @@ inline DisplayListManager displayListManager;
 
 inline GLboolean disableRecording = GL_FALSE;
 
+// Set while a glBegin/glEnd block is being compiled into a list. Only
+// vertex-attribute commands are legal between the two, and recording them
+// one by one is what made list replay cost the same as immediate mode (a
+// thousand-quad list became twelve thousand command objects). Instead the
+// attribute calls run their normal accumulation with recording suppressed,
+// and glEnd emits a single command carrying the finished vertex block.
+inline thread_local bool compilingImmediateBlock = false;
+
 bool tryExecuteCapturedDisplayLists(const GLuint* listIds, size_t listCount);
 
 #define SELF_CALL(func, ...)                                                                                           \
@@ -259,8 +295,8 @@ bool tryExecuteCapturedDisplayLists(const GLuint* listIds, size_t listCount);
     }
 
 #define LIST_RECORD(func, pointers, ...)                                                                               \
-    if (!disableRecording && DisplayListManager::shouldRecord()) {                                                     \
-        displayListManager.record<func>(pointers, ##__VA_ARGS__);                                                      \
+    if (!disableRecording && !compilingImmediateBlock && DisplayListManager::shouldRecord()) {                          \
+        displayListManager.record<func>(pointers, ##__VA_ARGS__);                                                       \
         if (DisplayListManager::shouldFinish()) return;                                                                \
     }
 

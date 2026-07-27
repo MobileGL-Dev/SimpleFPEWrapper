@@ -381,7 +381,16 @@ void glBegin(GLenum mode) {
         return;
     }
 
-    LIST_RECORD(glBegin, {}, mode)
+    // While compiling into a list, the block is accumulated and emitted by
+    // glEnd as one command instead of being recorded call by call, so
+    // glBegin itself is not recorded either. Nested glBegin is still an
+    // error, handled below, and leaves the flag alone for the outer block.
+    const bool compileBlock = !disableRecording && !compilingImmediateBlock &&
+                              DisplayListManager::shouldRecord() &&
+                              g_glstate.fpe_state.fpe_draw.primitive == GL_NONE;
+    if (!compileBlock) {
+        LIST_RECORD(glBegin, {}, mode)
+    }
 
     if (mode != GL_TRIANGLE_STRIP) flushPendingImmediateDraws();
 
@@ -398,6 +407,7 @@ void glBegin(GLenum mode) {
     // Advance the Begin/End state machine BEFORE backend init: the pairing
     // contract must hold even without a context (draws bail out safely).
     s.primitive = mode;
+    if (compileBlock) compilingImmediateBlock = true;
 
     if (!g_glstate.fpe_ready) {
         if (init_fpe() != 0) return;
@@ -405,6 +415,24 @@ void glBegin(GLenum mode) {
 }
 
 void glEnd() {
+    if (compilingImmediateBlock) {
+        compilingImmediateBlock = false;
+        auto& block = g_glstate.fpe_state.fpe_draw;
+        if (block.primitive != GL_NONE && !block.vb.empty() && block.vertex_count != 0) {
+            displayListManager.recordCommand(std::make_unique<compiled_immediate_cmd_t>(
+                block.primitive, block.vb.data(), block.vb.size(), block.vertex_count,
+                block.current_data.sizes));
+        }
+        block.reset();
+        // GL_COMPILE_AND_EXECUTE has to draw as well; the accumulated block
+        // is gone, so re-run it from the command just recorded.
+        if (!DisplayListManager::shouldFinish()) {
+            const DisplayList& recorded = displayListManager.recordingCommands();
+            if (!recorded.empty()) recorded.back()->execute();
+        }
+        return;
+    }
+
     LIST_RECORD(glEnd, {})
 
     auto& s = g_glstate.fpe_state.fpe_draw;
@@ -426,6 +454,14 @@ void glEnd() {
     drawImmediateVertices(s.primitive, s.vb.data(), s.vb.size(), s.vertex_count,
                           s.current_data.sizes);
     s.reset();
+}
+
+void compiled_immediate_cmd_t::execute() const {
+    // The vertices are already interleaved exactly as the immediate path
+    // leaves them, so replay is one upload and one draw instead of a command
+    // per glVertex/glColor/glTexCoord.
+    flushPendingImmediateDraws();
+    drawImmediateVertices(primitive, vertices.data(), vertices.size(), vertex_count, sizes);
 }
 
 void glNormal3f(GLfloat nx, GLfloat ny, GLfloat nz) {

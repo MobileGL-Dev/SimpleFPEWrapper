@@ -107,20 +107,81 @@ void glUseProgram(GLuint program) {
     state.known = true;
 }
 
-RECORDED_PASSTHROUGH(glBlendColor, (GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha),
-                    (red, green, blue, alpha))
-RECORDED_PASSTHROUGH(glBlendEquation, (GLenum mode), (mode))
-RECORDED_PASSTHROUGH(glBlendEquationSeparate, (GLenum modeRGB, GLenum modeAlpha),
-                    (modeRGB, modeAlpha))
-RECORDED_PASSTHROUGH(glBlendFunc, (GLenum sfactor, GLenum dfactor), (sfactor, dfactor))
-RECORDED_PASSTHROUGH(glBlendFuncSeparate,
-                    (GLenum sfactorRGB, GLenum dfactorRGB, GLenum sfactorAlpha, GLenum dfactorAlpha),
-                    (sfactorRGB, dfactorRGB, sfactorAlpha, dfactorAlpha))
+// The blend/mask family keeps a shadow as well as passing through: only a
+// shadow lets glPushAttrib(GL_COLOR_BUFFER_BIT) restore it (legacy
+// Minecraft brackets GUI and item rendering that way, and a leaked blend
+// function corrupts every later translucent draw).
+void glBlendColor(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha) {
+    if (!sfpewEnsureBackend()) return;
+    flushPendingImmediateDraws();
+    LIST_RECORD(glBlendColor, {}, red, green, blue, alpha)
+    auto& cb = g_glstate.fpe_state.color_buffer;
+    cb.blend_color[0] = red;
+    cb.blend_color[1] = green;
+    cb.blend_color[2] = blue;
+    cb.blend_color[3] = alpha;
+    if (g_glFuncs.glBlendColor != nullptr) g_glFuncs.glBlendColor(red, green, blue, alpha);
+}
+
+void glBlendEquation(GLenum mode) {
+    if (!sfpewEnsureBackend()) return;
+    flushPendingImmediateDraws();
+    LIST_RECORD(glBlendEquation, {}, mode)
+    auto& cb = g_glstate.fpe_state.color_buffer;
+    cb.equation_rgb = mode;
+    cb.equation_alpha = mode;
+    if (g_glFuncs.glBlendEquation != nullptr) g_glFuncs.glBlendEquation(mode);
+}
+
+void glBlendEquationSeparate(GLenum modeRGB, GLenum modeAlpha) {
+    if (!sfpewEnsureBackend()) return;
+    flushPendingImmediateDraws();
+    LIST_RECORD(glBlendEquationSeparate, {}, modeRGB, modeAlpha)
+    auto& cb = g_glstate.fpe_state.color_buffer;
+    cb.equation_rgb = modeRGB;
+    cb.equation_alpha = modeAlpha;
+    if (g_glFuncs.glBlendEquationSeparate != nullptr)
+        g_glFuncs.glBlendEquationSeparate(modeRGB, modeAlpha);
+}
+
+void glBlendFunc(GLenum sfactor, GLenum dfactor) {
+    if (!sfpewEnsureBackend()) return;
+    flushPendingImmediateDraws();
+    LIST_RECORD(glBlendFunc, {}, sfactor, dfactor)
+    auto& cb = g_glstate.fpe_state.color_buffer;
+    cb.src_rgb = cb.src_alpha = sfactor;
+    cb.dst_rgb = cb.dst_alpha = dfactor;
+    if (g_glFuncs.glBlendFunc != nullptr) g_glFuncs.glBlendFunc(sfactor, dfactor);
+}
+
+void glBlendFuncSeparate(GLenum sfactorRGB, GLenum dfactorRGB, GLenum sfactorAlpha,
+                         GLenum dfactorAlpha) {
+    if (!sfpewEnsureBackend()) return;
+    flushPendingImmediateDraws();
+    LIST_RECORD(glBlendFuncSeparate, {}, sfactorRGB, dfactorRGB, sfactorAlpha, dfactorAlpha)
+    auto& cb = g_glstate.fpe_state.color_buffer;
+    cb.src_rgb = sfactorRGB;
+    cb.dst_rgb = dfactorRGB;
+    cb.src_alpha = sfactorAlpha;
+    cb.dst_alpha = dfactorAlpha;
+    if (g_glFuncs.glBlendFuncSeparate != nullptr)
+        g_glFuncs.glBlendFuncSeparate(sfactorRGB, dfactorRGB, sfactorAlpha, dfactorAlpha);
+}
+
+void glColorMask(GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha) {
+    if (!sfpewEnsureBackend()) return;
+    flushPendingImmediateDraws();
+    LIST_RECORD(glColorMask, {}, red, green, blue, alpha)
+    auto& cb = g_glstate.fpe_state.color_buffer;
+    cb.color_mask[0] = red;
+    cb.color_mask[1] = green;
+    cb.color_mask[2] = blue;
+    cb.color_mask[3] = alpha;
+    if (g_glFuncs.glColorMask != nullptr) g_glFuncs.glColorMask(red, green, blue, alpha);
+}
+
 RECORDED_PASSTHROUGH(glDepthFunc, (GLenum func), (func))
 RECORDED_PASSTHROUGH(glDepthMask, (GLboolean flag), (flag))
-RECORDED_PASSTHROUGH(glColorMask,
-                    (GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha),
-                    (red, green, blue, alpha))
 RECORDED_PASSTHROUGH(glCullFace, (GLenum mode), (mode))
 RECORDED_PASSTHROUGH(glFrontFace, (GLenum mode), (mode))
 RECORDED_PASSTHROUGH(glViewport, (GLint x, GLint y, GLsizei width, GLsizei height),

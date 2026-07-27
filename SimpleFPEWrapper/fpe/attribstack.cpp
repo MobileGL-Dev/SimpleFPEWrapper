@@ -7,8 +7,11 @@
 // End of Source File Header
 
 // glPushAttrib/glPopAttrib over the state the wrapper tracks (plans/06,
-// 6.3). Pass-through backend state (blend funcs, depth func, ...) has no
-// shadow yet and is NOT captured; the manifest documents this deviation.
+// 6.3). GL_COLOR_BUFFER_BIT state that lives in the backend (blend enable,
+// funcs, equations, blend color, color mask) is shadowed in
+// color_buffer_state_t and replayed on pop. Depth/stencil/scissor
+// pass-through state still has no shadow and is NOT captured; the manifest
+// documents that deviation.
 
 #include "fpe.hpp"
 #include "list.h"
@@ -38,6 +41,7 @@ struct attrib_snapshot_t {
     // color buffer
     GLenum alpha_func;
     GLclampf alpha_ref;
+    color_buffer_state_t color_buffer;
     // texture
     GLenum texture_env_mode[MAX_TEX];
     texture_env_t texture_env[MAX_TEX];
@@ -115,6 +119,7 @@ void glPushAttrib(GLbitfield mask) {
     copy_array(snap.materials, un.materials);
     snap.alpha_func = st.alpha_func;
     snap.alpha_ref = un.alpha_ref;
+    snap.color_buffer = st.color_buffer;
     copy_array(snap.texture_env_mode, st.texture_env_mode);
     copy_array(snap.texture_env, un.texture_env);
     for (int i = 0; i < MAX_TEX; ++i)
@@ -177,6 +182,18 @@ void glPopAttrib() {
         st.fpe_bools.alpha_test_enable = snap.bools.alpha_test_enable;
         st.alpha_func = snap.alpha_func;
         un.alpha_ref = snap.alpha_ref;
+        restore_color_buffer(st.color_buffer, snap.color_buffer);
+        st.color_buffer = snap.color_buffer;
+    }
+    if (mask & GL_ENABLE_BIT) {
+        // GL_ENABLE_BIT covers every enable flag, including the ones the
+        // backend owns (GL_BLEND, GL_DITHER); the rest of that group is
+        // restored above through fpe_bools.
+        color_buffer_state_t enables = st.color_buffer;
+        enables.blend_enable = snap.color_buffer.blend_enable;
+        enables.dither_enable = snap.color_buffer.dither_enable;
+        restore_color_buffer(st.color_buffer, enables);
+        st.color_buffer = enables;
     }
     if (mask & GL_TEXTURE_BIT) {
         copy_array(st.fpe_bools.texture_2d_enable, snap.bools.texture_2d_enable);

@@ -27,6 +27,10 @@ int init_fpe();
 // User-program compatibility uniforms (shader/userprogram.cpp, plans/09 9.3).
 void sfpewFeedUserProgramUniforms(GLuint program);
 
+// Replays a GL_COLOR_BUFFER_BIT / GL_ENABLE_BIT blend-state snapshot onto
+// the backend (glPopAttrib). Only the differing calls are issued.
+void restore_color_buffer(const color_buffer_state_t& current, const color_buffer_state_t& wanted);
+
 // plans/09 S9 mixed pipeline: a bound USER program still consumes the
 // fixed-function vertex arrays / immediate-mode vertices in GL 2.1. These
 // resolve the program's fpe_* attribute locations (slot-indexed like

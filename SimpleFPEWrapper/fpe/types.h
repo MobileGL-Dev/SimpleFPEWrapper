@@ -40,6 +40,21 @@ struct transformation_t {
     GLenum matrix_mode = GL_MODELVIEW;
 };
 
+// GL_COLOR_BUFFER_BIT state that lives in the backend rather than in the
+// shader generator. It still needs a shadow: glPushAttrib/glPopAttrib must
+// restore it (legacy Minecraft brackets GUI and item rendering with
+// glPushAttrib, and leaking a blend function corrupts every later
+// translucent draw). Defaults are the GL initial values.
+struct color_buffer_state_t {
+    bool blend_enable = false;
+    bool dither_enable = true;
+    GLenum src_rgb = GL_ONE, dst_rgb = GL_ZERO;
+    GLenum src_alpha = GL_ONE, dst_alpha = GL_ZERO;
+    GLenum equation_rgb = GL_FUNC_ADD, equation_alpha = GL_FUNC_ADD;
+    GLfloat blend_color[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    GLboolean color_mask[4] = {GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE};
+};
+
 struct vertexattribute_t {
     GLint size;
     GLenum usage;
@@ -192,6 +207,7 @@ struct fixed_function_draw_state_t {
 struct fixed_function_state_t {
     GLenum client_active_texture = GL_TEXTURE0;      // glClientActiveTexture, specifies active texcood
     GLenum alpha_func = GL_ALWAYS;                   // glAlphaFunc
+    color_buffer_state_t color_buffer;                // blend / masks (for attrib stack)
     GLenum fog_mode = GL_EXP;                        // glFogi(GL_FOG_MODE)
     GLint fog_index = 0;                             // glFogi(GL_FOG_INDEX)
     GLenum fog_coord_src = GL_FRAGMENT_DEPTH;        // glFogi(GL_FOG_COORD_SRC)

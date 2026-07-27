@@ -85,6 +85,63 @@ texture_env_t& current_texture_env() {
 
 } // namespace
 
+// Replays a color-buffer snapshot onto the backend, skipping the calls
+// whose state already matches (glPopAttrib is frequent in legacy GUI code).
+void restore_color_buffer(const color_buffer_state_t& current,
+                          const color_buffer_state_t& wanted) {
+    if (wanted.blend_enable != current.blend_enable) {
+        if (wanted.blend_enable) g_glFuncs.glEnable(GL_BLEND);
+        else g_glFuncs.glDisable(GL_BLEND);
+    }
+    if (wanted.dither_enable != current.dither_enable) {
+        if (wanted.dither_enable) g_glFuncs.glEnable(GL_DITHER);
+        else g_glFuncs.glDisable(GL_DITHER);
+    }
+    if ((wanted.src_rgb != current.src_rgb || wanted.dst_rgb != current.dst_rgb ||
+         wanted.src_alpha != current.src_alpha || wanted.dst_alpha != current.dst_alpha)) {
+        if (g_glFuncs.glBlendFuncSeparate != nullptr) {
+            g_glFuncs.glBlendFuncSeparate(wanted.src_rgb, wanted.dst_rgb, wanted.src_alpha,
+                                          wanted.dst_alpha);
+        } else if (g_glFuncs.glBlendFunc != nullptr) {
+            g_glFuncs.glBlendFunc(wanted.src_rgb, wanted.dst_rgb);
+        }
+    }
+    if (wanted.equation_rgb != current.equation_rgb ||
+        wanted.equation_alpha != current.equation_alpha) {
+        if (g_glFuncs.glBlendEquationSeparate != nullptr) {
+            g_glFuncs.glBlendEquationSeparate(wanted.equation_rgb, wanted.equation_alpha);
+        } else if (g_glFuncs.glBlendEquation != nullptr) {
+            g_glFuncs.glBlendEquation(wanted.equation_rgb);
+        }
+    }
+    if (std::memcmp(wanted.blend_color, current.blend_color, sizeof(wanted.blend_color)) != 0 &&
+        g_glFuncs.glBlendColor != nullptr) {
+        g_glFuncs.glBlendColor(wanted.blend_color[0], wanted.blend_color[1], wanted.blend_color[2],
+                               wanted.blend_color[3]);
+    }
+    if (std::memcmp(wanted.color_mask, current.color_mask, sizeof(wanted.color_mask)) != 0 &&
+        g_glFuncs.glColorMask != nullptr) {
+        g_glFuncs.glColorMask(wanted.color_mask[0], wanted.color_mask[1], wanted.color_mask[2],
+                              wanted.color_mask[3]);
+    }
+}
+
+// Caps the backend owns but the attrib stack must be able to restore.
+// Unlike hijack_fpe_states this only records: the call still goes through.
+void shadow_backend_enable(GLenum cap, bool enable) {
+    auto& cb = g_glstate.fpe_state.color_buffer;
+    switch (cap) {
+    case GL_BLEND:
+        cb.blend_enable = enable;
+        break;
+    case GL_DITHER:
+        cb.dither_enable = enable;
+        break;
+    default:
+        break;
+    }
+}
+
 bool hijack_fpe_states(GLenum cap, bool enable, fixed_function_bool_t* bools) {
     switch (cap) {
     case GL_FOG:
@@ -154,6 +211,7 @@ void glEnable(GLenum cap) {
 
     if (hijack_fpe_states(cap, true, &g_glstate.fpe_state.fpe_bools)) return;
 
+    shadow_backend_enable(cap, true);
     g_glFuncs.glEnable(cap);
 }
 
@@ -166,6 +224,7 @@ void glDisable(GLenum cap) {
 
     if (hijack_fpe_states(cap, false, &g_glstate.fpe_state.fpe_bools)) return;
 
+    shadow_backend_enable(cap, false);
     g_glFuncs.glDisable(cap);
 }
 

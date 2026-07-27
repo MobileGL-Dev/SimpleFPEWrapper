@@ -140,3 +140,11 @@ SFPEW_APIENTRY void glTexImage2D(GLenum target, GLint level, GLint internalforma
                                 GLint border, GLenum format, GLenum type, const GLvoid* pixels);
 SFPEW_APIENTRY void glGetTexLevelParameteriv(GLenum target, GLint level, GLenum pname, GLint* params);
 SFPEW_APIENTRY void glGetTexLevelParameterfv(GLenum target, GLint level, GLenum pname, GLfloat* params);
+// The current EGL context for this thread. Exact (and free) once the app has
+// called eglMakeCurrent through the wrapper; otherwise resolved by asking
+// libEGL, which on some loaders costs a syscall per query.
+EGLContext sfpewCurrentContext();
+void sfpewNoteCurrentContext(EGLContext context);
+EGLBoolean sfpewEglMakeCurrent(EGLDisplay dpy, EGLSurface draw, EGLSurface read, EGLContext ctx);
+SFPEW_APIENTRY EGLBoolean eglMakeCurrent(EGLDisplay dpy, EGLSurface draw, EGLSurface read,
+                                        EGLContext ctx);

@@ -27,6 +27,7 @@ int init_fpe();
 // User-program compatibility uniforms (shader/userprogram.cpp, plans/09 9.3).
 void sfpewFeedUserProgramUniforms(GLuint program);
 
+
 // Replays a GL_COLOR_BUFFER_BIT / GL_ENABLE_BIT blend-state snapshot onto
 // the backend (glPopAttrib). Only the differing calls are issued.
 void restore_color_buffer(const color_buffer_state_t& current, const color_buffer_state_t& wanted);

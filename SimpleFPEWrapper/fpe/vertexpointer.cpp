@@ -25,7 +25,7 @@ thread_local logical_array_buffer_state_t logicalArrayBufferState;
 
 logical_array_buffer_state_t& getLogicalArrayBufferState() {
     const EGLContext context =
-        g_eglFuncs.eglGetCurrentContext ? g_eglFuncs.eglGetCurrentContext() : EGL_NO_CONTEXT;
+        sfpewCurrentContext();
     if (logicalArrayBufferState.context != context) {
         logicalArrayBufferState = {};
         logicalArrayBufferState.context = context;

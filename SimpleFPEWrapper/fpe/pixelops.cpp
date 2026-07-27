@@ -67,7 +67,7 @@ quad_drawer_t& drawer() {
         quad_drawer_t d{};
     } cache;
     const EGLContext current =
-        g_eglFuncs.eglGetCurrentContext ? g_eglFuncs.eglGetCurrentContext() : EGL_NO_CONTEXT;
+        sfpewCurrentContext();
     if (cache.context != current) {
         cache.context = current;
         cache.d = {};
@@ -254,7 +254,7 @@ accum_state_t& accumState() {
         accum_state_t s{};
     } cache;
     const EGLContext current =
-        g_eglFuncs.eglGetCurrentContext ? g_eglFuncs.eglGetCurrentContext() : EGL_NO_CONTEXT;
+        sfpewCurrentContext();
     if (cache.context != current) {
         cache.context = current;
         cache.s = {};

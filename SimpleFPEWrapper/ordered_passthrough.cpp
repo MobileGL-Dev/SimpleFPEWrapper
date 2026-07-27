@@ -25,8 +25,7 @@ struct logical_program_state_t {
 thread_local logical_program_state_t logicalProgramState;
 
 logical_program_state_t& getLogicalProgramState() {
-    const EGLContext context =
-        g_eglFuncs.eglGetCurrentContext ? g_eglFuncs.eglGetCurrentContext() : EGL_NO_CONTEXT;
+    const EGLContext context = sfpewCurrentContext();
     if (logicalProgramState.context != context) {
         logicalProgramState = {};
         logicalProgramState.context = context;

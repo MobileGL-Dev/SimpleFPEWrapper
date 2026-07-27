@@ -303,7 +303,7 @@ bool queueGlyphTriangleStrip(const fixed_function_draw_state_t& draw) {
     if (!batch.active) {
         batch.active = true;
         batch.context =
-            g_eglFuncs.eglGetCurrentContext ? g_eglFuncs.eglGetCurrentContext() : EGL_NO_CONTEXT;
+            sfpewCurrentContext();
         batch.sizes = sizes;
         batch.vertices.clear();
         batch.vertexCount = 0;
@@ -342,7 +342,7 @@ void flushPendingImmediateDraws() {
     auto& batch = pendingGlyphBatch;
     if (!batch.active) return;
     const EGLContext current =
-        g_eglFuncs.eglGetCurrentContext ? g_eglFuncs.eglGetCurrentContext() : EGL_NO_CONTEXT;
+        sfpewCurrentContext();
     if (batch.context != current) {
         // The collecting context is gone from this thread; its texture
         // bindings and buffer names are meaningless here. Drop, not draw.

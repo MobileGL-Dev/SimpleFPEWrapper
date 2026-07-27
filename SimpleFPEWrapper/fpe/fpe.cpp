@@ -16,12 +16,45 @@
 
 #define DEBUG 0
 
+// Set by the wrapper's own eglMakeCurrent when the app routes EGL through
+// us. From then on this thread's current context is known exactly and the
+// hot path needs no EGL call at all - the difference between one plain
+// pointer read and one libEGL entry per GL call, which on some loaders
+// (Mesa's CheckFork) costs a getpid() syscall each time.
+namespace {
+thread_local EGLContext g_authoritative_context = EGL_NO_CONTEXT;
+thread_local bool g_authoritative_context_known = false;
+} // namespace
+
+void sfpewNoteCurrentContext(EGLContext context) {
+    g_authoritative_context = context;
+    g_authoritative_context_known = true;
+}
+
+EGLContext sfpewCurrentContext() {
+    if (g_authoritative_context_known) {
+        // An app that routes SOME eglMakeCurrent calls through the wrapper
+        // and others straight to libEGL would leave this stale, so the truth
+        // is re-read every 256 queries - the same self-healing reconciliation
+        // the logical shadows use (plans/07). One libEGL query per ~256 GL
+        // calls keeps the fast path essentially free while bounding how long
+        // a bypassed switch can go unnoticed.
+        thread_local unsigned reconcile_counter = 0;
+        if (++reconcile_counter < 256u) return g_authoritative_context;
+        reconcile_counter = 0;
+        if (g_eglFuncs.eglGetCurrentContext != nullptr)
+            g_authoritative_context = g_eglFuncs.eglGetCurrentContext();
+        return g_authoritative_context;
+    }
+    return g_eglFuncs.eglGetCurrentContext ? g_eglFuncs.eglGetCurrentContext() : EGL_NO_CONTEXT;
+}
+
 glstate_t& glstate_t::get_instance() {
-    // Per-EGL-context FPE state (plans/07). The wrapper cannot intercept
-    // eglMakeCurrent (apps talk to libEGL directly), so the current context
-    // is resolved lazily on access with a thread-local one-entry cache -
-    // the same reconciliation pattern the logical shadows already use.
-    // eglGetCurrentContext is a TLS read on every relevant platform.
+    // Per-EGL-context FPE state (plans/07). When the app calls
+    // eglMakeCurrent through the wrapper the current context is tracked
+    // exactly; otherwise it is resolved lazily on access with a
+    // thread-local one-entry cache, the same reconciliation pattern the
+    // logical shadows use.
     //
     // Known limits (documented in plans/07): contexts cannot be observed
     // being destroyed, so their CPU-side state objects persist for the
@@ -32,11 +65,10 @@ glstate_t& glstate_t::get_instance() {
     static std::mutex instances_mutex;
     static glstate_t no_context_state; // keeps backend-less calls crash-free
 
-    const EGLContext context =
-        g_eglFuncs.eglGetCurrentContext ? g_eglFuncs.eglGetCurrentContext() : EGL_NO_CONTEXT;
-
     thread_local EGLContext cached_context = (EGLContext)(intptr_t)-1;
     thread_local glstate_t* cached_state = nullptr;
+
+    const EGLContext context = sfpewCurrentContext();
     if (context == cached_context && cached_state != nullptr) return *cached_state;
 
     glstate_t* state = &no_context_state;

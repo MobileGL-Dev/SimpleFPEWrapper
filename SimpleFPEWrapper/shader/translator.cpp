@@ -1091,7 +1091,7 @@ target_language_t detect_backend_target() {
         target_language_t target{};
     } cache;
     const EGLContext current =
-        g_eglFuncs.eglGetCurrentContext ? g_eglFuncs.eglGetCurrentContext() : EGL_NO_CONTEXT;
+        sfpewCurrentContext();
     if (cache.context == current) return cache.target;
 
     target_language_t target; // safe default: ESSL 300

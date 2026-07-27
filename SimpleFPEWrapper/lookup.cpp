@@ -9,6 +9,7 @@
 #include "EGL/egl.h"
 #include "init.h"
 #include "log.h"
+#include <cstdio>
 #include "fpe/transformation.h"
 
 #define GETPROC(name, var)                                                                                             \
@@ -27,6 +28,18 @@
 
 SFPEW_APIENTRY __eglMustCastToProperFunctionPointerType eglGetProcAddress(const char* name) {
     if (!name) return nullptr;
+
+    // Routing eglMakeCurrent through the wrapper turns the current context
+    // from something every state access has to ask libEGL about into a plain
+    // thread-local read (see sfpewCurrentContext). Apps that call libEGL
+    // directly keep the polling path and stay correct.
+    if (std::strcmp("eglMakeCurrent", name) == 0) {
+        // The internal name matters: taking the address of the exported
+        // eglMakeCurrent would go through this library's GOT, where an
+        // already-loaded libEGL interposes its own definition and the
+        // wrapper never sees the call.
+        return (__eglMustCastToProperFunctionPointerType)sfpewEglMakeCurrent;
+    }
 
     GETPROC(glGetError, name)
     GETPROC(glGetString, name)
@@ -752,4 +765,23 @@ SFPEW_APIENTRY void* glXGetProcAddress(const char* name) {
 
 SFPEW_APIENTRY void* glXGetProcAddressARB(const char* name) {
     return glXGetProcAddress(name);
+}
+
+// Wrapping eglMakeCurrent lets the wrapper know the current context exactly
+// instead of asking libEGL on every state access; see sfpewCurrentContext.
+// Same signature and return value as the backend's, so an app can use this
+// as a drop-in (that is how gl4es-style loaders wire EGL through the
+// wrapper). The note happens only on success, so a failed switch leaves the
+// previously current context in place - which is what EGL guarantees.
+EGLBoolean sfpewEglMakeCurrent(EGLDisplay dpy, EGLSurface draw, EGLSurface read, EGLContext ctx) {
+    if (!sfpewEnsureBackend() || g_eglFuncs.eglMakeCurrent == nullptr) return EGL_FALSE;
+    const EGLBoolean ok = g_eglFuncs.eglMakeCurrent(dpy, draw, read, ctx);
+    if (ok == EGL_TRUE) sfpewNoteCurrentContext(ctx);
+    return ok;
+}
+
+// Exported spelling for loaders that dlsym the wrapper for EGL.
+SFPEW_APIENTRY EGLBoolean eglMakeCurrent(EGLDisplay dpy, EGLSurface draw, EGLSurface read,
+                                        EGLContext ctx) {
+    return sfpewEglMakeCurrent(dpy, draw, read, ctx);
 }

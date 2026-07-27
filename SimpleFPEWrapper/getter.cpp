@@ -45,7 +45,7 @@ thread_local LogicalTextureBindings logicalTextureBindings;
 
 LogicalTextureBindings& getLogicalTextureBindings() {
     const EGLContext context =
-        g_eglFuncs.eglGetCurrentContext ? g_eglFuncs.eglGetCurrentContext() : EGL_NO_CONTEXT;
+        sfpewCurrentContext();
     if (logicalTextureBindings.context != context) {
         logicalTextureBindings = {};
         logicalTextureBindings.context = context;
@@ -89,7 +89,7 @@ uint64_t textureBindingKey(GLenum activeTexture, GLenum target) {
 
 std::unordered_map<GLint, ProxyTexture2DLevel>& getProxyTexture2DLevels() {
     const EGLContext context =
-        g_eglFuncs.eglGetCurrentContext ? g_eglFuncs.eglGetCurrentContext() : EGL_NO_CONTEXT;
+        sfpewCurrentContext();
     if (proxyTexture2DCache.context != context) {
         proxyTexture2DCache.context = context;
         proxyTexture2DCache.levels.clear();

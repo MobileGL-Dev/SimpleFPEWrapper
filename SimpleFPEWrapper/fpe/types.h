@@ -278,6 +278,17 @@ struct fixed_function_state_t {
     void* fpe_immediate_vbo_map = nullptr;
     bool fpe_immediate_vbo_persistent_attempted = false;
 
+    // Index ring for FPE-converted glDrawElements whose indices come from
+    // client memory or had to be rewritten. glBufferData per draw orphaned and
+    // reallocated a buffer every call, which measured as roughly half the cost
+    // of an indexed client-array draw (plans/12).
+    GLuint fpe_element_ring = 0;
+    void* fpe_element_ring_fences[4] = {};
+    size_t fpe_element_ring_capacity = 0;
+    size_t fpe_element_ring_offset = 0;
+    void* fpe_element_ring_map = nullptr;
+    bool fpe_element_ring_persistent_attempted = false;
+
     GLuint fpe_ibo = 0;
 
     // Dedicated element buffer for FPE-converted glDrawElements calls

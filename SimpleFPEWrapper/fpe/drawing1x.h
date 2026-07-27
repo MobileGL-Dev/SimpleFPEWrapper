@@ -41,6 +41,11 @@ inline void sfpewEntryBarrier() {
 // the glBegin/glEnd path and the client-array draw commit.
 GLintptr sfpewUploadImmediateVertexData(const void* data, size_t size);
 
+// Same ring mechanism for CPU-side index data (client-memory indices and
+// rewritten GL_QUADS). GL_ELEMENT_ARRAY_BUFFER must already be bound to
+// fpe_element_ring. Returns the byte offset to pass to glDrawElements.
+GLintptr sfpewUploadElementData(const void* data, size_t size);
+
 // Vertex-data entries ride the Begin/End context pin: zero strict resolves
 // while a batch is collecting, one strict resolve otherwise (types.h).
 template <typename Type, GLint N>

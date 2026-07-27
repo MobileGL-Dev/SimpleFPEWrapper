@@ -20,6 +20,8 @@ namespace {
 
 constexpr size_t kImmediateVboMinCapacity = 16u * 1024u * 1024u;
 constexpr size_t kImmediateVboAlignment = 256u;
+// Index data is a fraction of vertex data, so the element ring is sized down.
+constexpr size_t kElementRingMinCapacity = 4u * 1024u * 1024u;
 // Merge window for tiny glBegin/glEnd runs. Runs longer than the vertex limit
 // already amortize their per-draw fixed cost, so they draw directly. The run
 // and total-vertex caps bound both the copy work and how long a draw can sit
@@ -30,11 +32,63 @@ constexpr size_t kImmediateMergeVertexBudget = 8192u;
 
 } // namespace
 
+// One persistent-coherent streaming ring. The vertex and index rings differ
+// only in their target and in what a buffer replacement has to invalidate, so
+// the ring mechanics (capacity growth, segment fences, wrap) live here once.
+struct stream_ring_t {
+    GLenum target;
+    GLuint& buffer;
+    void* (&fences)[4];
+    size_t& capacity;
+    size_t& offset;
+    void*& map;
+    bool& persistent_attempted;
+    size_t min_capacity;
+    // Run after the ring's buffer object is replaced: cached attribute or
+    // element bindings that referred to the old name are no longer valid.
+    void (*on_replaced)();
+};
+
+static GLintptr sfpewUploadToRing(const stream_ring_t& ring, const void* data, size_t size);
+
 GLintptr sfpewUploadImmediateVertexData(const void* data, size_t size) {
-    auto& gs = g_glstate_c;
-    auto& state = gs.fpe_state;
+    auto& state = g_glstate_c.fpe_state;
+    const stream_ring_t ring{GL_ARRAY_BUFFER,
+                             state.fpe_immediate_vbo,
+                             state.fpe_immediate_fences,
+                             state.fpe_immediate_vbo_capacity,
+                             state.fpe_immediate_vbo_offset,
+                             state.fpe_immediate_vbo_map,
+                             state.fpe_immediate_vbo_persistent_attempted,
+                             kImmediateVboMinCapacity,
+                             []() {
+                                 auto& gs = g_glstate_c;
+                                 gs.fpe_vertex_binding_valid = false;
+                                 for (auto& cached : gs.fpe_vertex_attributes)
+                                     cached.pointer_valid = false;
+                             }};
+    return sfpewUploadToRing(ring, data, size);
+}
+
+GLintptr sfpewUploadElementData(const void* data, size_t size) {
+    auto& state = g_glstate_c.fpe_state;
+    const stream_ring_t ring{GL_ELEMENT_ARRAY_BUFFER,
+                             state.fpe_element_ring,
+                             state.fpe_element_ring_fences,
+                             state.fpe_element_ring_capacity,
+                             state.fpe_element_ring_offset,
+                             state.fpe_element_ring_map,
+                             state.fpe_element_ring_persistent_attempted,
+                             kElementRingMinCapacity,
+                             []() { g_glstate_c.fpe_state.fpe_ibo_bound = false; }};
+    return sfpewUploadToRing(ring, data, size);
+}
+
+static GLintptr sfpewUploadToRing(const stream_ring_t& ring, const void* data, size_t size) {
+    auto& state = g_glstate_c.fpe_state;
+    (void)state;
     const auto dropAllFences = [&]() {
-        for (auto& fence : state.fpe_immediate_fences) {
+        for (auto& fence : ring.fences) {
             if (fence != nullptr && g_glFuncs.glDeleteSync != nullptr)
                 g_glFuncs.glDeleteSync((GLsync)fence);
             fence = nullptr;
@@ -42,42 +96,41 @@ GLintptr sfpewUploadImmediateVertexData(const void* data, size_t size) {
     };
     const auto replaceImmediateBuffer = [&]() {
         dropAllFences();
-        if (state.fpe_immediate_vbo_map != nullptr && g_glFuncs.glUnmapBuffer != nullptr) {
-            g_glFuncs.glUnmapBuffer(GL_ARRAY_BUFFER);
+        if (ring.map != nullptr && g_glFuncs.glUnmapBuffer != nullptr) {
+            g_glFuncs.glUnmapBuffer(ring.target);
         }
-        g_glFuncs.glDeleteBuffers(1, &state.fpe_immediate_vbo);
-        g_glFuncs.glGenBuffers(1, &state.fpe_immediate_vbo);
-        g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, state.fpe_immediate_vbo);
-        state.fpe_immediate_vbo_capacity = 0;
-        state.fpe_immediate_vbo_offset = 0;
-        state.fpe_immediate_vbo_map = nullptr;
-        gs.fpe_vertex_binding_valid = false;
-        for (auto& cached : gs.fpe_vertex_attributes) cached.pointer_valid = false;
+        g_glFuncs.glDeleteBuffers(1, &ring.buffer);
+        g_glFuncs.glGenBuffers(1, &ring.buffer);
+        g_glFuncs.glBindBuffer(ring.target, ring.buffer);
+        ring.capacity = 0;
+        ring.offset = 0;
+        ring.map = nullptr;
+        if (ring.on_replaced != nullptr) ring.on_replaced();
     };
 
-    const size_t required_capacity = std::max(kImmediateVboMinCapacity, std::bit_ceil(size));
-    if (state.fpe_immediate_vbo_map != nullptr && required_capacity > state.fpe_immediate_vbo_capacity) {
+    const size_t required_capacity = std::max(ring.min_capacity, std::bit_ceil(size));
+    if (ring.map != nullptr && required_capacity > ring.capacity) {
         // Oversized immediate draws are rare, but an immutable persistent
         // store cannot grow in place. Finish users of the old store, replace
         // it, and retry with a power-of-two capacity large enough for this draw.
         if (g_glFuncs.glFinish != nullptr) g_glFuncs.glFinish();
         replaceImmediateBuffer();
-        state.fpe_immediate_vbo_persistent_attempted = false;
-        return sfpewUploadImmediateVertexData(data, size);
+        ring.persistent_attempted = false;
+        return sfpewUploadToRing(ring, data, size);
     }
-    if (!state.fpe_immediate_vbo_persistent_attempted) {
-        state.fpe_immediate_vbo_persistent_attempted = true;
+    if (!ring.persistent_attempted) {
+        ring.persistent_attempted = true;
         auto storage = g_glFuncs.glBufferStorage != nullptr ? g_glFuncs.glBufferStorage
                                                            : g_glFuncs.glBufferStorageEXT;
         if (storage != nullptr && g_glFuncs.glMapBufferRange != nullptr) {
             constexpr GLbitfield map_flags = GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT;
             constexpr GLbitfield storage_flags = map_flags | GL_DYNAMIC_STORAGE_BIT;
-            storage(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(required_capacity), nullptr, storage_flags);
-            state.fpe_immediate_vbo_map =
-                g_glFuncs.glMapBufferRange(GL_ARRAY_BUFFER, 0, static_cast<GLsizeiptr>(required_capacity), map_flags);
-            if (state.fpe_immediate_vbo_map != nullptr) {
-                state.fpe_immediate_vbo_capacity = required_capacity;
-                state.fpe_immediate_vbo_offset = 0;
+            storage(ring.target, static_cast<GLsizeiptr>(required_capacity), nullptr, storage_flags);
+            ring.map = g_glFuncs.glMapBufferRange(ring.target, 0,
+                                                  static_cast<GLsizeiptr>(required_capacity), map_flags);
+            if (ring.map != nullptr) {
+                ring.capacity = required_capacity;
+                ring.offset = 0;
             } else {
                 // Immutable storage can't be respecified with BufferData. Replace
                 // the failed persistent candidate with a fresh mutable fallback.
@@ -86,17 +139,16 @@ GLintptr sfpewUploadImmediateVertexData(const void* data, size_t size) {
         }
     }
 
-    if (state.fpe_immediate_vbo_map == nullptr) {
+    if (ring.map == nullptr) {
         // The backend lacks coherent persistent storage. Keep the previous
         // orphaning behaviour, which is faster than synchronous SubData on
         // mobile drivers and preserves compatibility with other backends.
-        g_glFuncs.glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(size), data, GL_STREAM_DRAW);
+        g_glFuncs.glBufferData(ring.target, static_cast<GLsizeiptr>(size), data, GL_STREAM_DRAW);
         return 0;
     }
 
-    size_t offset = (state.fpe_immediate_vbo_offset + kImmediateVboAlignment - 1u) &
-                    ~(kImmediateVboAlignment - 1u);
-    if (offset + size > state.fpe_immediate_vbo_capacity) offset = 0;
+    size_t offset = (ring.offset + kImmediateVboAlignment - 1u) & ~(kImmediateVboAlignment - 1u);
+    if (offset + size > ring.capacity) offset = 0;
 
     // Segmented synchronization: by the time an upload crosses into a new
     // quarter of the ring, every draw consuming the PREVIOUS quarter has
@@ -106,25 +158,22 @@ GLintptr sfpewUploadImmediateVertexData(const void* data, size_t size) {
     // objects this degrades to the old glFinish at wrap only.
     const bool have_sync = g_glFuncs.glFenceSync != nullptr &&
                            g_glFuncs.glClientWaitSync != nullptr && g_glFuncs.glDeleteSync != nullptr;
-    const size_t segment_size = state.fpe_immediate_vbo_capacity / 4u;
+    const size_t segment_size = ring.capacity / 4u;
     if (have_sync && segment_size != 0) {
-        // fpe_immediate_vbo_offset is one-past-the-end of the previous
-        // upload: derive the previous segment from its LAST byte, or an
-        // upload ending exactly on a quarter boundary would make the next
-        // upload's segment compare equal and skip the fence entirely.
-        const size_t previous_segment = std::min<size_t>(
-            state.fpe_immediate_vbo_offset == 0
-                ? 0
-                : (state.fpe_immediate_vbo_offset - 1u) / segment_size,
-            3u);
+        // ring.offset is one-past-the-end of the previous upload: derive the
+        // previous segment from its LAST byte, or an upload ending exactly on a
+        // quarter boundary would make the next upload's segment compare equal
+        // and skip the fence entirely.
+        const size_t previous_segment =
+            std::min<size_t>(ring.offset == 0 ? 0 : (ring.offset - 1u) / segment_size, 3u);
         const size_t first_segment = offset / segment_size;
         const size_t last_segment = std::min<size_t>((offset + size - 1u) / segment_size, 3u);
         if (first_segment != previous_segment || offset == 0) {
-            auto& old_fence = state.fpe_immediate_fences[previous_segment];
+            auto& old_fence = ring.fences[previous_segment];
             if (old_fence == nullptr)
                 old_fence = (void*)g_glFuncs.glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
             for (size_t seg = first_segment; seg <= last_segment; ++seg) {
-                auto& fence = state.fpe_immediate_fences[seg];
+                auto& fence = ring.fences[seg];
                 if (fence == nullptr) continue;
                 g_glFuncs.glClientWaitSync((GLsync)fence, GL_SYNC_FLUSH_COMMANDS_BIT,
                                            1000000000ull /* 1s */);
@@ -132,14 +181,14 @@ GLintptr sfpewUploadImmediateVertexData(const void* data, size_t size) {
                 fence = nullptr;
             }
         }
-    } else if (offset == 0 && state.fpe_immediate_vbo_offset != 0) {
+    } else if (offset == 0 && ring.offset != 0) {
         if (g_glFuncs.glFinish != nullptr) g_glFuncs.glFinish();
     }
 
     if (size > 0) {
-        std::memcpy(static_cast<uint8_t*>(state.fpe_immediate_vbo_map) + offset, data, size);
+        std::memcpy(static_cast<uint8_t*>(ring.map) + offset, data, size);
     }
-    state.fpe_immediate_vbo_offset = offset + size;
+    ring.offset = offset + size;
     return static_cast<GLintptr>(offset);
 }
 

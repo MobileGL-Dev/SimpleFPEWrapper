@@ -898,21 +898,22 @@ bool userProgramDrawElements(GLuint program, GLenum mode, GLsizei count, GLenum 
         case 2: expandQuadIndices((const uint16_t*)cpu_indices, quads, expanded); break;
         default: expandQuadIndices((const uint32_t*)cpu_indices, quads, expanded); break;
         }
-        if (st.fpe_element_ibo == 0) g_glFuncs.glGenBuffers(1, &st.fpe_element_ibo);
-        g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, st.fpe_element_ibo);
-        g_glFuncs.glBufferData(GL_ELEMENT_ARRAY_BUFFER,
-                               (GLsizeiptr)(expanded.size() * sizeof(uint32_t)), expanded.data(),
-                               GL_DYNAMIC_DRAW);
+        if (st.fpe_element_ring == 0) g_glFuncs.glGenBuffers(1, &st.fpe_element_ring);
+        g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, st.fpe_element_ring);
+        st.fpe_ibo_bound = false;
+        draw_offset = (const void*)(uintptr_t)sfpewUploadElementData(
+            expanded.data(), expanded.size() * sizeof(uint32_t));
         draw_mode = GL_TRIANGLES;
         draw_count = (GLsizei)expanded.size();
         draw_type = GL_UNSIGNED_INT;
     } else {
         if (mode == GL_QUAD_STRIP) draw_mode = GL_TRIANGLE_STRIP;
         else if (mode == GL_POLYGON) draw_mode = GL_TRIANGLE_FAN;
-        if (st.fpe_element_ibo == 0) g_glFuncs.glGenBuffers(1, &st.fpe_element_ibo);
-        g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, st.fpe_element_ibo);
-        g_glFuncs.glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)((size_t)count * index_size),
-                               cpu_indices, GL_DYNAMIC_DRAW);
+        if (st.fpe_element_ring == 0) g_glFuncs.glGenBuffers(1, &st.fpe_element_ring);
+        g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, st.fpe_element_ring);
+        st.fpe_ibo_bound = false;
+        draw_offset = (const void*)(uintptr_t)sfpewUploadElementData(
+            cpu_indices, (size_t)count * index_size);
     }
     g_glFuncs.glDrawElements(draw_mode, draw_count, draw_type, draw_offset);
     return true;
@@ -1054,20 +1055,19 @@ void drawElementsNow(GLenum mode, GLsizei count, GLenum type, const GLvoid* indi
 
     auto& state = g_glstate_c.fpe_state;
     if (rewrite_quads || element_buffer == 0) {
-        // CPU-side index data goes through the dedicated FPE element buffer.
-        if (state.fpe_element_ibo == 0) g_glFuncs.glGenBuffers(1, &state.fpe_element_ibo);
-        sfpewBackendBindElementBuffer(state.fpe_element_ibo);
+        // CPU-side index data streams through the persistent-mapped element
+        // ring. glBufferData here orphaned and reallocated a buffer on every
+        // indexed client-array draw, which measured as about half that draw's
+        // cost (plans/12).
+        if (state.fpe_element_ring == 0) g_glFuncs.glGenBuffers(1, &state.fpe_element_ring);
+        sfpewBackendBindElementBuffer(state.fpe_element_ring);
         state.fpe_ibo_bound = false; // fpe_vao's element binding changed
-        if (rewrite_quads) {
-            g_glFuncs.glBufferData(GL_ELEMENT_ARRAY_BUFFER,
-                                   (GLsizeiptr)(expanded_indices.size() * sizeof(uint32_t)),
-                                   expanded_indices.data(), GL_DYNAMIC_DRAW);
-        } else {
-            g_glFuncs.glBufferData(GL_ELEMENT_ARRAY_BUFFER,
-                                   (GLsizeiptr)(static_cast<size_t>(count) * index_size), cpu_indices,
-                                   GL_DYNAMIC_DRAW);
-        }
-        draw_indices = nullptr; // offset 0 into the freshly uploaded buffer
+        const void* upload_data = rewrite_quads ? (const void*)expanded_indices.data()
+                                                : (const void*)cpu_indices;
+        const size_t upload_bytes = rewrite_quads
+                                        ? expanded_indices.size() * sizeof(uint32_t)
+                                        : static_cast<size_t>(count) * index_size;
+        draw_indices = (const void*)(uintptr_t)sfpewUploadElementData(upload_data, upload_bytes);
     } else {
         // Indices stay in the caller's VBO; bind it inside fpe_vao.
         sfpewBackendBindElementBuffer(static_cast<GLuint>(element_buffer));

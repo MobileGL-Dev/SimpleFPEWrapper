@@ -263,6 +263,38 @@ int main(void) {
         return 1;
     }
     printf("OK: phase 6 indexed GL_QUADS rewrite renders yellow\n");
+
+    // --- Phase 6b: client-memory index data streams through a persistent
+    // ring (plans/12), so enough draws must lap it and hit the segment-fence
+    // path. A wrap that reuses memory the GPU still reads shows up as a wrong
+    // final pixel. Two alternating index sets pick different triangles of the
+    // quad, so a stale lap is observable rather than idempotent.
+    static const GLfloat corner_verts[] = {-1, -1, 1, -1, 1, 1, -1, 1};
+    static const GLfloat green4[] = {0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1};
+    static unsigned short lap_idx[2][60000];
+    for (int set = 0; set < 2; ++set) {
+        for (int i = 0; i < 60000; i += 3) {
+            // set 0 covers the lower-left triangle, set 1 the upper-right.
+            lap_idx[set][i + 0] = set ? 2 : 0;
+            lap_idx[set][i + 1] = set ? 3 : 1;
+            lap_idx[set][i + 2] = set ? 0 : 2;
+        }
+    }
+    fVertexPointer(2, 0x1406, 0, corner_verts);
+    fColorPointer(4, 0x1406, 0, green4);
+    fClearColor(0.0f, 0.0f, 1.0f, 1.0f);
+    fClear(GL_COLOR_BUFFER_BIT);
+    // 60000 ushort indices = 120 KB per draw; 100 draws laps a 4 MB ring ~3x.
+    for (int d = 0; d < 100; ++d)
+        fDrawElements(0x0004, 60000, 0x1403, lap_idx[d & 1]);
+    fReadPixels(32, 32, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+    if (fGetError() != 0 || pixel[1] < 200 || pixel[0] > 50 || pixel[2] > 50) {
+        fprintf(stderr, "FAIL: phase 6b element-ring wrap pixel (%u,%u,%u), expected green\n",
+                pixel[0], pixel[1], pixel[2]);
+        return 1;
+    }
+    printf("OK: phase 6b element ring survives wrap-around\n");
+
     fDisableClientState(0x8074);
     fDisableClientState(0x8076);
 

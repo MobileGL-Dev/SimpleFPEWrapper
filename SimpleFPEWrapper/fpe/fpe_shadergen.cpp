@@ -1207,6 +1207,12 @@ std::string vp2in_name(GLenum vp, int index) {
     return "ERROR";
 }
 
+// Eye-space position is only needed for fog when the fog distance comes
+// from the fragment depth; GL_FOG_COORD sources it from the vertex instead.
+bool fog_needs_view_position(const fixed_function_state_t& state) {
+    return state.fpe_bools.fog_enable && state.fog_coord_src != GL_FOG_COORD;
+}
+
 std::string vp2out_name(GLenum vp, int index) {
     switch (vp) {
     case GL_VERTEX_ARRAY:
@@ -1402,6 +1408,7 @@ void add_vs_inout(const fixed_function_state_t& state, scratch_t& scratch, std::
                 scratch.has_vertex_color = true;
             }
             if (usage == GL_NORMAL_ARRAY) scratch.has_normal_input = true;
+            if (usage == GL_FOG_COORD_ARRAY) scratch.has_fog_coord_input = true;
         }
     }
 
@@ -1437,7 +1444,7 @@ void add_vs_inout(const fixed_function_state_t& state, scratch_t& scratch, std::
         scratch.texgen_no_input[i] = true; // the texgen body block writes it
     }
 
-    if (state.fpe_bools.fog_enable) {
+    if (fog_needs_view_position(state)) {
         vs += "out vec3 vViewPosition;\n";
     }
     for (int i = 0; i < 6; ++i) {
@@ -1592,15 +1599,15 @@ void add_vs_body(const fixed_function_state_t& state, scratch_t& scratch, std::s
           //            "   gl_Position = ProjMat * ModelViewMat * vec4(Position, 1.0);\n";
           "    gl_Position = ModelViewProjMat * Position;\n"
           "    gl_PointSize = PointSize;\n";
-    if (state.fpe_bools.fog_enable || state.fpe_bools.lighting_enable || texgen_needs_eye(state) ||
-        any_clip_plane(state)) {
+    if (fog_needs_view_position(state) || state.fpe_bools.lighting_enable ||
+        texgen_needs_eye(state) || any_clip_plane(state)) {
         vs += "    vec4 eyePosition = ModelViewMat * Position;\n";
     }
     for (int i = 0; i < 6; ++i) {
         if (state.fpe_bools.clip_plane_enable[i])
             vs += std::format("    vClipDistance{0} = dot(ClipPlane{0}, eyePosition);\n", i);
     }
-    if (state.fpe_bools.fog_enable) {
+    if (fog_needs_view_position(state)) {
         vs += "    vViewPosition = eyePosition.xyz;\n";
     }
     vs += scratch.vs_body;
@@ -1718,7 +1725,7 @@ void add_fs_inout(const fixed_function_state_t& state, scratch_t& scratch, std::
     // Linking from VS
     fs += scratch.last_stage_linkage;
     fs += "\n";
-    if (state.fpe_bools.fog_enable) {
+    if (fog_needs_view_position(state)) {
         fs += "in vec3 vViewPosition;\n";
     }
     fs += "out vec4 FragColor;\n";
@@ -1897,9 +1904,19 @@ void add_fs_body(const fixed_function_state_t& state, scratch_t& scratch, std::s
 
     // Fog calculation
     if (state.fpe_bools.fog_enable) {
-        // Fixed-function fog uses eye-space depth by default. Radial distance
-        // is only selected through the optional NV fog-distance extension.
-        fs += "    float distance = abs(vViewPosition.z);\n";
+        // GL_FOG_COORD_SRC (GL 1.4 core) picks between the interpolated
+        // eye-space depth and the per-vertex fog coordinate. Radial distance
+        // is a separate, optional NV extension and stays unimplemented.
+        // Per spec the fog coordinate is used unsigned.
+        if (state.fog_coord_src == GL_FOG_COORD && scratch.has_fog_coord_input) {
+            fs += "    float distance = abs(vertexFogCoord);\n";
+        } else if (state.fog_coord_src == GL_FOG_COORD) {
+            // Source selected but nothing feeds the coordinate: GL then uses
+            // the current value, which without any glFogCoord* call is 0.
+            fs += "    float distance = 0.0;\n";
+        } else {
+            fs += "    float distance = abs(vViewPosition.z);\n";
+        }
         switch (state.fog_mode) {
         case GL_LINEAR:
             fs += "    float fogFactor = fog_linear(distance, FogStart, FogEnd);\n";

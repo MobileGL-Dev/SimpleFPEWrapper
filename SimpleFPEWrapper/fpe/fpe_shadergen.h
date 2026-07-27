@@ -22,6 +22,7 @@ struct scratch_t {
     bool has_vertex_color = false;
     bool has_back_vertex_color = false;
     bool has_texcoord[MAX_TEX] = {false};
+    bool has_fog_coord_input = false; // glFogCoord*/glFogCoordPointer fed
 };
 
 class fpe_shader_generator {

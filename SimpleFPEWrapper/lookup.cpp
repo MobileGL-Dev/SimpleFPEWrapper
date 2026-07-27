@@ -26,6 +26,15 @@
         return (__eglMustCastToProperFunctionPointerType)g_glFuncs.core;                                                \
     }
 
+// An EXT/ARB spelling of an entry point the WRAPPER implements. Distinct from
+// GETPROC_BACKEND_ALIAS, which hands out the backend's own pointer: for a
+// wrapped entry that would bypass the wrapper entirely, and legacy frontends
+// (LWJGL2) ask for the ARB spellings by preference.
+#define GETPROC_WRAPPER_ALIAS(alias, wrapped)                                                                          \
+    if (std::strcmp(#alias, name) == 0) {                                                                              \
+        return (__eglMustCastToProperFunctionPointerType)wrapped;                                                      \
+    }
+
 SFPEW_APIENTRY __eglMustCastToProperFunctionPointerType eglGetProcAddress(const char* name) {
     if (!name) return nullptr;
 
@@ -171,9 +180,9 @@ SFPEW_APIENTRY __eglMustCastToProperFunctionPointerType eglGetProcAddress(const 
     GETPROC_BACKEND_ALIAS(glGetActiveAttribARB, glGetActiveAttrib)
     GETPROC_BACKEND_ALIAS(glGetUniformfvARB, glGetUniformfv)
     GETPROC_BACKEND_ALIAS(glGetUniformivARB, glGetUniformiv)
-    GETPROC_BACKEND_ALIAS(glVertexAttribPointerARB, glVertexAttribPointer)
-    GETPROC_BACKEND_ALIAS(glEnableVertexAttribArrayARB, glEnableVertexAttribArray)
-    GETPROC_BACKEND_ALIAS(glDisableVertexAttribArrayARB, glDisableVertexAttribArray)
+    GETPROC_WRAPPER_ALIAS(glVertexAttribPointerARB, glVertexAttribPointer)
+    GETPROC_WRAPPER_ALIAS(glEnableVertexAttribArrayARB, glEnableVertexAttribArray)
+    GETPROC_WRAPPER_ALIAS(glDisableVertexAttribArrayARB, glDisableVertexAttribArray)
     GETPROC_BACKEND_ALIAS(glVertexAttrib1fARB, glVertexAttrib1f)
     GETPROC_BACKEND_ALIAS(glVertexAttrib2fARB, glVertexAttrib2f)
     GETPROC_BACKEND_ALIAS(glVertexAttrib3fARB, glVertexAttrib3f)
@@ -193,11 +202,11 @@ SFPEW_APIENTRY __eglMustCastToProperFunctionPointerType eglGetProcAddress(const 
         return (__eglMustCastToProperFunctionPointerType)glGetBufferSubData;
     }
     GETPROC_BACKEND_ALIAS(glGenBuffersARB, glGenBuffers)
-    GETPROC_BACKEND_ALIAS(glBufferDataARB, glBufferData)
-    GETPROC_BACKEND_ALIAS(glBufferSubDataARB, glBufferSubData)
+    GETPROC_WRAPPER_ALIAS(glBufferDataARB, glBufferData)
+    GETPROC_WRAPPER_ALIAS(glBufferSubDataARB, glBufferSubData)
     GETPROC_BACKEND_ALIAS(glIsBufferARB, glIsBuffer)
-    GETPROC_BACKEND_ALIAS(glGetBufferParameterivARB, glGetBufferParameteriv)
-    GETPROC_BACKEND_ALIAS(glUnmapBufferARB, glUnmapBuffer)
+    GETPROC_WRAPPER_ALIAS(glGetBufferParameterivARB, glGetBufferParameteriv)
+    GETPROC_WRAPPER_ALIAS(glUnmapBufferARB, glUnmapBuffer)
     if (std::strcmp("glGetUniformLocationARB", name) == 0) {
         return (__eglMustCastToProperFunctionPointerType)glGetUniformLocation;
     }
@@ -284,6 +293,18 @@ SFPEW_APIENTRY __eglMustCastToProperFunctionPointerType eglGetProcAddress(const 
     GETPROC(glBindVertexArray, name)
     GETPROC(glDeleteVertexArrays, name)
     GETPROC(glDeleteBuffers, name)
+    // Reads and writes through the bound GL_ARRAY_BUFFER / VAO. Wrapped so
+    // they stay visible to the wrapper rather than resolving to the backend's
+    // own pointer (plans/12).
+    GETPROC(glBufferData, name)
+    GETPROC(glBufferSubData, name)
+    GETPROC(glMapBufferRange, name)
+    GETPROC(glUnmapBuffer, name)
+    GETPROC(glGetBufferParameteriv, name)
+    GETPROC(glVertexAttribPointer, name)
+    GETPROC(glVertexAttribIPointer, name)
+    GETPROC(glEnableVertexAttribArray, name)
+    GETPROC(glDisableVertexAttribArray, name)
     if (std::strcmp("glBindBufferARB", name) == 0) {
         return (__eglMustCastToProperFunctionPointerType)glBindBuffer;
     }

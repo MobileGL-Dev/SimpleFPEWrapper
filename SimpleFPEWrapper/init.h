@@ -146,6 +146,25 @@ SFPEW_APIENTRY void glGetTexLevelParameterfv(GLenum target, GLint level, GLenum 
 // The current EGL context for this thread. Exact (and free) once the app has
 // called eglMakeCurrent through the wrapper; otherwise resolved by asking
 // libEGL, which on some loaders costs a syscall per query.
+// Buffer / vertex-attribute surface. Wrapped so the wrapper can observe reads
+// and writes through the bound GL_ARRAY_BUFFER and VAO (plans/12); otherwise
+// eglGetProcAddress hands the app the backend's own pointer and these become
+// invisible.
+SFPEW_APIENTRY void glBufferData(GLenum target, GLsizeiptr size, const void* data, GLenum usage);
+SFPEW_APIENTRY void glBufferSubData(GLenum target, GLintptr offset, GLsizeiptr size,
+                                    const void* data);
+SFPEW_APIENTRY void* glMapBufferRange(GLenum target, GLintptr offset, GLsizeiptr length,
+                                      GLbitfield access);
+SFPEW_APIENTRY GLboolean glUnmapBuffer(GLenum target);
+SFPEW_APIENTRY void glGetBufferParameteriv(GLenum target, GLenum pname, GLint* params);
+SFPEW_APIENTRY void glVertexAttribPointer(GLuint index, GLint size, GLenum type,
+                                          GLboolean normalized, GLsizei stride,
+                                          const void* pointer);
+SFPEW_APIENTRY void glVertexAttribIPointer(GLuint index, GLint size, GLenum type, GLsizei stride,
+                                           const void* pointer);
+SFPEW_APIENTRY void glEnableVertexAttribArray(GLuint index);
+SFPEW_APIENTRY void glDisableVertexAttribArray(GLuint index);
+
 EGLContext sfpewCurrentContext();
 void sfpewNoteCurrentContext(EGLContext context);
 EGLBoolean sfpewEglMakeCurrent(EGLDisplay dpy, EGLSurface draw, EGLSurface read, EGLContext ctx);

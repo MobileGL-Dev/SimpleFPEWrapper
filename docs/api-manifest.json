@@ -1,6 +1,6 @@
 {
  "source": "lookup.cpp",
- "count": 461,
+ "count": 528,
  "entries": {
   "glAccum": {
    "status": "resolvable",
@@ -34,6 +34,10 @@
    "status": "resolvable",
    "target": "glBegin"
   },
+  "glBindAttribLocationARB": {
+   "status": "backend-alias",
+   "target": "glBindAttribLocation"
+  },
   "glBindBuffer": {
    "status": "resolvable",
    "target": "glBindBuffer"
@@ -49,6 +53,10 @@
   "glBindFramebufferEXT": {
    "status": "alias",
    "target": "glBindFramebuffer"
+  },
+  "glBindRenderbufferEXT": {
+   "status": "backend-alias",
+   "target": "glBindRenderbuffer"
   },
   "glBindTexture": {
    "status": "resolvable",
@@ -98,6 +106,26 @@
    "status": "alias",
    "target": "glBlendFuncSeparate"
   },
+  "glBlitFramebufferEXT": {
+   "status": "backend-alias",
+   "target": "glBlitFramebuffer"
+  },
+  "glBufferData": {
+   "status": "resolvable",
+   "target": "glBufferData"
+  },
+  "glBufferDataARB": {
+   "status": "alias",
+   "target": "glBufferData"
+  },
+  "glBufferSubData": {
+   "status": "resolvable",
+   "target": "glBufferSubData"
+  },
+  "glBufferSubDataARB": {
+   "status": "alias",
+   "target": "glBufferSubData"
+  },
   "glCallList": {
    "status": "resolvable",
    "target": "glCallList"
@@ -105,6 +133,10 @@
   "glCallLists": {
    "status": "resolvable",
    "target": "glCallLists"
+  },
+  "glCheckFramebufferStatusEXT": {
+   "status": "backend-alias",
+   "target": "glCheckFramebufferStatus"
   },
   "glClear": {
    "status": "resolvable",
@@ -302,6 +334,10 @@
    "status": "alias",
    "target": "glDeleteBuffers"
   },
+  "glDeleteFramebuffersEXT": {
+   "status": "backend-alias",
+   "target": "glDeleteFramebuffers"
+  },
   "glDeleteLists": {
    "status": "resolvable",
    "target": "glDeleteLists"
@@ -313,6 +349,10 @@
   "glDeleteProgram": {
    "status": "resolvable",
    "target": "glDeleteProgram"
+  },
+  "glDeleteRenderbuffersEXT": {
+   "status": "backend-alias",
+   "target": "glDeleteRenderbuffers"
   },
   "glDeleteShader": {
    "status": "resolvable",
@@ -354,9 +394,25 @@
    "status": "resolvable",
    "target": "glDisableClientState"
   },
+  "glDisableVertexAttribArray": {
+   "status": "resolvable",
+   "target": "glDisableVertexAttribArray"
+  },
+  "glDisableVertexAttribArrayARB": {
+   "status": "alias",
+   "target": "glDisableVertexAttribArray"
+  },
   "glDrawArrays": {
    "status": "resolvable",
    "target": "glDrawArrays"
+  },
+  "glDrawBuffersARB": {
+   "status": "backend-alias",
+   "target": "glDrawBuffers"
+  },
+  "glDrawBuffersATI": {
+   "status": "backend-alias",
+   "target": "glDrawBuffers"
   },
   "glDrawElements": {
    "status": "resolvable",
@@ -385,6 +441,14 @@
   "glEnableClientState": {
    "status": "resolvable",
    "target": "glEnableClientState"
+  },
+  "glEnableVertexAttribArray": {
+   "status": "resolvable",
+   "target": "glEnableVertexAttribArray"
+  },
+  "glEnableVertexAttribArrayARB": {
+   "status": "alias",
+   "target": "glEnableVertexAttribArray"
   },
   "glEnd": {
    "status": "resolvable",
@@ -510,6 +574,10 @@
    "status": "resolvable",
    "target": "glFogiv"
   },
+  "glFramebufferRenderbufferEXT": {
+   "status": "backend-alias",
+   "target": "glFramebufferRenderbuffer"
+  },
   "glFramebufferTexture1D": {
    "status": "resolvable",
    "target": "glFramebufferTexture1D"
@@ -517,6 +585,10 @@
   "glFramebufferTexture1DEXT": {
    "status": "alias",
    "target": "glFramebufferTexture1D"
+  },
+  "glFramebufferTexture2DEXT": {
+   "status": "backend-alias",
+   "target": "glFramebufferTexture2D"
   },
   "glFramebufferTexture3D": {
    "status": "resolvable",
@@ -538,9 +610,33 @@
    "status": "resolvable",
    "target": "glFrustumf"
   },
+  "glGenBuffersARB": {
+   "status": "backend-alias",
+   "target": "glGenBuffers"
+  },
+  "glGenFramebuffersEXT": {
+   "status": "backend-alias",
+   "target": "glGenFramebuffers"
+  },
   "glGenLists": {
    "status": "resolvable",
    "target": "glGenLists"
+  },
+  "glGenRenderbuffersEXT": {
+   "status": "backend-alias",
+   "target": "glGenRenderbuffers"
+  },
+  "glGenerateMipmapEXT": {
+   "status": "backend-alias",
+   "target": "glGenerateMipmap"
+  },
+  "glGetActiveAttribARB": {
+   "status": "backend-alias",
+   "target": "glGetActiveAttrib"
+  },
+  "glGetActiveUniformARB": {
+   "status": "backend-alias",
+   "target": "glGetActiveUniform"
   },
   "glGetAttachedShaders": {
    "status": "resolvable",
@@ -557,6 +653,14 @@
   "glGetBooleanv": {
    "status": "resolvable",
    "target": "glGetBooleanv"
+  },
+  "glGetBufferParameteriv": {
+   "status": "resolvable",
+   "target": "glGetBufferParameteriv"
+  },
+  "glGetBufferParameterivARB": {
+   "status": "alias",
+   "target": "glGetBufferParameteriv"
   },
   "glGetBufferSubData": {
    "status": "resolvable",
@@ -581,6 +685,10 @@
   "glGetFloatv": {
    "status": "resolvable",
    "target": "glGetFloatv"
+  },
+  "glGetFramebufferAttachmentParameterivEXT": {
+   "status": "backend-alias",
+   "target": "glGetFramebufferAttachmentParameteriv"
   },
   "glGetHandleARB": {
    "status": "alias",
@@ -625,6 +733,10 @@
   "glGetProgramiv": {
    "status": "resolvable",
    "target": "glGetProgramiv"
+  },
+  "glGetRenderbufferParameterivEXT": {
+   "status": "backend-alias",
+   "target": "glGetRenderbufferParameteriv"
   },
   "glGetShaderInfoLog": {
    "status": "resolvable",
@@ -690,6 +802,14 @@
    "status": "alias",
    "target": "glGetUniformLocation"
   },
+  "glGetUniformfvARB": {
+   "status": "backend-alias",
+   "target": "glGetUniformfv"
+  },
+  "glGetUniformivARB": {
+   "status": "backend-alias",
+   "target": "glGetUniformiv"
+  },
   "glHint": {
    "status": "resolvable",
    "target": "glHint"
@@ -706,13 +826,25 @@
    "status": "resolvable",
    "target": "glInterleavedArrays"
   },
+  "glIsBufferARB": {
+   "status": "backend-alias",
+   "target": "glIsBuffer"
+  },
   "glIsEnabled": {
    "status": "resolvable",
    "target": "glIsEnabled"
   },
+  "glIsFramebufferEXT": {
+   "status": "backend-alias",
+   "target": "glIsFramebuffer"
+  },
   "glIsList": {
    "status": "resolvable",
    "target": "glIsList"
+  },
+  "glIsRenderbufferEXT": {
+   "status": "backend-alias",
+   "target": "glIsRenderbuffer"
   },
   "glLightModelf": {
    "status": "resolvable",
@@ -805,6 +937,10 @@
   "glMapBufferARB": {
    "status": "alias",
    "target": "glMapBuffer"
+  },
+  "glMapBufferRange": {
+   "status": "resolvable",
+   "target": "glMapBufferRange"
   },
   "glMapGrid1d": {
    "status": "resolvable",
@@ -1670,6 +1806,90 @@
    "status": "resolvable",
    "target": "glTranslatef"
   },
+  "glUniform1fARB": {
+   "status": "backend-alias",
+   "target": "glUniform1f"
+  },
+  "glUniform1fvARB": {
+   "status": "backend-alias",
+   "target": "glUniform1fv"
+  },
+  "glUniform1iARB": {
+   "status": "backend-alias",
+   "target": "glUniform1i"
+  },
+  "glUniform1ivARB": {
+   "status": "backend-alias",
+   "target": "glUniform1iv"
+  },
+  "glUniform2fARB": {
+   "status": "backend-alias",
+   "target": "glUniform2f"
+  },
+  "glUniform2fvARB": {
+   "status": "backend-alias",
+   "target": "glUniform2fv"
+  },
+  "glUniform2iARB": {
+   "status": "backend-alias",
+   "target": "glUniform2i"
+  },
+  "glUniform2ivARB": {
+   "status": "backend-alias",
+   "target": "glUniform2iv"
+  },
+  "glUniform3fARB": {
+   "status": "backend-alias",
+   "target": "glUniform3f"
+  },
+  "glUniform3fvARB": {
+   "status": "backend-alias",
+   "target": "glUniform3fv"
+  },
+  "glUniform3iARB": {
+   "status": "backend-alias",
+   "target": "glUniform3i"
+  },
+  "glUniform3ivARB": {
+   "status": "backend-alias",
+   "target": "glUniform3iv"
+  },
+  "glUniform4fARB": {
+   "status": "backend-alias",
+   "target": "glUniform4f"
+  },
+  "glUniform4fvARB": {
+   "status": "backend-alias",
+   "target": "glUniform4fv"
+  },
+  "glUniform4iARB": {
+   "status": "backend-alias",
+   "target": "glUniform4i"
+  },
+  "glUniform4ivARB": {
+   "status": "backend-alias",
+   "target": "glUniform4iv"
+  },
+  "glUniformMatrix2fvARB": {
+   "status": "backend-alias",
+   "target": "glUniformMatrix2fv"
+  },
+  "glUniformMatrix3fvARB": {
+   "status": "backend-alias",
+   "target": "glUniformMatrix3fv"
+  },
+  "glUniformMatrix4fvARB": {
+   "status": "backend-alias",
+   "target": "glUniformMatrix4fv"
+  },
+  "glUnmapBuffer": {
+   "status": "resolvable",
+   "target": "glUnmapBuffer"
+  },
+  "glUnmapBufferARB": {
+   "status": "alias",
+   "target": "glUnmapBuffer"
+  },
   "glUseProgram": {
    "status": "resolvable",
    "target": "glUseProgram"
@@ -1677,6 +1897,10 @@
   "glUseProgramObjectARB": {
    "status": "alias",
    "target": "glUseProgram"
+  },
+  "glValidateProgramARB": {
+   "status": "backend-alias",
+   "target": "glValidateProgram"
   },
   "glVertex2d": {
    "status": "resolvable",
@@ -1773,6 +1997,50 @@
   "glVertex4sv": {
    "status": "resolvable",
    "target": "glVertex4sv"
+  },
+  "glVertexAttrib1fARB": {
+   "status": "backend-alias",
+   "target": "glVertexAttrib1f"
+  },
+  "glVertexAttrib1fvARB": {
+   "status": "backend-alias",
+   "target": "glVertexAttrib1fv"
+  },
+  "glVertexAttrib2fARB": {
+   "status": "backend-alias",
+   "target": "glVertexAttrib2f"
+  },
+  "glVertexAttrib2fvARB": {
+   "status": "backend-alias",
+   "target": "glVertexAttrib2fv"
+  },
+  "glVertexAttrib3fARB": {
+   "status": "backend-alias",
+   "target": "glVertexAttrib3f"
+  },
+  "glVertexAttrib3fvARB": {
+   "status": "backend-alias",
+   "target": "glVertexAttrib3fv"
+  },
+  "glVertexAttrib4fARB": {
+   "status": "backend-alias",
+   "target": "glVertexAttrib4f"
+  },
+  "glVertexAttrib4fvARB": {
+   "status": "backend-alias",
+   "target": "glVertexAttrib4fv"
+  },
+  "glVertexAttribIPointer": {
+   "status": "resolvable",
+   "target": "glVertexAttribIPointer"
+  },
+  "glVertexAttribPointer": {
+   "status": "resolvable",
+   "target": "glVertexAttribPointer"
+  },
+  "glVertexAttribPointerARB": {
+   "status": "alias",
+   "target": "glVertexAttribPointer"
   },
   "glVertexPointer": {
    "status": "resolvable",

@@ -28,10 +28,21 @@ def main() -> int:
         r'std::strcmp\("(\w+)", name\) == 0\) \{\s*\n\s*return \(__eglMustCastToProperFunctionPointerType\)(\w+);',
         src,
     )
+    # The two alias macros resolve just as many names as the hand-written
+    # strcmp blocks above, so they belong in the surface too. They differ in
+    # what the caller gets: WRAPPER_ALIAS hands out the wrapper's own entry
+    # point, BACKEND_ALIAS hands out the backend's (an EXT/ARB spelling of a
+    # command the wrapper does not need to intercept).
+    wrapper_aliases = re.findall(r"^\s*GETPROC_WRAPPER_ALIAS\((\w+), (\w+)\)", src, re.M)
+    backend_aliases = re.findall(r"^\s*GETPROC_BACKEND_ALIAS\((\w+), (\w+)\)", src, re.M)
 
     entries = {name: {"status": "resolvable", "target": name} for name in direct}
     for alias, target in aliases:
         entries.setdefault(alias, {"status": "alias", "target": target})
+    for alias, target in wrapper_aliases:
+        entries.setdefault(alias, {"status": "alias", "target": target})
+    for alias, target in backend_aliases:
+        entries.setdefault(alias, {"status": "backend-alias", "target": target})
 
     ordered = dict(sorted(entries.items()))
     out_dir.mkdir(parents=True, exist_ok=True)

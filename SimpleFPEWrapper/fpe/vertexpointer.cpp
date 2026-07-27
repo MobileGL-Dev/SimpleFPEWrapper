@@ -113,6 +113,85 @@ void glDeleteBuffers(GLsizei n, const GLuint* buffers) {
 
 GLuint sfpewLogicalArrayBufferBinding() { return getLogicalArrayBufferBinding(); }
 
+// --- Buffer and vertex-attribute surface (plans/12) ---------------------
+//
+// These are plain pass-throughs today. They exist because the wrapper must
+// SEE them: each one reads or writes through the bound GL_ARRAY_BUFFER or the
+// bound VAO, and unwrapped they fall through to the backend's own pointer
+// where the wrapper cannot observe them at all. That leaves the wrapper
+// shadowing the array-buffer binding while blind to writes through it, and it
+// is the prerequisite for deferring the fixed-function draw-state restore
+// (which would otherwise let an app's glBufferData land in the wrapper's
+// immediate ring buffer).
+//
+// Each also orders against the pending glyph batch, like every other entry
+// point that can change what a queued draw would observe.
+
+void glBufferData(GLenum target, GLsizeiptr size, const void* data, GLenum usage) {
+    if (!sfpewEnsureBackend() || g_glFuncs.glBufferData == nullptr) return;
+    (void)g_glstate; // entry strict resolve
+    flushPendingImmediateDraws();
+    g_glFuncs.glBufferData(target, size, data, usage);
+}
+
+void glBufferSubData(GLenum target, GLintptr offset, GLsizeiptr size, const void* data) {
+    if (!sfpewEnsureBackend() || g_glFuncs.glBufferSubData == nullptr) return;
+    (void)g_glstate;
+    flushPendingImmediateDraws();
+    g_glFuncs.glBufferSubData(target, offset, size, data);
+}
+
+void* glMapBufferRange(GLenum target, GLintptr offset, GLsizeiptr length, GLbitfield access) {
+    if (!sfpewEnsureBackend() || g_glFuncs.glMapBufferRange == nullptr) return nullptr;
+    (void)g_glstate;
+    flushPendingImmediateDraws();
+    return g_glFuncs.glMapBufferRange(target, offset, length, access);
+}
+
+GLboolean glUnmapBuffer(GLenum target) {
+    if (!sfpewEnsureBackend() || g_glFuncs.glUnmapBuffer == nullptr) return GL_FALSE;
+    (void)g_glstate;
+    flushPendingImmediateDraws();
+    return g_glFuncs.glUnmapBuffer(target);
+}
+
+void glGetBufferParameteriv(GLenum target, GLenum pname, GLint* params) {
+    if (!sfpewEnsureBackend() || g_glFuncs.glGetBufferParameteriv == nullptr) return;
+    (void)g_glstate;
+    flushPendingImmediateDraws();
+    g_glFuncs.glGetBufferParameteriv(target, pname, params);
+}
+
+void glVertexAttribPointer(GLuint index, GLint size, GLenum type, GLboolean normalized,
+                           GLsizei stride, const void* pointer) {
+    if (!sfpewEnsureBackend() || g_glFuncs.glVertexAttribPointer == nullptr) return;
+    (void)g_glstate;
+    flushPendingImmediateDraws();
+    g_glFuncs.glVertexAttribPointer(index, size, type, normalized, stride, pointer);
+}
+
+void glVertexAttribIPointer(GLuint index, GLint size, GLenum type, GLsizei stride,
+                            const void* pointer) {
+    if (!sfpewEnsureBackend() || g_glFuncs.glVertexAttribIPointer == nullptr) return;
+    (void)g_glstate;
+    flushPendingImmediateDraws();
+    g_glFuncs.glVertexAttribIPointer(index, size, type, stride, pointer);
+}
+
+void glEnableVertexAttribArray(GLuint index) {
+    if (!sfpewEnsureBackend() || g_glFuncs.glEnableVertexAttribArray == nullptr) return;
+    (void)g_glstate;
+    flushPendingImmediateDraws();
+    g_glFuncs.glEnableVertexAttribArray(index);
+}
+
+void glDisableVertexAttribArray(GLuint index) {
+    if (!sfpewEnsureBackend() || g_glFuncs.glDisableVertexAttribArray == nullptr) return;
+    (void)g_glstate;
+    flushPendingImmediateDraws();
+    g_glFuncs.glDisableVertexAttribArray(index);
+}
+
 GLuint sfpewLogicalVertexArrayBinding() { return getLogicalVertexArrayBinding(); }
 
 // Wrapped only to keep the shadow above current; the call itself is a

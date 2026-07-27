@@ -506,6 +506,74 @@ int main(void) {
         printf("OK: phase 13 texture-alpha cutout culls exactly the transparent texels\n");
     }
 
+    // --- Phase 14: glPushAttrib/glPopAttrib must restore the BLEND state.
+    // Legacy Minecraft brackets GUI and item rendering with glPushAttrib; a
+    // blend function that leaks out corrupts every later translucent draw.
+    // Additive blend inside the bracket, then after popping back to the
+    // default (disabled) state a half-alpha red quad must REPLACE the blue
+    // background rather than blend with it.
+    {
+        void (*fPushAttrib)(GLbitfield) = (void (*)(GLbitfield))resolve("glPushAttrib");
+        void (*fPopAttrib)(void) = (void (*)(void))resolve("glPopAttrib");
+        void (*fBlendFunc)(GLenum, GLenum) = (void (*)(GLenum, GLenum))resolve("glBlendFunc");
+        if (!fPushAttrib || !fPopAttrib || !fBlendFunc) return 1;
+
+        fClearColor(0.0f, 0.0f, 1.0f, 1.0f);
+        fClear(GL_COLOR_BUFFER_BIT);
+        fPushAttrib(0x00004000 /* GL_COLOR_BUFFER_BIT */);
+        fEnable(0x0BE2 /* GL_BLEND */);
+        fBlendFunc(1 /* GL_ONE */, 1 /* GL_ONE */); // additive
+        fPopAttrib();
+
+        // Blend is back off: the fragment must overwrite the background.
+        fBegin(GL_QUADS);
+        fColor4f(1.0f, 0.0f, 0.0f, 0.5f);
+        fVertex2f(-1.0f, -1.0f);
+        fVertex2f(1.0f, -1.0f);
+        fVertex2f(1.0f, 1.0f);
+        fVertex2f(-1.0f, 1.0f);
+        fEnd();
+        fReadPixels(32, 32, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+        if (fGetError() != 0) {
+            fprintf(stderr, "FAIL: phase 14 raised a GL error\n");
+            return 1;
+        }
+        if (pixel[0] < 200 || pixel[2] > 50) {
+            fprintf(stderr,
+                    "FAIL: phase 14 pixel (%u,%u,%u), expected opaque red. glPopAttrib did not "
+                    "restore the blend state, so the additive blend leaked out of the bracket.\n",
+                    pixel[0], pixel[1], pixel[2]);
+            return 1;
+        }
+        // GL_ENABLE_BIT is the more common legacy bracket and covers the
+        // enable flags only, GL_BLEND among them.
+        fClear(GL_COLOR_BUFFER_BIT);
+        fPushAttrib(0x00002000 /* GL_ENABLE_BIT */);
+        fEnable(0x0BE2 /* GL_BLEND */);
+        fBlendFunc(1 /* GL_ONE */, 1 /* GL_ONE */);
+        fPopAttrib();
+        fBegin(GL_QUADS);
+        fColor4f(1.0f, 0.0f, 0.0f, 0.5f);
+        fVertex2f(-1.0f, -1.0f);
+        fVertex2f(1.0f, -1.0f);
+        fVertex2f(1.0f, 1.0f);
+        fVertex2f(-1.0f, 1.0f);
+        fEnd();
+        fReadPixels(32, 32, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+        if (fGetError() != 0 || pixel[0] < 200 || pixel[2] > 50) {
+            fprintf(stderr,
+                    "FAIL: phase 14 GL_ENABLE_BIT pixel (%u,%u,%u), expected opaque red: "
+                    "glPopAttrib did not restore GL_BLEND\n",
+                    pixel[0], pixel[1], pixel[2]);
+            return 1;
+        }
+        // The blend FUNCTION set inside the bracket legitimately survives a
+        // GL_ENABLE_BIT pop (it is not an enable flag), so leave the state
+        // clean for anything added after this phase.
+        fBlendFunc(0x0302 /* GL_SRC_ALPHA */, 0x0303 /* GL_ONE_MINUS_SRC_ALPHA */);
+        printf("OK: phase 14 glPushAttrib/glPopAttrib restores the blend state\n");
+    }
+
     printf("OK: all FPE render phases passed on the real GLES3 device\n");
     return 0;
 }

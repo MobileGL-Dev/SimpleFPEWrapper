@@ -574,20 +574,34 @@ uniform vec4 fpe_ClipPlane[6];
 uniform float fpe_NormalScale;
 )";
 
+// Compatibility vertex ATTRIBUTES. Each one consumes a real attribute
+// slot, so they are emitted only when the shader actually references them:
+// a GL 3+ core shader that places its own inputs with layout(location = N)
+// would otherwise collide with the auto-mapped locations of thirteen
+// unused compat attributes ("overlapping location" at link time).
+struct compat_attribute_t {
+    const char* declaration;
+    const char* name;
+};
+constexpr compat_attribute_t kVertexAttributes[] = {
+    {"in vec4 fpe_Vertex;\n", "fpe_Vertex"},
+    {"in vec3 fpe_Normal;\n", "fpe_Normal"},
+    {"in vec4 fpe_Color;\n", "fpe_Color"},
+    {"in vec4 fpe_SecondaryColor;\n", "fpe_SecondaryColor"},
+    {"in float fpe_FogCoord;\n", "fpe_FogCoord"},
+    {"in vec4 fpe_MultiTexCoord0;\n", "fpe_MultiTexCoord0"},
+    {"in vec4 fpe_MultiTexCoord1;\n", "fpe_MultiTexCoord1"},
+    {"in vec4 fpe_MultiTexCoord2;\n", "fpe_MultiTexCoord2"},
+    {"in vec4 fpe_MultiTexCoord3;\n", "fpe_MultiTexCoord3"},
+    {"in vec4 fpe_MultiTexCoord4;\n", "fpe_MultiTexCoord4"},
+    {"in vec4 fpe_MultiTexCoord5;\n", "fpe_MultiTexCoord5"},
+    {"in vec4 fpe_MultiTexCoord6;\n", "fpe_MultiTexCoord6"},
+    {"in vec4 fpe_MultiTexCoord7;\n", "fpe_MultiTexCoord7"},
+};
+
+// Outputs cost a varying, not an attribute slot, and the fragment prelude
+// declares the matching inputs unconditionally, so these stay whole.
 constexpr char kVertexPrelude[] = R"(
-in vec4 fpe_Vertex;
-in vec3 fpe_Normal;
-in vec4 fpe_Color;
-in vec4 fpe_SecondaryColor;
-in float fpe_FogCoord;
-in vec4 fpe_MultiTexCoord0;
-in vec4 fpe_MultiTexCoord1;
-in vec4 fpe_MultiTexCoord2;
-in vec4 fpe_MultiTexCoord3;
-in vec4 fpe_MultiTexCoord4;
-in vec4 fpe_MultiTexCoord5;
-in vec4 fpe_MultiTexCoord6;
-in vec4 fpe_MultiTexCoord7;
 out vec4 fpe_FrontColor;
 out vec4 fpe_BackColor;
 out vec4 fpe_FrontSecondaryColor;
@@ -760,25 +774,76 @@ std::string rewriteBody(bool vertex, const std::string& source, int rename_level
     return body;
 }
 
+// Word-boundary identifier search over already-rewritten source.
+bool referencesIdentifier(const std::string& body, const char* name) {
+    const size_t length = std::strlen(name);
+    for (size_t pos = 0; (pos = body.find(name, pos)) != std::string::npos; pos += length) {
+        const bool left = pos == 0 || !identChar(body[pos - 1]);
+        const bool right = pos + length >= body.size() || !identChar(body[pos + length]);
+        if (left && right) return true;
+    }
+    return false;
+}
+
 std::string buildPrelude(bool vertex, bool uses_fragdata, bool with_bodies,
-                         unsigned max_draw_buffers) {
+                         unsigned max_draw_buffers, const std::string& all_bodies) {
     std::string result = "#version 450\n"; // SPIR-V rejects compatibility
     result += kSharedPrelude;
     result += with_bodies ? kSharedPreludeFuncs : kSharedPreludeProtos;
     result += vertex ? kVertexPrelude : kFragmentPrelude;
     if (vertex) {
-        result += with_bodies ? kVertexPreludeFuncs : kVertexPreludeProtos;
-    } else {
-        if (uses_fragdata) {
-            // FragColor and FragData[0] would collide on one location;
-            // declare only what the shader writes (GL forbids mixing them).
-            result += "out vec4 fpe_FragData[" + std::to_string(max_draw_buffers) + "];\n";
-        } else {
-            result += kFragColorOut;
+        // ftransform() reads fpe_Vertex, so its use counts as a reference.
+        const bool uses_ftransform = referencesIdentifier(all_bodies, "ftransform");
+        bool has_vertex_attribute = false;
+        for (const auto& attribute : kVertexAttributes) {
+            const bool is_vertex = std::strcmp(attribute.name, "fpe_Vertex") == 0;
+            if (!referencesIdentifier(all_bodies, attribute.name) &&
+                !(uses_ftransform && is_vertex)) {
+                continue;
+            }
+            result += attribute.declaration;
+            has_vertex_attribute = has_vertex_attribute || is_vertex;
         }
+        // ftransform()'s body reads fpe_Vertex; without that attribute the
+        // helper cannot be declared at all (a modern shader never calls it).
+        if (has_vertex_attribute) result += with_bodies ? kVertexPreludeFuncs : kVertexPreludeProtos;
+    } else if (uses_fragdata) {
+        // FragColor and FragData[0] would collide on one location; declare
+        // only what the shader writes (GL forbids mixing them).
+        result += "out vec4 fpe_FragData[" + std::to_string(max_draw_buffers) + "];\n";
+        result += with_bodies ? kAlphaTestPrelude : kAlphaTestPrototypes;
+    } else if (referencesIdentifier(all_bodies, "fpe_FragColor")) {
+        result += kFragColorOut;
         result += with_bodies ? kAlphaTestPrelude : kAlphaTestPrototypes;
     }
+    // A shader that writes neither gl_FragColor nor gl_FragData declares its
+    // own output (GL 3+ core style). Adding fpe_FragColor next to it would
+    // put two outputs on draw buffer 0 and the user's writes would land
+    // nowhere; the alpha test is likewise a compatibility-only feature, so
+    // both the declaration and the test wrapper are skipped.
     return result;
+}
+
+// True when the shader itself places its inputs with layout(location = N).
+// Such a shader (GL 3+ core style) addresses those exact slots from
+// glVertexAttribPointer, so the locations must survive translation; legacy
+// compat shaders declare none and rely on glBindAttribLocation instead.
+bool declaresInputLocation(const std::string& body) {
+    for (size_t pos = 0; (pos = body.find("layout", pos)) != std::string::npos; pos += 6) {
+        if (pos > 0 && identChar(body[pos - 1])) continue;
+        const size_t close = body.find(')', pos);
+        if (close == std::string::npos) break;
+        if (body.compare(pos + 6, close - pos - 6, "") == 0) continue;
+        const std::string qualifiers = body.substr(pos, close - pos);
+        if (qualifiers.find("location") == std::string::npos) continue;
+        // The declaration that follows must be an input.
+        size_t decl = close + 1;
+        while (decl < body.size() && (body[decl] == ' ' || body[decl] == '\t' || body[decl] == '\n' ||
+                                      body[decl] == '\r'))
+            ++decl;
+        if (body.compare(decl, 3, "in ") == 0 || body.compare(decl, 3, "in\t") == 0) return true;
+    }
+    return false;
 }
 
 // Renames the user's entry point so a generated main() can run the alpha
@@ -829,11 +894,20 @@ std::vector<std::string> preprocessUnits(GLenum stage, const std::vector<std::st
         bodies.push_back(rewriteBody(vertex, source, rename_level));
         uses_fragdata = uses_fragdata || bodies.back().find("fpe_FragData") != std::string::npos;
     }
+    // Prelude filtering must agree across the stage's TUs, so it looks at
+    // every body: a helper TU may be the one touching a compat symbol.
+    std::string all_bodies;
+    for (const auto& body : bodies) all_bodies += body;
+
     // Wrap the fragment entry point so the emulated alpha test runs on the
     // shader's own output (see kAlphaTestPrelude). Only the TU that owns
     // main() is touched; the others keep their helper functions.
     std::string generated_main;
-    if (!vertex) {
+    // Only the compatibility outputs can carry the emulated alpha test: a
+    // core-profile shader declares its own output (whose name we must not
+    // assume) and cannot use alpha test in the first place.
+    const bool compat_output = uses_fragdata || referencesIdentifier(all_bodies, "fpe_FragColor");
+    if (!vertex && compat_output) {
         for (auto& body : bodies) {
             if (!renameEntryPoint(body)) continue;
             const char* alpha_source = uses_fragdata ? "fpe_FragData[0].a" : "fpe_FragColor.a";
@@ -848,7 +922,7 @@ std::vector<std::string> preprocessUnits(GLenum stage, const std::vector<std::st
     std::vector<std::string> units;
     units.reserve(bodies.size());
     for (size_t i = 0; i < bodies.size(); ++i) {
-        std::string unit = buildPrelude(vertex, uses_fragdata, i == 0, max_draw_buffers);
+        std::string unit = buildPrelude(vertex, uses_fragdata, i == 0, max_draw_buffers, all_bodies);
         unit += "#line 1\n"; // keep glslang diagnostics on user line numbers
         unit += bodies[i];
         if (unit.back() != '\n') unit += '\n';
@@ -873,20 +947,24 @@ translation_result_t translate(GLenum stage, const std::string& source,
 
 namespace {
 translation_result_t translateUnits(GLenum stage, const std::vector<std::string>& units,
-                                    const target_language_t& target);
+                                    const target_language_t& target, bool explicit_input_locations);
 } // namespace
 
 translation_result_t translate(GLenum stage, const std::vector<std::string>& sources,
                                const target_language_t& target) {
-    auto result =
-        translateUnits(stage, preprocessUnits(stage, sources, 0, target.max_draw_buffers), target);
+    bool explicit_input_locations = false;
+    for (const auto& source : sources)
+        explicit_input_locations = explicit_input_locations || declaresInputLocation(source);
+    auto result = translateUnits(stage, preprocessUnits(stage, sources, 0, target.max_draw_buffers),
+                                 target, explicit_input_locations);
     // Escalating rename retries, keeping the PLAIN attempt's diagnostics
     // when everything fails: level 1 un-shadows sampler names (`uniform
     // sampler2D texture;` exists in packs of every #version), level 2 also
     // renames identifiers that were plain in <= 1.20 (mat2x3, lowp, ...).
     for (int level = 1; level <= 2 && !result.ok && !result.parse_ok; ++level) {
-        auto retry = translateUnits(
-            stage, preprocessUnits(stage, sources, level, target.max_draw_buffers), target);
+        auto retry =
+            translateUnits(stage, preprocessUnits(stage, sources, level, target.max_draw_buffers),
+                           target, explicit_input_locations);
         if (retry.ok) return retry;
     }
     return result;
@@ -894,7 +972,8 @@ translation_result_t translate(GLenum stage, const std::vector<std::string>& sou
 
 namespace {
 translation_result_t translateUnits(GLenum stage, const std::vector<std::string>& units,
-                                    const target_language_t& target) {
+                                    const target_language_t& target,
+                                    bool explicit_input_locations) {
     translation_result_t result;
     for (const auto& unit : units) result.preprocessed += unit;
 
@@ -970,11 +1049,19 @@ translation_result_t translateUnits(GLenum stage, const std::vector<std::string>
         for (const auto& r : resources.separate_samplers) strip(r);
         if (lang == EShLangVertex) {
             for (const auto& r : resources.stage_outputs) strip(r);
-            // VS INPUTS lose their auto-mapped locations too: a hardcoded
-            // layout(location=N) overrides the app's glBindAttribLocation
-            // (OptiFine pins mc_Entity/mc_midTexCoord that way), and name
-            // lookups via glGetAttribLocation work regardless.
-            for (const auto& r : resources.stage_inputs) strip(r);
+            // VS input locations are load-bearing in opposite directions
+            // depending on the shader's era, so only the AUTO-MAPPED ones
+            // are dropped:
+            //  - legacy compat shaders declare no locations at all and let
+            //    the app place attributes with glBindAttribLocation
+            //    (OptiFine pins mc_Entity/mc_midTexCoord that way), which a
+            //    location baked in by glslang's auto-mapper would override;
+            //  - GL 3+ core shaders declare layout(location = N) themselves
+            //    and address those exact slots with glVertexAttribPointer,
+            //    never asking the linker where anything went.
+            if (!explicit_input_locations) {
+                for (const auto& r : resources.stage_inputs) strip(r);
+            }
         } else {
             for (const auto& r : resources.stage_inputs) strip(r);
         }

@@ -140,6 +140,14 @@ if(NOT ANDROID)
                 find_library(SFPEW_TEST_EGL EGL)
                 find_library(SFPEW_TEST_GLES GLESv2)
                 if(SFPEW_TEST_EGL AND SFPEW_TEST_GLES)
+                        add_executable(smoke_gl3_core tests/smoke_gl3_core.c)
+                        target_compile_definitions(smoke_gl3_core PRIVATE
+                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
+                        target_link_libraries(smoke_gl3_core PRIVATE dl ${SFPEW_TEST_EGL})
+                        add_dependencies(smoke_gl3_core ${CMAKE_PROJECT_NAME})
+                        add_test(NAME smoke_gl3_core COMMAND smoke_gl3_core)
+                        set_tests_properties(smoke_gl3_core PROPERTIES SKIP_RETURN_CODE 77)
+
                         add_executable(smoke_fog tests/smoke_fog.c)
                         target_compile_definitions(smoke_fog PRIVATE
                                 WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")

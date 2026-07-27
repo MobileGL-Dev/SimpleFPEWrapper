@@ -172,6 +172,14 @@ if(NOT ANDROID)
                         add_test(NAME smoke_mixed_pipeline COMMAND smoke_mixed_pipeline)
                         set_tests_properties(smoke_mixed_pipeline PROPERTIES SKIP_RETURN_CODE 77)
 
+                        add_executable(smoke_immediate_merge tests/smoke_immediate_merge.c)
+                        target_compile_definitions(smoke_immediate_merge PRIVATE
+                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
+                        target_link_libraries(smoke_immediate_merge PRIVATE dl ${SFPEW_TEST_EGL})
+                        add_dependencies(smoke_immediate_merge ${CMAKE_PROJECT_NAME})
+                        add_test(NAME smoke_immediate_merge COMMAND smoke_immediate_merge)
+                        set_tests_properties(smoke_immediate_merge PROPERTIES SKIP_RETURN_CODE 77)
+
                         add_executable(smoke_vbo_surface tests/smoke_vbo_surface.c)
                         target_compile_definitions(smoke_vbo_surface PRIVATE
                                 WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")

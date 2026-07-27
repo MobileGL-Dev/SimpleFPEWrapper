@@ -20,7 +20,13 @@ namespace {
 
 constexpr size_t kImmediateVboMinCapacity = 16u * 1024u * 1024u;
 constexpr size_t kImmediateVboAlignment = 256u;
-constexpr size_t kImmediateGlyphBatchLimit = 256u;
+// Merge window for tiny glBegin/glEnd runs. Runs longer than the vertex limit
+// already amortize their per-draw fixed cost, so they draw directly. The run
+// and total-vertex caps bound both the copy work and how long a draw can sit
+// pending before some entry point flushes it.
+constexpr size_t kImmediateMergeVertexLimit = 64u;
+constexpr size_t kImmediateMergeRunLimit = 256u;
+constexpr size_t kImmediateMergeVertexBudget = 8192u;
 
 } // namespace
 
@@ -164,21 +170,30 @@ struct immediate_draw_sizes_guard_t {
     immediate_draw_sizes_guard_t& operator=(const immediate_draw_sizes_guard_t&) = delete;
 };
 
-struct pending_glyph_batch_t {
+struct pending_immediate_batch_t {
     // Batches are keyed to the context they were collected on: replaying
     // vertex data or texture bindings on a different context would draw
     // garbage (plans/07).
     EGLContext context = EGL_NO_CONTEXT;
     bool active = false;
+    // What the merged stream draws as. Runs only merge into a batch whose
+    // target primitive matches, because a single draw call has one mode.
+    GLenum primitive = GL_TRIANGLES;
+    // A lone pending run is held in its ORIGINAL form: rewriting strips/fans/
+    // quads into independent primitives inflates the stream (a quad grows 4
+    // vertices to 6), which is a loss if no second run ever joins. The
+    // expansion is paid only when one does.
+    bool unexpanded = false;
+    GLenum unexpandedPrimitive = GL_TRIANGLES;
     fixed_function_draw_size_t sizes{};
     std::vector<GLfloat> vertices;
     size_t vertexCount = 0;
-    size_t glyphCount = 0;
+    size_t runCount = 0;
     GLenum activeTexture = GL_TEXTURE0;
     GLuint texture2D = 0;
 };
 
-thread_local pending_glyph_batch_t pendingGlyphBatch;
+thread_local pending_immediate_batch_t pendingGlyphBatch;
 
 // `sizes` describes the interleaved STREAM layout. `constant_sizes`, when
 // non-null, additionally declares slots whose data is NOT in the stream but
@@ -319,54 +334,188 @@ void drawImmediateVertices(GLenum primitive, const GLfloat* vertices, size_t flo
     }
 }
 
-bool queueGlyphTriangleStrip(const fixed_function_draw_state_t& draw) {
-    if (DisplayListManager::isCalling() || draw.primitive != GL_TRIANGLE_STRIP ||
-        draw.vertex_count != 4 || draw.vb.empty() || draw.vb.size() % 4u != 0) {
+// What primitive a small glBegin/glEnd run can be rewritten into so that
+// consecutive runs concatenate into one draw. GL_NONE means "not mergeable".
+GLenum mergeTargetPrimitive(GLenum primitive, size_t vertexCount) {
+    switch (primitive) {
+    case GL_TRIANGLES:
+        return vertexCount >= 3 && vertexCount % 3u == 0 ? GL_TRIANGLES : GL_NONE;
+    case GL_TRIANGLE_STRIP:
+    case GL_TRIANGLE_FAN:
+    case GL_POLYGON:
+        return vertexCount >= 3 ? GL_TRIANGLES : GL_NONE;
+    case GL_QUADS:
+        return vertexCount >= 4 && vertexCount % 4u == 0 ? GL_TRIANGLES : GL_NONE;
+    case GL_QUAD_STRIP:
+        return vertexCount >= 4 && vertexCount % 2u == 0 ? GL_TRIANGLES : GL_NONE;
+    case GL_LINES:
+        return vertexCount >= 2 && vertexCount % 2u == 0 ? GL_LINES : GL_NONE;
+    case GL_LINE_STRIP:
+    case GL_LINE_LOOP:
+        return vertexCount >= 2 ? GL_LINES : GL_NONE;
+    case GL_POINTS:
+        return GL_POINTS;
+    default:
+        return GL_NONE;
+    }
+}
+
+// Appends `draw`'s vertices to `out`, rewritten into independent primitives of
+// the merge target. Strips/fans/loops lose their implicit connectivity here,
+// which is exactly what makes concatenation legal.
+void appendMergedRun(GLenum primitive, const GLfloat* src, size_t count, size_t stride,
+                     std::vector<GLfloat>& out, size_t* appendedVertices) {
+    size_t appended = 0;
+    const auto emit = [&](size_t index) {
+        const size_t offset = out.size();
+        out.resize(offset + stride);
+        std::memcpy(out.data() + offset, src + index * stride, stride * sizeof(GLfloat));
+        ++appended;
+    };
+    const auto emitTriangle = [&](size_t a, size_t b, size_t c) {
+        emit(a);
+        emit(b);
+        emit(c);
+    };
+
+    switch (primitive) {
+    case GL_POINTS:
+    case GL_LINES:
+    case GL_TRIANGLES:
+        // Already independent: one contiguous copy.
+        {
+            const size_t offset = out.size();
+            out.resize(offset + count * stride);
+            std::memcpy(out.data() + offset, src, count * stride * sizeof(GLfloat));
+            appended = count;
+        }
+        break;
+    case GL_LINE_STRIP:
+        for (size_t i = 0; i + 1 < count; ++i) {
+            emit(i);
+            emit(i + 1);
+        }
+        break;
+    case GL_LINE_LOOP:
+        for (size_t i = 0; i + 1 < count; ++i) {
+            emit(i);
+            emit(i + 1);
+        }
+        if (count > 2) {
+            emit(count - 1);
+            emit(0);
+        }
+        break;
+    case GL_TRIANGLE_STRIP:
+        // Odd triangles swap their first two vertices to keep the winding.
+        for (size_t i = 0; i + 2 < count; ++i) {
+            if ((i & 1u) == 0u) emitTriangle(i, i + 1, i + 2);
+            else emitTriangle(i + 1, i, i + 2);
+        }
+        break;
+    case GL_TRIANGLE_FAN:
+    case GL_POLYGON:
+        for (size_t i = 1; i + 1 < count; ++i) emitTriangle(0, i, i + 1);
+        break;
+    case GL_QUADS:
+        // Matches the index order the non-merged quad path uses.
+        for (size_t q = 0; q + 3 < count; q += 4) {
+            emitTriangle(q, q + 1, q + 2);
+            emitTriangle(q + 2, q + 3, q);
+        }
+        break;
+    case GL_QUAD_STRIP:
+        // Spec vertex order: 2n, 2n+1, 2n+3, 2n+2 forms each quad.
+        for (size_t i = 0; i + 3 < count; i += 2) {
+            emitTriangle(i, i + 1, i + 3);
+            emitTriangle(i + 3, i + 2, i);
+        }
+        break;
+    default:
+        break;
+    }
+    *appendedVertices = appended;
+}
+
+// Merges a small glBegin/glEnd run into the pending batch so a burst of tiny
+// primitives costs one program hash, one attribute layout, one uniform push
+// and one draw call instead of one of each per run (plans/12). Any entry point
+// outside the vertex family flushes the batch first (sfpewEntryBarrier), so a
+// merged run can never observe state that changed after it was collected.
+bool queueImmediateRun(const fixed_function_draw_state_t& draw) {
+    if (DisplayListManager::isCalling() || draw.vb.empty() || draw.vertex_count == 0 ||
+        draw.vb.size() % draw.vertex_count != 0) {
         return false;
     }
+    // Selection/feedback transforms on the CPU and must stay in draw order.
+    if (g_glstate_c.render_mode != GL_RENDER) return false;
+    // Large runs already amortize their own fixed cost, and rewriting them
+    // would copy (and for quads inflate) a stream the GPU could have taken
+    // as-is. Only the small-batch case is worth merging.
+    if (draw.vertex_count > kImmediateMergeVertexLimit) return false;
+
+    const GLenum target = mergeTargetPrimitive(draw.primitive, draw.vertex_count);
+    if (target == GL_NONE) return false;
 
     auto& batch = pendingGlyphBatch;
     const auto& sizes = draw.current_data.sizes;
     const GLenum activeTexture = sfpewLogicalActiveTexture();
     const GLuint texture2D = sfpewLogicalTextureBinding(GL_TEXTURE_2D);
     if (batch.active &&
-        (std::memcmp(&batch.sizes, &sizes, sizeof(sizes)) != 0 ||
+        (batch.primitive != target || std::memcmp(&batch.sizes, &sizes, sizeof(sizes)) != 0 ||
          batch.activeTexture != activeTexture || batch.texture2D != texture2D)) {
         flushPendingImmediateDraws();
     }
+    const size_t stride = draw.vb.size() / draw.vertex_count;
     if (!batch.active) {
+        // First run: keep it verbatim. If the next entry point is a state
+        // change (the common case outside a tight draw loop) this batch flushes
+        // as the original primitive and costs one stream copy over drawing
+        // directly - no expansion, no inflated upload.
         batch.active = true;
         // Called from glEnd, whose entry resolve refreshed the snapshot.
         batch.context = (EGLContext)glstate_t::cached_context();
+        batch.primitive = target;
+        batch.unexpanded = true;
+        batch.unexpandedPrimitive = draw.primitive;
         batch.sizes = sizes;
-        batch.vertices.clear();
-        batch.vertexCount = 0;
-        batch.glyphCount = 0;
+        batch.vertices.assign(draw.vb.begin(), draw.vb.end());
+        batch.vertexCount = draw.vertex_count;
+        batch.runCount = 1;
         batch.activeTexture = activeTexture;
         batch.texture2D = texture2D;
-        batch.vertices.reserve(kImmediateGlyphBatchLimit * (draw.vb.size() / 4u) * 6u);
+        return true;
     }
 
-    const size_t stride = draw.vb.size() / 4u;
-    const size_t oldSize = batch.vertices.size();
-    batch.vertices.resize(oldSize + stride * 6u);
-    GLfloat* output = batch.vertices.data() + oldSize;
-    const auto appendVertex = [&](size_t index) {
-        std::memcpy(output, draw.vb.data() + index * stride, stride * sizeof(GLfloat));
-        output += stride;
-    };
-    // Four vertices in a triangle strip form 0-1-2 and 2-1-3. Expand to
-    // independent triangles so adjacent glyphs can share one draw call.
-    appendVertex(0);
-    appendVertex(1);
-    appendVertex(2);
-    appendVertex(2);
-    appendVertex(1);
-    appendVertex(3);
-    batch.vertexCount += 6;
-    ++batch.glyphCount;
+    if (batch.unexpanded) {
+        // A second run joined, so the held one has to become independent
+        // primitives before this one can be concatenated onto it.
+        thread_local std::vector<GLfloat> expandScratch;
+        expandScratch.swap(batch.vertices);
+        batch.vertices.clear();
+        batch.vertices.reserve(kImmediateMergeRunLimit * stride * 6u);
+        size_t expanded = 0;
+        appendMergedRun(batch.unexpandedPrimitive, expandScratch.data(), batch.vertexCount, stride,
+                        batch.vertices, &expanded);
+        batch.vertexCount = expanded;
+        batch.unexpanded = false;
+    }
 
-    if (batch.glyphCount >= kImmediateGlyphBatchLimit) flushPendingImmediateDraws();
+    size_t appended = 0;
+    appendMergedRun(draw.primitive, draw.vb.data(), draw.vertex_count, stride, batch.vertices,
+                    &appended);
+    if (appended == 0) {
+        // Nothing to draw (degenerate run); the batch stays as it was.
+        if (batch.vertexCount == 0) batch.active = false;
+        return true;
+    }
+    batch.vertexCount += appended;
+    ++batch.runCount;
+
+    if (batch.runCount >= kImmediateMergeRunLimit ||
+        batch.vertexCount >= kImmediateMergeVertexBudget) {
+        flushPendingImmediateDraws();
+    }
     return true;
 }
 
@@ -404,7 +553,8 @@ void flushPendingImmediateDraws() {
     if (batch.context != current) {
         // The collecting context is gone from this thread; its texture
         // bindings and buffer names are meaningless here. Drop, not draw.
-        SFPEW_LOGW("dropping %zu pending glyphs collected on a different context", batch.glyphCount);
+        SFPEW_LOGW("dropping %zu pending immediate runs collected on a different context",
+                   batch.runCount);
         batch = {};
         batch.context = current;
         return;
@@ -418,17 +568,22 @@ void flushPendingImmediateDraws() {
     if (callerTexture2D != batch.texture2D)
         g_glFuncs.glBindTexture(GL_TEXTURE_2D, batch.texture2D);
 
-    drawImmediateVertices(GL_TRIANGLES, batch.vertices.data(), batch.vertices.size(),
-                          batch.vertexCount, batch.sizes);
+    // Clear before drawing: drawImmediateVertices reaches entry points that
+    // call back into the barrier, and a batch still marked active would be
+    // drawn twice.
+    const GLenum primitive = batch.unexpanded ? batch.unexpandedPrimitive : batch.primitive;
+    const size_t vertexCount = batch.vertexCount;
+    batch.active = false;
+    batch.vertexCount = 0;
+    batch.runCount = 0;
+    drawImmediateVertices(primitive, batch.vertices.data(), batch.vertices.size(), vertexCount,
+                          batch.sizes);
 
     if (callerTexture2D != batch.texture2D)
         g_glFuncs.glBindTexture(GL_TEXTURE_2D, callerTexture2D);
     if (callerActiveTexture != batch.activeTexture)
         g_glFuncs.glActiveTexture(callerActiveTexture);
-    batch.active = false;
     batch.vertices.clear();
-    batch.vertexCount = 0;
-    batch.glyphCount = 0;
 }
 
 namespace {
@@ -679,7 +834,11 @@ void glBegin(GLenum mode) {
 
     LIST_RECORD(glBegin, {}, mode)
 
-    if (mode != GL_TRIANGLE_STRIP) flushPendingImmediateDraws();
+    // Deliberately does NOT flush the pending batch: glBegin is the entry a
+    // mergeable run arrives through, and draining here would cap every batch
+    // at one run. queueImmediateRun compares the merge key and flushes itself
+    // when this run cannot join, and glEnd flushes before any direct draw, so
+    // draw order is preserved either way.
 
     auto& s = gs.fpe_state.fpe_draw;
 
@@ -718,7 +877,7 @@ void glEnd() {
         return;
     }
 
-    if (queueGlyphTriangleStrip(s)) {
+    if (queueImmediateRun(s)) {
         s.reset();
         return;
     }

@@ -7,6 +7,15 @@
 // End of Source File Header
 
 #pragma once
+
+// Backend contract: this table is resolved against EITHER a desktop GL 3.2+
+// or a GLES 3.0+ context, and no codepath asks which one it got. Everything
+// declared here is resolved through eglGetProcAddress and every entry point
+// outside the GL 3.2 n ES 3.0 intersection is null-checked at its call site,
+// so a backend that lacks one takes the documented fallback instead of
+// crashing. Adding an entry point outside that intersection means adding a
+// null guard with it. See docs/backend-support.md for the audited list.
+
 #include <GL/gl.h>
 #include <GL/glext.h>
 #include <EGL/egl.h>

@@ -1376,11 +1376,17 @@ bool tryExecuteCapturedDisplayLists(const GLuint* listIds, size_t listCount) {
                                  static_cast<GLint>(commonBuffer));
 
     bool executed = false;
-    if (drawElements == 0 && prototype->mode != GL_QUADS) {
+    // Re-checked at the call rather than relying on the early-out 150 lines up:
+    // glMultiDrawArrays is absent from GLES core (EXT_multi_draw_arrays), so on a
+    // backend without it this pointer is null and the call would segfault. Keeping
+    // the test adjacent to the call is what makes that safe to read.
+    if (drawElements == 0 && prototype->mode != GL_QUADS &&
+        g_glFuncs.glMultiDrawArrays != nullptr) {
         g_glFuncs.glMultiDrawArrays(mode, batch->firsts.data(), batch->vertexCounts.data(),
                                     static_cast<GLsizei>(batch->vertexCounts.size()));
         executed = true;
-    } else if (drawElements > 0 && prototype->mode == GL_QUADS) {
+    } else if (drawElements > 0 && prototype->mode == GL_QUADS &&
+               g_glFuncs.glMultiDrawElementsBaseVertex != nullptr) {
         g_glFuncs.glMultiDrawElementsBaseVertex(
             mode, batch->elementCounts.data(), quad_index_type(), batch->indexPointers.data(),
             static_cast<GLsizei>(batch->elementCounts.size()), batch->firsts.data());

@@ -2,10 +2,11 @@
 
 ## Product Boundary
 
-SimpleFPEWrapper targets a practical OpenGL 1.x fixed-function subset on an
-OpenGL ES 3.x / programmable OpenGL backend. The first release goal is
-correct rendering for a clearly documented subset, not a nominally complete
-OpenGL 1.x implementation.
+SimpleFPEWrapper targets a practical OpenGL 1.x fixed-function subset on a
+programmable backend that is either **OpenGL 3.2+** or **OpenGL ES 3.0+**
+(see `docs/backend-support.md` for how that surface is bounded and audited).
+The first release goal is correct rendering for a clearly documented subset,
+not a nominally complete OpenGL 1.x implementation.
 
 The project should treat API compatibility as a contract with three parts:
 
@@ -21,7 +22,10 @@ automated tests, and runtime validation.
 
 ## Guiding Decisions
 
-- Support one explicit backend profile first: OpenGL ES 3.0 or newer.
+- Support two backend profiles: OpenGL 3.2+ or OpenGL ES 3.0+. No codepath
+  branches on which one is present; the backend call surface is restricted to
+  their intersection, and anything outside it is null-guarded at every call
+  site. `docs/backend-support.md` records the audit that holds this true.
 - Initialize backend function tables and FPE resources only after a valid
   context is current. Remove process-load-time GL work.
 - Keep FPE state per GL/EGL context. Define creation, context switch, and

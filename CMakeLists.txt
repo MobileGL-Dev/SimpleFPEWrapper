@@ -299,6 +299,16 @@ if(NOT ANDROID)
                                         -DSRC=${CMAKE_SOURCE_DIR}
                                         -DBIN=${CMAKE_BINARY_DIR}
                                         -P ${CMAKE_SOURCE_DIR}/tests/check_manifest.cmake)
+
+                        # Holds the dual-backend contract in docs/backend-support.md:
+                        # fails on a backend call outside the GL 3.2 n ES 3.0
+                        # intersection that no null check protects, and on a newly
+                        # declared entry point nobody has classified yet.
+                        add_test(NAME backend_profile_current
+                                COMMAND ${Python3_EXECUTABLE}
+                                        ${CMAKE_SOURCE_DIR}/tools/check_backend_profile.py
+                                        ${CMAKE_SOURCE_DIR}
+                                        --check ${CMAKE_SOURCE_DIR}/docs/backend-profile.json)
                 endif()
         endif()
 endif()

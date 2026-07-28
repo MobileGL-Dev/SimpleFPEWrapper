@@ -507,12 +507,24 @@ bool glstate_t::send_vertex_attributes(const vertex_pointer_array_t& va, GLuint 
         fpe_vertex_binding_valid = false;
     }
 
+    // Physical attribute indices this draw actually accounts for. cidx() only
+    // assigns an index to a slot that is enabled OR carries a constant size, so
+    // when the enabled set SHRINKS between draws the indices above the new high
+    // water mark belong to no slot at all - the loop below never visits them and
+    // would leave them enabled with the previous layout's format. A stale index
+    // then reads at its old relative offset against the new (smaller) stride,
+    // i.e. past the end of every vertex. RenderDoc caught exactly this: attr 2
+    // left enabled at relativeoffset 12 against a 12-byte position-only stride,
+    // so every texcoord fetched the following vertex's position.
+    uint64_t claimed_indices = 0;
+
     for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
         bool enabled = ((va.enabled_pointers >> i) & 1);
 
         auto& vp = va.attributes[i];
         if (enabled) {
             const GLuint index = va.cidx(i);
+            if (index < 64u) claimed_indices |= 1ull << index;
             auto& cached = fpe_vertex_attributes[index];
             if (use_separate_binding) {
                 if (!cached.pointer_valid || !cached.separate_binding || cached.size != vp.size ||
@@ -593,6 +605,7 @@ bool glstate_t::send_vertex_attributes(const vertex_pointer_array_t& va, GLuint 
             }
 
             if (va.cidx(i) != ~0u) {
+                if (va.cidx(i) < 64u) claimed_indices |= 1ull << va.cidx(i);
                 auto& cached = fpe_vertex_attributes[va.cidx(i)];
                 if (!cached.enable_known || cached.enabled) {
                     g_glFuncs.glDisableVertexAttribArray(va.cidx(i));
@@ -601,6 +614,21 @@ bool glstate_t::send_vertex_attributes(const vertex_pointer_array_t& va, GLuint 
                 }
             }
         }
+    }
+
+    // Retire indices the previous layout enabled that no slot claims now. Only
+    // indices we positively know are enabled are touched: an untracked index may
+    // be past GL_MAX_VERTEX_ATTRIBS (VERTEX_POINTER_COUNT is 7 + MAX_TEX = 23,
+    // above the usual 16) and disabling it would raise GL_INVALID_VALUE.
+    for (GLuint index = 0; index < VERTEX_POINTER_COUNT; ++index) {
+        if (index < 64u && ((claimed_indices >> index) & 1ull)) continue;
+        auto& cached = fpe_vertex_attributes[index];
+        if (!cached.enable_known || !cached.enabled) continue;
+        g_glFuncs.glDisableVertexAttribArray(index);
+        cached.enabled = false;
+        // The format left behind describes the retired layout; force a
+        // re-specify if this index is claimed again later.
+        cached.pointer_valid = false;
     }
 
     return true;

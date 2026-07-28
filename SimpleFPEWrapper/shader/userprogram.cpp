@@ -123,6 +123,38 @@ void sfpewForgetUserProgram(GLuint program) {
 
 // Slot layout mirrors vp2idx(): 0 vertex, 1 normal, 2 color, 3 index,
 // 4 edge flag, 5 fog coord, 6 secondary color, 7+u texcoord unit u.
+// True when the program actually consumes generic attribute 0. Enumerating the
+// active attributes and asking for each one's location is the only reliable
+// test: an input's location is assigned by the linker unless the app pinned it
+// with glBindAttribLocation, so neither the declaration order nor the name
+// implies location 0. Attributes named gl_* are built-ins and are skipped.
+bool programHasAttributeAtLocationZero(GLuint program) {
+    if (g_glFuncs.glGetProgramiv == nullptr || g_glFuncs.glGetActiveAttrib == nullptr ||
+        g_glFuncs.glGetAttribLocation == nullptr) {
+        return false;
+    }
+    GLint count = 0;
+    g_glFuncs.glGetProgramiv(program, GL_ACTIVE_ATTRIBUTES, &count);
+    if (count <= 0) return false;
+    GLint max_len = 0;
+    g_glFuncs.glGetProgramiv(program, GL_ACTIVE_ATTRIBUTE_MAX_LENGTH, &max_len);
+    if (max_len <= 0) max_len = 128;
+    std::vector<char> name(static_cast<size_t>(max_len) + 1u);
+    for (GLint i = 0; i < count; ++i) {
+        GLint size = 0;
+        GLenum type = 0;
+        GLsizei written = 0;
+        name[0] = '\0';
+        g_glFuncs.glGetActiveAttrib(program, static_cast<GLuint>(i), max_len, &written, &size, &type,
+                                    name.data());
+        if (written <= 0) continue;
+        name[static_cast<size_t>(written)] = '\0';
+        if (std::strncmp(name.data(), "gl_", 3) == 0) continue;
+        if (g_glFuncs.glGetAttribLocation(program, name.data()) == 0) return true;
+    }
+    return false;
+}
+
 bool sfpewUserProgramAttribLocations(GLuint program, GLint out_locations[VERTEX_POINTER_COUNT]) {
     if (program == 0 || g_glFuncs.glGetAttribLocation == nullptr) return false;
     std::lock_guard<std::mutex> lock(g_user_program_mutex);
@@ -139,6 +171,19 @@ bool sfpewUserProgramAttribLocations(GLuint program, GLint out_locations[VERTEX_
             std::snprintf(name, sizeof(name), "fpe_MultiTexCoord%d", unit);
             u.attr_locations[7 + unit] = g_glFuncs.glGetAttribLocation(program, name);
         }
+
+        // GL 2.1 aliases generic attribute 0 with gl_Vertex, so a shader that
+        // declares its OWN position input and expects glVertexPointer to feed it
+        // is legal and works on desktop GL. Minecraft's post/composite shaders
+        // are exactly that shape ("in vec4 Position;" and nothing else): no
+        // gl_Vertex for the translator to rename, hence no fpe_Vertex to find.
+        // Without this fallback the draw took the raw passthrough, which handed
+        // GL_QUADS to a GLES backend with nothing bound to Position - every
+        // vertex read the default (0,0,0,1) and the whole quad collapsed to one
+        // point (RenderDoc, 1.16 fabulous, EID 1844).
+        if (u.attr_locations[0] < 0 && programHasAttributeAtLocationZero(program))
+            u.attr_locations[0] = 0;
+
         u.attrs_resolved = true;
     }
     std::memcpy(out_locations, u.attr_locations, sizeof(u.attr_locations));

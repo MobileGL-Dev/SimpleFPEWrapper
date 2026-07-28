@@ -1,5 +1,5 @@
 {
-  "declared_entry_points": 371,
+  "declared_entry_points": 374,
   "doc": "docs/backend-support.md",
   "entry_points": [
     "glActiveShaderProgram",
@@ -223,9 +223,12 @@
     "glMemoryBarrierByRegion",
     "glMinSampleShading",
     "glMultiDrawArrays",
+    "glMultiDrawArraysEXT",
     "glMultiDrawArraysIndirectEXT",
+    "glMultiDrawElements",
     "glMultiDrawElementsBaseVertex",
     "glMultiDrawElementsBaseVertexEXT",
+    "glMultiDrawElementsEXT",
     "glMultiDrawElementsIndirectEXT",
     "glObjectLabel",
     "glObjectPtrLabel",
@@ -374,7 +377,11 @@
     "glWaitSync",
     "name"
   ],
-  "non_universal": {
+  "needs_guard": {
+    "glBindFragDataLocationEXT": {
+      "availability": "vendor/extension suffix: never core",
+      "call_sites": 0
+    },
     "glBindVertexBuffer": {
       "availability": "GL 4.3 / ES 3.1",
       "call_sites": 1
@@ -393,6 +400,10 @@
     },
     "glBufferStorage": {
       "availability": "GL 4.4 / ES: EXT_buffer_storage",
+      "call_sites": 0
+    },
+    "glBufferStorageEXT": {
+      "availability": "vendor/extension suffix: never core",
       "call_sites": 0
     },
     "glColorMaski": {
@@ -427,9 +438,21 @@
       "availability": "GL 3.2 / ES 3.2",
       "call_sites": 0
     },
+    "glGetQueryObjecti64vEXT": {
+      "availability": "vendor/extension suffix: never core",
+      "call_sites": 0
+    },
+    "glGetQueryObjectivEXT": {
+      "availability": "vendor/extension suffix: never core",
+      "call_sites": 0
+    },
     "glGetTexLevelParameteriv": {
       "availability": "GL 1.0 / ES 3.1",
       "call_sites": 2
+    },
+    "glMapBufferOES": {
+      "availability": "vendor/extension suffix: never core",
+      "call_sites": 0
     },
     "glMemoryBarrier": {
       "availability": "GL 4.2 / ES 3.1",
@@ -443,9 +466,33 @@
       "availability": "GL 1.4 / ES: EXT_multi_draw_arrays",
       "call_sites": 1
     },
+    "glMultiDrawArraysEXT": {
+      "availability": "vendor/extension suffix: never core",
+      "call_sites": 0
+    },
+    "glMultiDrawArraysIndirectEXT": {
+      "availability": "vendor/extension suffix: never core",
+      "call_sites": 0
+    },
+    "glMultiDrawElements": {
+      "availability": "GL 1.4 / ES: EXT_multi_draw_arrays",
+      "call_sites": 0
+    },
     "glMultiDrawElementsBaseVertex": {
       "availability": "GL 3.2 / ES: EXT_multi_draw_elements_base_vertex",
       "call_sites": 1
+    },
+    "glMultiDrawElementsBaseVertexEXT": {
+      "availability": "vendor/extension suffix: never core",
+      "call_sites": 0
+    },
+    "glMultiDrawElementsEXT": {
+      "availability": "vendor/extension suffix: never core",
+      "call_sites": 0
+    },
+    "glMultiDrawElementsIndirectEXT": {
+      "availability": "vendor/extension suffix: never core",
+      "call_sites": 0
     },
     "glObjectLabel": {
       "availability": "GL 4.3 / ES 3.2",
@@ -485,5 +532,5 @@
     }
   },
   "profile": "desktop GL 3.2+ or GLES 3.0+",
-  "universal": 344
+  "universal": 336
 }

@@ -410,8 +410,18 @@ namespace SFPEW {
             GL_FUNC_TYPEDEF(void, glDrawArraysInstanced, GLenum mode, GLint first, GLsizei count, GLsizei instancecount)
             GL_FUNC_TYPEDEF(void, glDrawElementsInstanced, GLenum mode, GLsizei count, GLenum type, const void* indices,
                             GLsizei instancecount)
+            // Multi-draw comes in two spellings. Desktop GL has the unsuffixed
+            // pair in 1.4 core; GLES has neither in core and supplies the EXT
+            // pair through EXT_multi_draw_arrays. Whichever resolves is used,
+            // and the loop fallback covers a backend offering neither.
             GL_FUNC_TYPEDEF(void, glMultiDrawArrays, GLenum mode, const GLint* first, const GLsizei* count,
                             GLsizei drawcount)
+            GL_FUNC_TYPEDEF(void, glMultiDrawElements, GLenum mode, const GLsizei* count, GLenum type,
+                            const void* const* indices, GLsizei drawcount)
+            GL_FUNC_TYPEDEF(void, glMultiDrawArraysEXT, GLenum mode, const GLint* first, const GLsizei* count,
+                            GLsizei drawcount)
+            GL_FUNC_TYPEDEF(void, glMultiDrawElementsEXT, GLenum mode, const GLsizei* count, GLenum type,
+                            const void* const* indices, GLsizei drawcount)
             GL_FUNC_TYPEDEF(void, glMultiDrawElementsBaseVertex, GLenum mode, const GLsizei* count, GLenum type,
                             const void* const* indices, GLsizei drawcount, const GLint* basevertex)
             GL_FUNC_TYPEDEF(GLsync, glFenceSync, GLenum condition, GLbitfield flags)
@@ -851,6 +861,9 @@ namespace SFPEW {
             GL_FUNC_DECL(glDrawArraysInstanced)
             GL_FUNC_DECL(glDrawElementsInstanced)
             GL_FUNC_DECL(glMultiDrawArrays)
+            GL_FUNC_DECL(glMultiDrawElements)
+            GL_FUNC_DECL(glMultiDrawArraysEXT)
+            GL_FUNC_DECL(glMultiDrawElementsEXT)
             GL_FUNC_DECL(glMultiDrawElementsBaseVertex)
             GL_FUNC_DECL(glFenceSync)
             GL_FUNC_DECL(glIsSync)

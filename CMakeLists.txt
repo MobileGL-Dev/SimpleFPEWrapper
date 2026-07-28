@@ -172,6 +172,14 @@ if(NOT ANDROID)
                         add_test(NAME smoke_mixed_pipeline COMMAND smoke_mixed_pipeline)
                         set_tests_properties(smoke_mixed_pipeline PROPERTIES SKIP_RETURN_CODE 77)
 
+                        add_executable(smoke_multidraw_native tests/smoke_multidraw_native.c)
+                        target_compile_definitions(smoke_multidraw_native PRIVATE
+                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
+                        target_link_libraries(smoke_multidraw_native PRIVATE dl ${SFPEW_TEST_EGL})
+                        add_dependencies(smoke_multidraw_native ${CMAKE_PROJECT_NAME})
+                        add_test(NAME smoke_multidraw_native COMMAND smoke_multidraw_native)
+                        set_tests_properties(smoke_multidraw_native PROPERTIES SKIP_RETURN_CODE 77)
+
                         add_executable(smoke_userobject_quads tests/smoke_userobject_quads.c)
                         target_compile_definitions(smoke_userobject_quads PRIVATE
                                 WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")

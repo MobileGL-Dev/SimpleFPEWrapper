@@ -61,6 +61,7 @@ NON_UNIVERSAL = {
     "glMemoryBarrier": "GL 4.2 / ES 3.1",
     "glMinSampleShading": "GL 4.0 / ES 3.2",
     "glMultiDrawArrays": "GL 1.4 / ES: EXT_multi_draw_arrays",
+    "glMultiDrawElements": "GL 1.4 / ES: EXT_multi_draw_arrays",
     "glMultiDrawElementsBaseVertex": "GL 3.2 / ES: EXT_multi_draw_elements_base_vertex",
     "glObjectLabel": "GL 4.3 / ES 3.2",
     "glPatchParameteri": "GL 4.0 / ES 3.2",
@@ -74,6 +75,20 @@ NON_UNIVERSAL = {
 }
 
 TYPEDEF_RE = re.compile(r"GL_FUNC_TYPEDEF\(\s*[^,]+,\s*(\w+)")
+
+# A vendor/extension suffix already says "not core on either backend", so these
+# need a guard by construction and are derived rather than hand-listed. Keeping
+# them out of NON_UNIVERSAL means the table needs no edit for every new
+# extension alias, but they are guard-checked exactly the same way.
+SUFFIX_RE = re.compile(r"(EXT|OES|ARB|KHR|NV|AMD|IMG|APPLE|QCOM|ANGLE)$")
+
+
+def guard_required(declared):
+    """Entry points whose call sites must be null-guarded."""
+    required = {name: "vendor/extension suffix: never core"
+                for name in declared if SUFFIX_RE.search(name)}
+    required.update(NON_UNIVERSAL)
+    return required
 
 
 def declared_entry_points(repo):
@@ -143,6 +158,8 @@ def main(argv):
         sys.stderr.write("no GL_FUNC_TYPEDEF found in backend/loader.h\n")
         return 1
 
+    needs_guard = guard_required(declared)
+
     # NON_UNIVERSAL must describe entry points that actually exist, or a
     # rename would quietly drop a guard requirement.
     unknown = sorted(set(NON_UNIVERSAL) - set(declared))
@@ -154,16 +171,16 @@ def main(argv):
             sys.stderr.write(f"  {name}\n")
         return 1
 
-    call_counts, unguarded = audit_guards(repo, sorted(NON_UNIVERSAL))
+    call_counts, unguarded = audit_guards(repo, sorted(needs_guard))
 
     report = {
         "profile": "desktop GL 3.2+ or GLES 3.0+",
         "doc": "docs/backend-support.md",
         "declared_entry_points": len(declared),
-        "universal": len(declared) - len(NON_UNIVERSAL),
-        "non_universal": {
-            name: {"availability": NON_UNIVERSAL[name], "call_sites": call_counts[name]}
-            for name in sorted(NON_UNIVERSAL)
+        "universal": len(declared) - len(needs_guard),
+        "needs_guard": {
+            name: {"availability": needs_guard[name], "call_sites": call_counts[name]}
+            for name in sorted(needs_guard)
         },
         "entry_points": declared,
     }

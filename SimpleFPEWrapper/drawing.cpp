@@ -681,6 +681,70 @@ struct captured_display_list_batch_cache_t {
     std::array<captured_display_list_batch_t, kCapturedDisplayListBatchCacheSize> entries;
 };
 
+// GL_QUADS/GL_QUAD_STRIP/GL_POLYGON for a draw that keeps the APP's vertex
+// state. Sodium binds its own program and its own VAO with generic attributes,
+// then issues glDrawArrays(GL_QUADS, ...) - legal in GL 2.1, but mode 7 does not
+// exist in GLES, so passing it through raw is GL_INVALID_ENUM and the draw is
+// dropped (RenderDoc, 1.16 sodium, EID 130..2311: 503 such draws).
+//
+// The app's attributes are already correct and must not be touched, so unlike
+// the fixed-function paths this cannot move to fpe_vao. Only the element
+// binding is needed, and that IS VAO state, so it is saved and restored around
+// the draw. Returns true when the draw was issued here.
+bool passthroughLegacyDrawArrays(GLenum mode, GLint first, GLsizei count) {
+    if (mode == GL_QUAD_STRIP) {
+        // Vertex order is identical; no index rewrite needed.
+        g_glFuncs.glDrawArrays(GL_TRIANGLE_STRIP, first, count);
+        return true;
+    }
+    if (mode == GL_POLYGON) {
+        g_glFuncs.glDrawArrays(GL_TRIANGLE_FAN, first, count);
+        return true;
+    }
+    if (mode != GL_QUADS) return false;
+    if (count < 4 || first < 0) {
+        // Nothing a quad can be made of; swallow it rather than handing the
+        // backend an enum it will reject.
+        return true;
+    }
+    if (g_glFuncs.glDrawElements == nullptr || g_glFuncs.glBindBuffer == nullptr ||
+        g_glFuncs.glGetIntegerv == nullptr) {
+        return false;
+    }
+    auto& st = g_glstate_c.fpe_state;
+    if (st.fpe_ibo == 0) {
+        if (g_glFuncs.glGenBuffers == nullptr) return false;
+        g_glFuncs.glGenBuffers(1, &st.fpe_ibo);
+        if (st.fpe_ibo == 0) return false;
+    }
+
+    const bool base_vertex = first != 0 && g_glFuncs.glDrawElementsBaseVertex != nullptr;
+    const GLuint index_first = base_vertex ? 0u : static_cast<GLuint>(first);
+    const bool upload = prepare_quad_indices(count, index_first);
+    const GLsizei index_count = (count / 4) * 6;
+
+    // The app owns this VAO's element binding; put it back afterwards.
+    GLint saved_element_buffer = 0;
+    g_glFuncs.glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &saved_element_buffer);
+
+    g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, st.fpe_ibo);
+    st.fpe_ibo_bound = false; // this bind landed in the app's VAO, not fpe_vao
+    if (upload) {
+        g_glFuncs.glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)quad_index_size_bytes(),
+                               quad_index_data(), GL_DYNAMIC_DRAW);
+    }
+
+    if (base_vertex) {
+        g_glFuncs.glDrawElementsBaseVertex(GL_TRIANGLES, index_count, quad_index_type(), (void*)0,
+                                           first);
+    } else {
+        g_glFuncs.glDrawElements(GL_TRIANGLES, index_count, quad_index_type(), (void*)0);
+    }
+
+    g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, (GLuint)saved_element_buffer);
+    return true;
+}
+
 void drawArraysNow(GLenum mode, GLint first, GLsizei count, bool forceFixedFunction,
                    GLint arrayBufferOverride) {
 
@@ -723,6 +787,7 @@ void drawArraysNow(GLenum mode, GLint first, GLsizei count, bool forceFixedFunct
             }
             sfpewFeedUserProgramUniforms((GLuint)current_program);
         }
+        if (passthroughLegacyDrawArrays(mode, first, count)) return;
         g_glFuncs.glDrawArrays(mode, first, count);
         return;
     }
@@ -919,6 +984,83 @@ bool userProgramDrawElements(GLuint program, GLenum mode, GLsizei count, GLenum 
     return true;
 }
 
+// Indexed counterpart of passthroughLegacyDrawArrays: the app owns the vertex
+// state, only the legacy primitive mode has to go. QUAD_STRIP and POLYGON are
+// vertex-order compatible so they are pure mode swaps. GL_QUADS needs its index
+// data rewritten, which means reading the app's indices back - from client
+// memory when no element buffer is bound, otherwise by mapping the app's buffer.
+bool passthroughLegacyDrawElements(GLenum mode, GLsizei count, GLenum type,
+                                   const GLvoid* indices) {
+    if (g_glFuncs.glDrawElements == nullptr) return false;
+    if (mode == GL_QUAD_STRIP) {
+        g_glFuncs.glDrawElements(GL_TRIANGLE_STRIP, count, type, indices);
+        return true;
+    }
+    if (mode == GL_POLYGON) {
+        g_glFuncs.glDrawElements(GL_TRIANGLE_FAN, count, type, indices);
+        return true;
+    }
+    if (mode != GL_QUADS) return false;
+    if (count < 4) return true; // nothing a quad can be made of
+    const size_t index_size = indexTypeSize(type);
+    if (index_size == 0) {
+        g_glstate_c.set_error(GL_INVALID_ENUM);
+        return true;
+    }
+    if (g_glFuncs.glGetIntegerv == nullptr || g_glFuncs.glBindBuffer == nullptr) return false;
+
+    GLint app_element_buffer = 0;
+    g_glFuncs.glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &app_element_buffer);
+
+    // Pull the app's indices to the CPU so the quads can be expanded.
+    thread_local std::vector<uint8_t> scratch;
+    const uint8_t* cpu_indices = nullptr;
+    const size_t byte_count = (size_t)count * index_size;
+    if (app_element_buffer == 0) {
+        if (indices == nullptr) {
+            g_glstate_c.set_error(GL_INVALID_VALUE);
+            return true;
+        }
+        cpu_indices = static_cast<const uint8_t*>(indices);
+    } else {
+        if (g_glFuncs.glMapBufferRange == nullptr || g_glFuncs.glUnmapBuffer == nullptr) return false;
+        void* mapped = g_glFuncs.glMapBufferRange(
+            GL_ELEMENT_ARRAY_BUFFER, (GLintptr)reinterpret_cast<uintptr_t>(indices),
+            (GLsizeiptr)byte_count, GL_MAP_READ_BIT);
+        if (mapped == nullptr) return false;
+        scratch.assign(static_cast<const uint8_t*>(mapped),
+                       static_cast<const uint8_t*>(mapped) + byte_count);
+        g_glFuncs.glUnmapBuffer(GL_ELEMENT_ARRAY_BUFFER);
+        cpu_indices = scratch.data();
+    }
+
+    thread_local std::vector<uint32_t> expanded;
+    const size_t quads = (size_t)count / 4u;
+    switch (index_size) {
+    case 1: expandQuadIndices(cpu_indices, quads, expanded); break;
+    case 2: expandQuadIndices(reinterpret_cast<const uint16_t*>(cpu_indices), quads, expanded); break;
+    default: expandQuadIndices(reinterpret_cast<const uint32_t*>(cpu_indices), quads, expanded); break;
+    }
+    if (expanded.empty()) return true;
+
+    auto& st = g_glstate_c.fpe_state;
+    if (st.fpe_element_ring == 0) {
+        if (g_glFuncs.glGenBuffers == nullptr) return false;
+        g_glFuncs.glGenBuffers(1, &st.fpe_element_ring);
+        if (st.fpe_element_ring == 0) return false;
+    }
+    g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, st.fpe_element_ring);
+    st.fpe_ibo_bound = false; // this bind landed in the app's VAO
+    const GLintptr offset =
+        sfpewUploadElementData(expanded.data(), expanded.size() * sizeof(uint32_t));
+    g_glFuncs.glDrawElements(GL_TRIANGLES, (GLsizei)expanded.size(), GL_UNSIGNED_INT,
+                             (const void*)(uintptr_t)offset);
+
+    // The element binding is the app's VAO state; hand it back.
+    g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, (GLuint)app_element_buffer);
+    return true;
+}
+
 void drawElementsNow(GLenum mode, GLsizei count, GLenum type, const GLvoid* indices) {
     const GLint current_program = sfpewLogicalProgram();
     const auto& vertex_array = g_glstate_c.fpe_state.vertexpointer_array;
@@ -932,6 +1074,7 @@ void drawElementsNow(GLenum mode, GLsizei count, GLenum type, const GLvoid* indi
             }
             sfpewFeedUserProgramUniforms((GLuint)current_program);
         }
+        if (passthroughLegacyDrawElements(mode, count, type, indices)) return;
         if (g_glFuncs.glDrawElements != nullptr) g_glFuncs.glDrawElements(mode, count, type, indices);
         return;
     }

@@ -90,6 +90,26 @@ inline void sfpewBackendBindVertexArray(GLuint vao) {
 // it actually needed (plans/12).
 inline void sfpewInvalidateImmediateDrawState() { g_glstate_c.immediate_live_program = -1; }
 
+// Binds the array buffer a fixed-function draw will source attributes from,
+// skipping the call when the backend provably has it already.
+//
+// The guard below hands the app's ARRAY_BUFFER binding to the context and then
+// deliberately leaves the backend alone until sfpewEntryBarrier() restores it,
+// so while a save is held and nothing has rebound since, deferred_draw
+// .array_buffer IS the live backend binding. A fixed-function draw that sources
+// straight from the app's own VBO therefore asks for the buffer that is already
+// bound. Measured on RDC/Minecraft/1.16-Optifine/1-frame19661.rdc: one
+// redundant bind per draw, 107 of the frame's 549 glBindBuffer calls.
+//
+// guard_holds_save must be the guard's holds_save: false means an earlier
+// fixed-function draw is holding the save and the backend carries THAT draw's
+// attribute buffer, which this function cannot know - so it always binds.
+inline void sfpewBackendBindAttributeBuffer(GLuint buffer, bool guard_holds_save) {
+    const auto& held = g_glstate_c.deferred_draw;
+    if (guard_holds_save && held.held && held.array_buffer == static_cast<GLint>(buffer)) return;
+    g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, buffer);
+}
+
 inline void sfpewBackendBindElementBuffer(GLuint buffer) {
     g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, buffer);
     auto& gs = g_glstate_c;

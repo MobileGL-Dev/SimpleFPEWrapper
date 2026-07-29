@@ -212,6 +212,14 @@ if(NOT ANDROID)
                         add_test(NAME smoke_attrib_retire COMMAND smoke_attrib_retire)
                         set_tests_properties(smoke_attrib_retire PROPERTIES SKIP_RETURN_CODE 77)
 
+                        add_executable(smoke_ffp_vbo_arrays tests/smoke_ffp_vbo_arrays.c)
+                        target_compile_definitions(smoke_ffp_vbo_arrays PRIVATE
+                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
+                        target_link_libraries(smoke_ffp_vbo_arrays PRIVATE dl ${SFPEW_TEST_EGL})
+                        add_dependencies(smoke_ffp_vbo_arrays ${CMAKE_PROJECT_NAME})
+                        add_test(NAME smoke_ffp_vbo_arrays COMMAND smoke_ffp_vbo_arrays)
+                        set_tests_properties(smoke_ffp_vbo_arrays PROPERTIES SKIP_RETURN_CODE 77)
+
                         add_executable(smoke_userprog_enable_cache tests/smoke_userprog_enable_cache.c)
                         target_compile_definitions(smoke_userprog_enable_cache PRIVATE
                                 WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")

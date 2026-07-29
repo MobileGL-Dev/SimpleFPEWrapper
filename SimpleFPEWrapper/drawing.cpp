@@ -937,7 +937,7 @@ bool userProgramDrawElements(GLuint program, GLenum mode, GLsizei count, GLenum 
     const GLuint attribute_buffer = (logical_array_buffer == 0 || client_memory_draw)
                                         ? st.fpe_vbo
                                         : (GLuint)logical_array_buffer;
-    g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, attribute_buffer);
+    sfpewBackendBindAttributeBuffer(attribute_buffer, backend_state.holds_save);
     if (client_memory_draw) {
         const int64_t upload_size = (int64_t)vertex_count * (int64_t)vpa.stride;
         if (upload_size <= 0 || upload_size > (int64_t)std::numeric_limits<GLsizei>::max()) {

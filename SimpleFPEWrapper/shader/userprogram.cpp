@@ -123,12 +123,13 @@ void sfpewForgetUserProgram(GLuint program) {
 
 // Slot layout mirrors vp2idx(): 0 vertex, 1 normal, 2 color, 3 index,
 // 4 edge flag, 5 fog coord, 6 secondary color, 7+u texcoord unit u.
-// True when the program actually consumes generic attribute 0. Enumerating the
-// active attributes and asking for each one's location is the only reliable
-// test: an input's location is assigned by the linker unless the app pinned it
-// with glBindAttribLocation, so neither the declaration order nor the name
-// implies location 0. Attributes named gl_* are built-ins and are skipped.
-bool programHasAttributeAtLocationZero(GLuint program) {
+// True when the program has EXACTLY ONE non-builtin active attribute AND that
+// attribute sits at location 0. A shader with multiple attributes manages its
+// own vertex state (it pairs with its own VAO/VBO) and must not be fed by the
+// fixed-function vertex arrays. The one-attribute restriction catches the
+// MC 1.16 PostPass/blit shape ("in vec4 Position;" only) while leaving
+// OptiFine's world shader (position + color + texcoord + ...) untouched.
+bool programIsSingleAttribAtLocationZero(GLuint program) {
     if (g_glFuncs.glGetProgramiv == nullptr || g_glFuncs.glGetActiveAttrib == nullptr ||
         g_glFuncs.glGetAttribLocation == nullptr) {
         return false;
@@ -140,6 +141,8 @@ bool programHasAttributeAtLocationZero(GLuint program) {
     g_glFuncs.glGetProgramiv(program, GL_ACTIVE_ATTRIBUTE_MAX_LENGTH, &max_len);
     if (max_len <= 0) max_len = 128;
     std::vector<char> name(static_cast<size_t>(max_len) + 1u);
+    int non_builtin = 0;
+    bool has_loc0 = false;
     for (GLint i = 0; i < count; ++i) {
         GLint size = 0;
         GLenum type = 0;
@@ -150,9 +153,10 @@ bool programHasAttributeAtLocationZero(GLuint program) {
         if (written <= 0) continue;
         name[static_cast<size_t>(written)] = '\0';
         if (std::strncmp(name.data(), "gl_", 3) == 0) continue;
-        if (g_glFuncs.glGetAttribLocation(program, name.data()) == 0) return true;
+        ++non_builtin;
+        if (g_glFuncs.glGetAttribLocation(program, name.data()) == 0) has_loc0 = true;
     }
-    return false;
+    return non_builtin == 1 && has_loc0;
 }
 
 bool sfpewUserProgramAttribLocations(GLuint program, GLint out_locations[VERTEX_POINTER_COUNT]) {
@@ -181,7 +185,7 @@ bool sfpewUserProgramAttribLocations(GLuint program, GLint out_locations[VERTEX_
         // GL_QUADS to a GLES backend with nothing bound to Position - every
         // vertex read the default (0,0,0,1) and the whole quad collapsed to one
         // point (RenderDoc, 1.16 fabulous, EID 1844).
-        if (u.attr_locations[0] < 0 && programHasAttributeAtLocationZero(program))
+        if (u.attr_locations[0] < 0 && programIsSingleAttribAtLocationZero(program))
             u.attr_locations[0] = 0;
 
         u.attrs_resolved = true;

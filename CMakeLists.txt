@@ -188,6 +188,14 @@ if(NOT ANDROID)
                         add_test(NAME smoke_userobject_quads COMMAND smoke_userobject_quads)
                         set_tests_properties(smoke_userobject_quads PROPERTIES SKIP_RETURN_CODE 77)
 
+                        add_executable(smoke_userprog_multiattrib tests/smoke_userprog_multiattrib.c)
+                        target_compile_definitions(smoke_userprog_multiattrib PRIVATE
+                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
+                        target_link_libraries(smoke_userprog_multiattrib PRIVATE dl ${SFPEW_TEST_EGL})
+                        add_dependencies(smoke_userprog_multiattrib ${CMAKE_PROJECT_NAME})
+                        add_test(NAME smoke_userprog_multiattrib COMMAND smoke_userprog_multiattrib)
+                        set_tests_properties(smoke_userprog_multiattrib PROPERTIES SKIP_RETURN_CODE 77)
+
                         add_executable(smoke_userobject_blit tests/smoke_userobject_blit.c)
                         target_compile_definitions(smoke_userobject_blit PRIVATE
                                 WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")

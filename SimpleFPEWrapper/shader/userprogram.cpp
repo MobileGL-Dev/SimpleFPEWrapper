@@ -50,6 +50,31 @@ struct user_program_uniforms_t {
     GLint attr_locations[VERTEX_POINTER_COUNT];
     // change-detection mirrors
     glm::mat4 last_mv{0.0f}, last_proj{0.0f};
+
+    // Last value sent for every scalar/vec4 uniform, so an unchanged one costs
+    // a compare instead of a driver call. Legacy fixed-function state barely
+    // moves between draws while this function ran unconditionally, and a
+    // translated app shader resolves only a couple of these:
+    // 1.16-Sodium/1-frame5312.rdc re-sent the same alpha-test pair on 602 of
+    // 607 draws - together 27.6% of that frame's GL calls.
+    //
+    // Only uniforms the program actually declares are ever compared, so the
+    // per-draw cost is proportional to what the shader uses, not to the size
+    // of the fixed-function state.
+    enum : int {
+        SLOT_FRONT_AMBIENT, SLOT_FRONT_DIFFUSE, SLOT_FRONT_SPECULAR, SLOT_FRONT_EMISSION,
+        SLOT_FRONT_SHININESS,
+        SLOT_BACK_AMBIENT, SLOT_BACK_DIFFUSE, SLOT_BACK_SPECULAR, SLOT_BACK_EMISSION,
+        SLOT_BACK_SHININESS,
+        SLOT_FOG_COLOR, SLOT_FOG_DENSITY, SLOT_FOG_START, SLOT_FOG_END, SLOT_FOG_SCALE,
+        SLOT_LIGHT_MODEL_AMBIENT,
+        SLOT_ALPHA_FUNC, SLOT_ALPHA_REF,
+        SLOT_LIGHT_BASE,
+        SLOT_PER_LIGHT = 12,
+        SLOT_COUNT = SLOT_LIGHT_BASE + MAX_LIGHTS * SLOT_PER_LIGHT,
+    };
+    glm::vec4 last_uniform[SLOT_COUNT];
+    bool last_uniform_valid[SLOT_COUNT] = {};
 };
 
 std::mutex g_user_program_mutex;
@@ -273,6 +298,7 @@ void sfpewFeedUserProgramUniforms(GLuint program) {
     }
     if (!u->any) return;
 
+    using U = user_program_uniforms_t;
     const auto& un = g_glstate.fpe_uniform;
     const auto& mv = un.transformation.matrices[matrix_idx(GL_MODELVIEW)];
     const auto& proj = un.transformation.matrices[matrix_idx(GL_PROJECTION)];
@@ -310,23 +336,46 @@ void sfpewFeedUserProgramUniforms(GLuint program) {
                                      glm::value_ptr(un.transformation.texture_matrices[0]));
     }
 
-    const auto& mat = un.materials[0];
-    if (u->front_ambient >= 0) g_glFuncs.glUniform4fv(u->front_ambient, 1, glm::value_ptr(mat.ambient));
-    if (u->front_diffuse >= 0) g_glFuncs.glUniform4fv(u->front_diffuse, 1, glm::value_ptr(mat.diffuse));
-    if (u->front_specular >= 0) g_glFuncs.glUniform4fv(u->front_specular, 1, glm::value_ptr(mat.specular));
-    if (u->front_emission >= 0) g_glFuncs.glUniform4fv(u->front_emission, 1, glm::value_ptr(mat.emission));
-    if (u->front_shininess >= 0) g_glFuncs.glUniform1f(u->front_shininess, mat.shininess);
+    // Send only on change. The cache is keyed by slot rather than by location
+    // so a program that does not declare a uniform never touches it.
+    const auto changed = [&](int slot, const glm::vec4& value) {
+        if (u->last_uniform_valid[slot] && u->last_uniform[slot] == value) return false;
+        u->last_uniform[slot] = value;
+        u->last_uniform_valid[slot] = true;
+        return true;
+    };
+    const auto send4fv = [&](GLint loc, int slot, const glm::vec4& value) {
+        if (loc >= 0 && changed(slot, value)) g_glFuncs.glUniform4fv(loc, 1, glm::value_ptr(value));
+    };
+    const auto send3fv = [&](GLint loc, int slot, const glm::vec3& value) {
+        if (loc >= 0 && changed(slot, glm::vec4(value, 0.0f)))
+            g_glFuncs.glUniform3fv(loc, 1, glm::value_ptr(value));
+    };
+    const auto send1f = [&](GLint loc, int slot, GLfloat value) {
+        if (loc >= 0 && changed(slot, glm::vec4(value, 0.0f, 0.0f, 0.0f)))
+            g_glFuncs.glUniform1f(loc, value);
+    };
+    const auto send1i = [&](GLint loc, int slot, GLint value) {
+        if (loc >= 0 && changed(slot, glm::vec4((float)value, 0.0f, 0.0f, 0.0f)))
+            g_glFuncs.glUniform1i(loc, value);
+    };
 
-    if (u->fog_color >= 0) g_glFuncs.glUniform4fv(u->fog_color, 1, glm::value_ptr(un.fog_color));
-    if (u->fog_density >= 0) g_glFuncs.glUniform1f(u->fog_density, un.fog_density);
-    if (u->fog_start >= 0) g_glFuncs.glUniform1f(u->fog_start, un.fog_start);
-    if (u->fog_end >= 0) g_glFuncs.glUniform1f(u->fog_end, un.fog_end);
+    const auto& mat = un.materials[0];
+    send4fv(u->front_ambient, U::SLOT_FRONT_AMBIENT, mat.ambient);
+    send4fv(u->front_diffuse, U::SLOT_FRONT_DIFFUSE, mat.diffuse);
+    send4fv(u->front_specular, U::SLOT_FRONT_SPECULAR, mat.specular);
+    send4fv(u->front_emission, U::SLOT_FRONT_EMISSION, mat.emission);
+    send1f(u->front_shininess, U::SLOT_FRONT_SHININESS, mat.shininess);
+
+    send4fv(u->fog_color, U::SLOT_FOG_COLOR, un.fog_color);
+    send1f(u->fog_density, U::SLOT_FOG_DENSITY, un.fog_density);
+    send1f(u->fog_start, U::SLOT_FOG_START, un.fog_start);
+    send1f(u->fog_end, U::SLOT_FOG_END, un.fog_end);
     if (u->fog_scale >= 0) {
         const float span = un.fog_end - un.fog_start;
-        g_glFuncs.glUniform1f(u->fog_scale, span != 0.0f ? 1.0f / span : 1.0f);
+        send1f(u->fog_scale, U::SLOT_FOG_SCALE, span != 0.0f ? 1.0f / span : 1.0f);
     }
-    if (u->light_model_ambient >= 0)
-        g_glFuncs.glUniform4fv(u->light_model_ambient, 1, glm::value_ptr(un.light_model_ambient));
+    send4fv(u->light_model_ambient, U::SLOT_LIGHT_MODEL_AMBIENT, un.light_model_ambient);
 
     // The generated main() reads these; func 0 means "test disabled" so a
     // GL_ALWAYS state and a disabled state both skip the branch cheaply.
@@ -334,51 +383,42 @@ void sfpewFeedUserProgramUniforms(GLuint program) {
         const GLint func = g_glstate.fpe_state.fpe_bools.alpha_test_enable
                                ? (GLint)g_glstate.fpe_state.alpha_func
                                : 0;
-        g_glFuncs.glUniform1i(u->alpha_test_func, func == GL_ALWAYS ? 0 : func);
+        send1i(u->alpha_test_func, U::SLOT_ALPHA_FUNC, func == GL_ALWAYS ? 0 : func);
     }
-    if (u->alpha_test_ref >= 0)
-        g_glFuncs.glUniform1f(u->alpha_test_ref, un.alpha_ref);
+    send1f(u->alpha_test_ref, U::SLOT_ALPHA_REF, un.alpha_ref);
 
     const auto& back = un.materials[1];
-    if (u->back_ambient >= 0) g_glFuncs.glUniform4fv(u->back_ambient, 1, glm::value_ptr(back.ambient));
-    if (u->back_diffuse >= 0) g_glFuncs.glUniform4fv(u->back_diffuse, 1, glm::value_ptr(back.diffuse));
-    if (u->back_specular >= 0) g_glFuncs.glUniform4fv(u->back_specular, 1, glm::value_ptr(back.specular));
-    if (u->back_emission >= 0) g_glFuncs.glUniform4fv(u->back_emission, 1, glm::value_ptr(back.emission));
-    if (u->back_shininess >= 0) g_glFuncs.glUniform1f(u->back_shininess, back.shininess);
+    send4fv(u->back_ambient, U::SLOT_BACK_AMBIENT, back.ambient);
+    send4fv(u->back_diffuse, U::SLOT_BACK_DIFFUSE, back.diffuse);
+    send4fv(u->back_specular, U::SLOT_BACK_SPECULAR, back.specular);
+    send4fv(u->back_emission, U::SLOT_BACK_EMISSION, back.emission);
+    send1f(u->back_shininess, U::SLOT_BACK_SHININESS, back.shininess);
 
     for (int i = 0; i < MAX_LIGHTS; ++i) {
         const auto& light = un.lights[i];
-        if (u->light_ambient[i] >= 0) g_glFuncs.glUniform4fv(u->light_ambient[i], 1, glm::value_ptr(light.ambient));
-        if (u->light_diffuse[i] >= 0) g_glFuncs.glUniform4fv(u->light_diffuse[i], 1, glm::value_ptr(light.diffuse));
-        if (u->light_specular[i] >= 0)
-            g_glFuncs.glUniform4fv(u->light_specular[i], 1, glm::value_ptr(light.specular));
-        if (u->light_position[i] >= 0)
-            g_glFuncs.glUniform4fv(u->light_position[i], 1, glm::value_ptr(light.position));
+        const int base = U::SLOT_LIGHT_BASE + i * U::SLOT_PER_LIGHT;
+        send4fv(u->light_ambient[i], base + 0, light.ambient);
+        send4fv(u->light_diffuse[i], base + 1, light.diffuse);
+        send4fv(u->light_specular[i], base + 2, light.specular);
+        send4fv(u->light_position[i], base + 3, light.position);
         if (u->light_half_vector[i] >= 0) {
             // Infinite-viewer half vector of legacy lighting: only exact for
             // directional lights, which is the case gl_LightSource.halfVector
             // is specified for.
             const glm::vec3 to_light = glm::normalize(glm::vec3(light.position));
             const glm::vec3 half = glm::normalize(to_light + glm::vec3(0.0f, 0.0f, 1.0f));
-            g_glFuncs.glUniform4fv(u->light_half_vector[i], 1,
-                                   glm::value_ptr(glm::vec4(half, 1.0f)));
+            send4fv(u->light_half_vector[i], base + 4, glm::vec4(half, 1.0f));
         }
-        if (u->light_spot_direction[i] >= 0)
-            g_glFuncs.glUniform3fv(u->light_spot_direction[i], 1, glm::value_ptr(light.spot_direction));
-        if (u->light_spot_exponent[i] >= 0)
-            g_glFuncs.glUniform1f(u->light_spot_exponent[i], light.spot_exp);
-        if (u->light_spot_cutoff[i] >= 0)
-            g_glFuncs.glUniform1f(u->light_spot_cutoff[i], light.spot_cutoff);
-        if (u->light_spot_cos_cutoff[i] >= 0)
-            g_glFuncs.glUniform1f(u->light_spot_cos_cutoff[i],
-                                  light.spot_cutoff == 180.0f
-                                      ? -1.0f
-                                      : std::cos(glm::radians(light.spot_cutoff)));
-        if (u->light_const_atten[i] >= 0)
-            g_glFuncs.glUniform1f(u->light_const_atten[i], light.constant_attenuation);
-        if (u->light_linear_atten[i] >= 0)
-            g_glFuncs.glUniform1f(u->light_linear_atten[i], light.linear_attenuation);
-        if (u->light_quadratic_atten[i] >= 0)
-            g_glFuncs.glUniform1f(u->light_quadratic_atten[i], light.quadratic_attenuation);
+        send3fv(u->light_spot_direction[i], base + 5, light.spot_direction);
+        send1f(u->light_spot_exponent[i], base + 6, light.spot_exp);
+        send1f(u->light_spot_cutoff[i], base + 7, light.spot_cutoff);
+        if (u->light_spot_cos_cutoff[i] >= 0) {
+            send1f(u->light_spot_cos_cutoff[i], base + 8,
+                   light.spot_cutoff == 180.0f ? -1.0f
+                                               : std::cos(glm::radians(light.spot_cutoff)));
+        }
+        send1f(u->light_const_atten[i], base + 9, light.constant_attenuation);
+        send1f(u->light_linear_atten[i], base + 10, light.linear_attenuation);
+        send1f(u->light_quadratic_atten[i], base + 11, light.quadratic_attenuation);
     }
 }

@@ -218,7 +218,13 @@ void sfpewSendUserProgramAttributes(const GLint locations[VERTEX_POINTER_COUNT],
                 reinterpret_cast<uintptr_t>(vp.pointer) + static_cast<uintptr_t>(binding_offset));
             g_glFuncs.glVertexAttribPointer((GLuint)loc, vp.size, vp.type,
                                             (GLboolean)(vp.normalized != 0), va.stride, pointer);
-            g_glFuncs.glEnableVertexAttribArray((GLuint)loc);
+            // Enable state is per-VAO and persists; fpe_user_vao is wrapper-
+            // owned, so the mask is authoritative and a re-enable is a no-op.
+            // The pointer above still has to be re-sent every draw: it bakes
+            // the currently bound ARRAY_BUFFER into the VAO, and that buffer
+            // changes per draw even when the format is identical.
+            if (((st.fpe_user_vao_enabled >> loc) & 1ull) == 0ull)
+                g_glFuncs.glEnableVertexAttribArray((GLuint)loc);
 #ifdef SFPEW_DEBUG_USERATTRIBS
             fprintf(stderr, "[userattribs] slot %d -> loc %d size=%d type=0x%x stride=%d ptr=%p\n",
                     i, loc, vp.size, vp.type, va.stride, pointer);

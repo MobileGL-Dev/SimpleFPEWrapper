@@ -212,6 +212,14 @@ if(NOT ANDROID)
                         add_test(NAME smoke_attrib_retire COMMAND smoke_attrib_retire)
                         set_tests_properties(smoke_attrib_retire PROPERTIES SKIP_RETURN_CODE 77)
 
+                        add_executable(smoke_userprog_enable_cache tests/smoke_userprog_enable_cache.c)
+                        target_compile_definitions(smoke_userprog_enable_cache PRIVATE
+                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
+                        target_link_libraries(smoke_userprog_enable_cache PRIVATE dl ${SFPEW_TEST_EGL})
+                        add_dependencies(smoke_userprog_enable_cache ${CMAKE_PROJECT_NAME})
+                        add_test(NAME smoke_userprog_enable_cache COMMAND smoke_userprog_enable_cache)
+                        set_tests_properties(smoke_userprog_enable_cache PROPERTIES SKIP_RETURN_CODE 77)
+
                         add_executable(smoke_immediate_merge tests/smoke_immediate_merge.c)
                         target_compile_definitions(smoke_immediate_merge PRIVATE
                                 WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")

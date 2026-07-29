@@ -52,6 +52,8 @@ typedef unsigned int GLbitfield;
 #define GL_MODELVIEW_MATRIX 0x0BA6
 #define GL_COLOR_BUFFER_BIT 0x00004000
 #define GL_FLOAT 0x1406
+#define GL_ARRAY_BUFFER 0x8892
+#define GL_STATIC_DRAW 0x88E4
 #define GL_UNSIGNED_SHORT 0x1403
 #define GL_UNSIGNED_BYTE 0x1401
 #define GL_RGBA 0x1908
@@ -442,6 +444,144 @@ int main(void) {
     fDisableClientState(GL_VERTEX_ARRAY);
     fDisableClientState(GL_COLOR_ARRAY);
     fDisableClientState(GL_TEXTURE_COORD_ARRAY);
+
+    // --- bench.userprog -----------------------------------------------------
+    // Fixed-function client arrays drawn while a USER PROGRAM is current: the
+    // Minecraft 1.16 + shaders shape, where the wrapper feeds the app's shader
+    // from the legacy arrays (sfpewSendUserProgramAttributes) and pushes the
+    // fixed-function uniform block into it (sfpewFeedUserProgramUniforms).
+    //
+    // Every other phase here draws with program 0, so none of them touch that
+    // code at all. It was measured only through RenderDoc call counts until
+    // this phase existed.
+    {
+        void (*fCreateShaderP)(void);
+        unsigned int (*fCreateShaderF)(unsigned int) = NULL;
+        void (*fShaderSourceF)(unsigned int, int, const char* const*, const int*) = NULL;
+        void (*fCompileShaderF)(unsigned int) = NULL;
+        unsigned int (*fCreateProgramF)(void) = NULL;
+        void (*fAttachShaderF)(unsigned int, unsigned int) = NULL;
+        void (*fLinkProgramF)(unsigned int) = NULL;
+        void (*fGetProgramivF)(unsigned int, unsigned int, int*) = NULL;
+        void (*fUseProgramF)(unsigned int) = NULL;
+        void (*fGenBuffers)(int, unsigned int*) = NULL;
+        void (*fBindBuffer)(unsigned int, unsigned int) = NULL;
+        void (*fBufferData)(unsigned int, long, const void*, unsigned int) = NULL;
+        *(void**)(&fGenBuffers) = resolve("glGenBuffers");
+        *(void**)(&fBindBuffer) = resolve("glBindBuffer");
+        *(void**)(&fBufferData) = resolve("glBufferData");
+        (void)fCreateShaderP;
+        *(void**)(&fCreateShaderF) = resolve("glCreateShader");
+        *(void**)(&fShaderSourceF) = resolve("glShaderSource");
+        *(void**)(&fCompileShaderF) = resolve("glCompileShader");
+        *(void**)(&fCreateProgramF) = resolve("glCreateProgram");
+        *(void**)(&fAttachShaderF) = resolve("glAttachShader");
+        *(void**)(&fLinkProgramF) = resolve("glLinkProgram");
+        *(void**)(&fGetProgramivF) = resolve("glGetProgramiv");
+        *(void**)(&fUseProgramF) = resolve("glUseProgram");
+
+        if (fCreateShaderF && fShaderSourceF && fCompileShaderF && fCreateProgramF &&
+            fAttachShaderF && fLinkProgramF && fGetProgramivF && fUseProgramF && fGenBuffers &&
+            fBindBuffer && fBufferData) {
+            // Declares the fpe_* inputs and a slice of the fixed-function
+            // uniform block, so the wrapper resolves and feeds both.
+            static const char* upVS =
+                "#version 300 es\n"
+                "in vec4 fpe_Vertex;\n"
+                "in vec4 fpe_Color;\n"
+                "in vec4 fpe_MultiTexCoord0;\n"
+                "uniform mat4 fpe_ModelViewProjectionMatrix;\n"
+                "out vec4 vCol;\n"
+                "void main() {\n"
+                "  vCol = fpe_Color + fpe_MultiTexCoord0 * 0.0;\n"
+                "  gl_Position = fpe_ModelViewProjectionMatrix * fpe_Vertex;\n"
+                "}\n";
+            static const char* upFS =
+                "#version 300 es\n"
+                "precision mediump float;\n"
+                "struct FpeFog { vec4 color; float density; };\n"
+                "uniform FpeFog fpe_Fog;\n"
+                "uniform int fpe_AlphaTestFunc;\n"
+                "uniform float fpe_AlphaTestRef;\n"
+                "in vec4 vCol;\n"
+                "out vec4 o;\n"
+                "void main() {\n"
+                "  if (fpe_AlphaTestFunc != 0 && vCol.a < fpe_AlphaTestRef) discard;\n"
+                "  o = vec4(vCol.rgb + fpe_Fog.color.rgb * 0.0, 1.0);\n"
+                "}\n";
+            const unsigned int upvs = fCreateShaderF(0x8B31);
+            const unsigned int upfs = fCreateShaderF(0x8B30);
+            fShaderSourceF(upvs, 1, &upVS, NULL);
+            fShaderSourceF(upfs, 1, &upFS, NULL);
+            fCompileShaderF(upvs);
+            fCompileShaderF(upfs);
+            const unsigned int upprog = fCreateProgramF();
+            fAttachShaderF(upprog, upvs);
+            fAttachShaderF(upprog, upfs);
+            fLinkProgramF(upprog);
+            int uplinked = 0;
+            fGetProgramivF(upprog, 0x8B82 /* GL_LINK_STATUS */, &uplinked);
+            // Buffer-backed pointers, not client memory. The capture this
+            // phase models (Minecraft 1.16) keeps chunk geometry in its own
+            // VBO, so the wrapper sources attributes straight from it. Client
+            // pointers would instead upload 144KB per draw and make the phase
+            // memory-bound, drowning out the per-draw call overhead that the
+            // user-program path actually costs.
+            unsigned int upvbo = 0;
+            fGenBuffers(1, &upvbo);
+            fBindBuffer(GL_ARRAY_BUFFER, upvbo);
+            fBufferData(GL_ARRAY_BUFFER, (long)sizeof interleaved, interleaved, GL_STATIC_DRAW);
+            if (uplinked && upvbo != 0) {
+                fEnableClientState(GL_VERTEX_ARRAY);
+                fEnableClientState(GL_COLOR_ARRAY);
+                fEnableClientState(GL_TEXTURE_COORD_ARRAY);
+                fVertexPointer(3, GL_FLOAT, 36, (const void*)0);
+                fColorPointer(4, GL_FLOAT, 36, (const void*)(3 * sizeof(float)));
+                fTexCoordPointer(2, GL_FLOAT, 36, (const void*)(7 * sizeof(float)));
+                fUseProgramF(upprog);
+
+                fDrawArrays(GL_TRIANGLES, 0, CA_VERTS); // warmup + resolve
+                fFinish();
+                t0 = now_ms();
+                if (PHASE("userprog")) {
+                    for (int frm = 0; frm < ca_frames; ++frm)
+                        fDrawArrays(GL_TRIANGLES, 0, CA_VERTS);
+                }
+                fFinish();
+                const double up_ms = now_ms() - t0;
+                printf("bench.userprog:  %7.2f Mvert/s  (%6.1f ns/vert, FFP arrays -> user "
+                       "program)\n",
+                       ca_verts / up_ms / 1000.0, up_ms * 1.0e6 / ca_verts);
+                bench_check_error("userprog");
+
+                // Indexed variant: adds the element-ring upload and the
+                // largest-index scan that userProgramDrawElements performs.
+                fDrawElements(GL_TRIANGLES, CA_VERTS / 4 * 6, GL_UNSIGNED_SHORT, indices);
+                fFinish();
+                t0 = now_ms();
+                if (PHASE("userprogelements")) {
+                    for (int frm = 0; frm < ca_frames; ++frm)
+                        fDrawElements(GL_TRIANGLES, CA_VERTS / 4 * 6, GL_UNSIGNED_SHORT, indices);
+                }
+                fFinish();
+                const double upe_ms = now_ms() - t0;
+                printf("bench.userprogelements: %7.2f Midx/s (%6.1f ns/idx, indexed FFP -> user "
+                       "program)\n",
+                       de_verts / upe_ms / 1000.0, upe_ms * 1.0e6 / de_verts);
+                bench_check_error("userprogelements");
+
+                fUseProgramF(0);
+                fDisableClientState(GL_VERTEX_ARRAY);
+                fDisableClientState(GL_COLOR_ARRAY);
+                fDisableClientState(GL_TEXTURE_COORD_ARRAY);
+                fBindBuffer(GL_ARRAY_BUFFER, 0);
+            } else {
+                printf("bench.userprog:  SKIP (user program did not link)\n");
+            }
+        } else {
+            printf("bench.userprog:  SKIP (shader entry points unavailable)\n");
+        }
+    }
 
     // --- bench.matrixops -----------------------------------------------------
     const int mat_ops = (int)(200000 * scale) > 0 ? (int)(200000 * scale) : 1;

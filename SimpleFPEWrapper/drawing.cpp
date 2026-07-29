@@ -911,20 +911,42 @@ bool userProgramDrawElements(GLuint program, GLenum mode, GLsizei count, GLenum 
         g_glFuncs.glUnmapBuffer(GL_ELEMENT_ARRAY_BUFFER);
         cpu_indices = scratch.data();
     }
-    uint32_t max_index = 0;
-    switch (index_size) {
-    case 1: max_index = maxIndexOf((const uint8_t*)cpu_indices, (size_t)count); break;
-    case 2: max_index = maxIndexOf((const uint16_t*)cpu_indices, (size_t)count); break;
-    default: max_index = maxIndexOf((const uint32_t*)cpu_indices, (size_t)count); break;
-    }
-
     const GLint logical_array_buffer = (GLint)sfpewLogicalArrayBufferBinding();
     fpe_backend_draw_state_guard_t backend_state((GLint)program, logical_array_buffer);
 
     const auto& raw_vpa = g_glstate.fpe_state.vertexpointer_array;
+
+    // The largest referenced index has exactly two consumers: the vertex count
+    // that sizes gather_client_arrays' copy, and the client-memory upload size.
+    // A single VBO-backed enabled array makes the gather bail on that alone
+    // (gather_client_arrays, fpe/fpe.cpp) and makes the draw source straight
+    // from the app's buffer, so neither runs and the scan over every index of
+    // every draw is dead work: 1.16-Optifine/1-frame19661.rdc walks 108630
+    // indices a frame for a value nothing reads. Compute it on demand.
+    bool any_vbo_backed = false;
+    for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
+        if (!((raw_vpa.enabled_pointers >> i) & 1u)) continue;
+        if (getClientArrayBufferBinding(i) != 0) {
+            any_vbo_backed = true;
+            break;
+        }
+    }
+    uint32_t max_index = 0;
+    bool max_index_known = false;
+    const auto vertexCount = [&]() -> GLsizei {
+        if (!max_index_known) {
+            switch (index_size) {
+            case 1: max_index = maxIndexOf((const uint8_t*)cpu_indices, (size_t)count); break;
+            case 2: max_index = maxIndexOf((const uint16_t*)cpu_indices, (size_t)count); break;
+            default: max_index = maxIndexOf((const uint32_t*)cpu_indices, (size_t)count); break;
+            }
+            max_index_known = true;
+        }
+        return (GLsizei)max_index + 1;
+    };
+
     vertex_pointer_array_t vpa;
-    const GLsizei vertex_count = (GLsizei)max_index + 1;
-    if (gather_client_arrays(raw_vpa, 0, vertex_count, &vpa)) {
+    if (!any_vbo_backed && gather_client_arrays(raw_vpa, 0, vertexCount(), &vpa)) {
         // gathered layout starts at vertex 0
     } else {
         vertex_pointer_array_t raw_copy = raw_vpa;
@@ -939,7 +961,7 @@ bool userProgramDrawElements(GLuint program, GLenum mode, GLsizei count, GLenum 
                                         : (GLuint)logical_array_buffer;
     sfpewBackendBindAttributeBuffer(attribute_buffer, backend_state.holds_save);
     if (client_memory_draw) {
-        const int64_t upload_size = (int64_t)vertex_count * (int64_t)vpa.stride;
+        const int64_t upload_size = (int64_t)vertexCount() * (int64_t)vpa.stride;
         if (upload_size <= 0 || upload_size > (int64_t)std::numeric_limits<GLsizei>::max()) {
             g_glstate.set_error(GL_INVALID_VALUE);
             return true;

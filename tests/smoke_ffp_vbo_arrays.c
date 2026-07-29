@@ -58,6 +58,7 @@ typedef long GLsizeiptr;
 static void (*fClearColor)(GLfloat, GLfloat, GLfloat, GLfloat);
 static void (*fClear)(GLbitfield);
 static void (*fDrawArrays)(GLenum, GLint, GLsizei);
+static void (*fDrawElements)(GLenum, GLsizei, GLenum, const void*);
 static void (*fReadPixels)(GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, void*);
 static GLenum (*fGetError)(void);
 static void (*fFinish)(void);
@@ -121,7 +122,7 @@ int main(void) {
         printf("SKIP: could not make ES3 context current\n"); return 77; }
 
 #define R(fn, s) fn = (typeof(fn))resolve(s); if (!fn) { fprintf(stderr, "FAIL: missing %s\n", s); return 1; }
-    R(fClearColor,"glClearColor") R(fClear,"glClear") R(fDrawArrays,"glDrawArrays")
+    R(fClearColor,"glClearColor") R(fClear,"glClear") R(fDrawArrays,"glDrawArrays") R(fDrawElements,"glDrawElements")
     R(fReadPixels,"glReadPixels") R(fGetError,"glGetError") R(fFinish,"glFinish")
     R(fUseProgram,"glUseProgram") R(fCreateShader,"glCreateShader")
     R(fShaderSource,"glShaderSource") R(fCompileShader,"glCompileShader")
@@ -197,6 +198,29 @@ int main(void) {
     fFinish();
     expect(32, 32, 0, 1, 0, "draw 2: repeated VBO-backed draw -> green (bind elided)");
     expect(6, 6, 0, 1, 0, "draw 2: repeated VBO-backed draw -> green (corner)");
+
+    // Same VBO-backed arrays, now indexed with indices in CLIENT memory and no
+    // GL_ELEMENT_ARRAY_BUFFER bound. This is precisely the Minecraft 1.16 +
+    // OptiFine world draw: userProgramDrawElements has to copy the indices into
+    // its own ring (ES has no client-side index arrays) but must NOT walk them
+    // to find the largest one - with the attributes in the app's buffer the
+    // vertex count that scan produces has no consumer.
+    static const GLubyte idx[] = {0, 1, 2, 3, 4, 5};
+    fClear(GL_COLOR_BUFFER_BIT);
+    fDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_BYTE, idx);
+    fFinish();
+    expect(32, 32, 0, 1, 0, "draw 3: VBO-backed arrays + client indices -> green");
+    expect(6, 6, 0, 1, 0, "draw 3: VBO-backed arrays + client indices -> green (corner)");
+
+    // Indices that reference only the first triangle must light exactly it:
+    // proves the draw honours the index data rather than the vertex range a
+    // skipped scan would otherwise have implied.
+    static const GLubyte idxHalf[] = {0, 1, 2};
+    fClear(GL_COLOR_BUFFER_BIT);
+    fDrawElements(GL_TRIANGLES, 3, GL_UNSIGNED_BYTE, idxHalf);
+    fFinish();
+    expect(48, 16, 0, 1, 0, "draw 4: partial index range covers its own triangle");
+    expect(8, 56, 0, 0, 1, "draw 4: partial index range leaves the rest cleared");
 
     const GLenum err = fGetError();
     if (err != GL_NO_ERROR) {

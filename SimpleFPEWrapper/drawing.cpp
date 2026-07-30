@@ -72,7 +72,12 @@ struct array_buffer_binding_guard_t {
 
     array_buffer_binding_guard_t() { g_glFuncs.glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &binding); }
 
-    ~array_buffer_binding_guard_t() { g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, binding); }
+    ~array_buffer_binding_guard_t() {
+        g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, binding);
+        // The restore changed the backend binding underneath the immediate
+        // arm; cold path, so a plain invalidate keeps the invariant simple.
+        sfpewInvalidateImmediateDrawState();
+    }
 
     array_buffer_binding_guard_t(const array_buffer_binding_guard_t&) = delete;
     array_buffer_binding_guard_t& operator=(const array_buffer_binding_guard_t&) = delete;
@@ -317,6 +322,7 @@ struct wrapper_client_state_guard_t {
     ~wrapper_client_state_guard_t() {
         g_glstate_c.fpe_state.vertexpointer_array = vertexPointerArray;
         g_glstate_c.fpe_state.normalized_vpa = normalizedVertexPointerArray;
+        g_glstate_c.fpe_normalized_valid = false;
         g_glstate_c.fpe_state.client_active_texture = clientActiveTexture;
     }
 
@@ -460,6 +466,7 @@ public:
 
         g_glstate_c.fpe_state.vertexpointer_array = replayState;
         g_glstate_c.fpe_state.normalized_vpa.reset();
+        g_glstate_c.fpe_normalized_valid = false;
         g_glstate_c.fpe_state.client_active_texture = clientActiveTexture;
 
         // Static display-list geometry is immutable after glEndList. Keep it
@@ -771,7 +778,9 @@ void drawArraysNow(GLenum mode, GLint first, GLsizei count, bool forceFixedFunct
     // live between commands and avoid four synchronous state queries per
     // draw. The outer glCallList(s) guard restores all caller state once.
     if (forceFixedFunction && DisplayListManager::isCalling() && arrayBufferOverride >= 0) {
-        g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, static_cast<GLuint>(arrayBufferOverride));
+        // No explicit bind here: commit_fpe_state_on_draw binds the
+        // attribute source itself (arm-checked), so binding first just
+        // doubled the call on every captured display-list draw.
         const int doDrawElement =
             commit_fpe_state_on_draw(&mode, &first, &count, arrayBufferOverride);
         if (doDrawElement < 0) return;
@@ -835,8 +844,7 @@ void drawArraysNow(GLenum mode, GLint first, GLsizei count, bool forceFixedFunct
     fpe_backend_draw_state_guard_t backend_state(current_program, logicalArrayBuffer);
     GLint attributeArrayBuffer = logicalArrayBuffer;
     if (arrayBufferOverride >= 0) {
-        attributeArrayBuffer = arrayBufferOverride;
-        g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, static_cast<GLuint>(arrayBufferOverride));
+        attributeArrayBuffer = arrayBufferOverride; // commit binds it (arm-checked)
     }
     int do_draw_element = commit_fpe_state_on_draw(&mode, &first, &count, attributeArrayBuffer);
     if (do_draw_element < 0) {
@@ -1480,6 +1488,7 @@ bool tryExecuteCapturedDisplayLists(const GLuint* listIds, size_t listCount) {
     }
     g_glstate_c.fpe_state.vertexpointer_array = replayState;
     g_glstate_c.fpe_state.normalized_vpa.reset();
+    g_glstate_c.fpe_normalized_valid = false;
     g_glstate_c.fpe_state.client_active_texture = prototype->clientActiveTexture;
 
     g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, commonBuffer);

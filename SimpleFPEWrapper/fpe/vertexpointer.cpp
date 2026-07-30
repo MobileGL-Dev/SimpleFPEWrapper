@@ -119,9 +119,14 @@ void glBindBuffer(GLenum target, GLuint buffer) {
         flushPendingImmediateDraws();
         g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, buffer);
         auto& gs = g_glstate_c;
+        // The arm tracks the backend ARRAY binding the wrapper knows about;
+        // this bind just went straight through, so record the exact value.
+        // The next FPE draw whose attribute source IS this buffer (the MC
+        // chunk shape: bind, respecify pointers, draw) then skips its
+        // re-bind entirely instead of re-issuing it for the driver to dedup.
+        gs.immediate_live_buffer = buffer;
         if (gs.deferred_draw.held) {
             gs.deferred_draw.array_buffer = static_cast<GLint>(buffer);
-            gs.immediate_live_buffer = 0;
         }
         auto& state = getLogicalArrayBufferState();
         state.binding = buffer;
@@ -156,6 +161,16 @@ void glDeleteBuffers(GLsizei n, const GLuint* buffers) {
     // sfpewForgetInternalBuffer). Wrapper-side deletions call the helper at
     // their own sites; this covers names the app deletes.
     for (GLsizei i = 0; i < n; ++i) sfpewForgetInternalBuffer(buffers[i]);
+
+    // Deleting the buffer the arm remembers un-binds it driver-side, and the
+    // recycled NAME can come back as a different object: a later arm match
+    // against the reused name would skip a bind the backend actually needs.
+    for (GLsizei i = 0; i < n; ++i) {
+        if (g_glstate_c.immediate_live_buffer == buffers[i]) {
+            g_glstate_c.immediate_live_buffer = 0;
+            break;
+        }
+    }
 
     auto& state = getLogicalArrayBufferState();
     auto& gs = g_glstate_c;
@@ -308,12 +323,32 @@ GLuint getClientArrayBufferBinding(int index) {
     return g_glstate_c.fpe_state.client_array_buffer_bindings[index];
 }
 
+
+namespace {
+// True when the attribute already holds exactly these values. MC's chunk
+// loop respecifies identical pointers for every chunk with only the bound
+// buffer changing; an identical respec must NOT mark the layout dirty, or
+// every chunk pays a full normalize + program-key relayout for a
+// declaration that did not change. The buffer binding is remembered
+// separately (rememberClientArrayBufferBinding) either way.
+bool samePointerSpec(const vertexattribute_t& a, GLint size, GLenum usage, GLenum type,
+                     GLenum normalized, GLsizei stride, const void* pointer) {
+    return a.size == size && a.usage == usage && a.type == type && a.normalized == normalized &&
+           a.stride == stride && a.pointer == pointer;
+}
+} // namespace
+
 void glVertexPointer(GLint size, GLenum type, GLsizei stride, const void* pointer) {
     auto& gs = g_glstate;
     sfpewClientStateBarrier();
     // LOG_D("glVertexPointer, size = %d, type = %s, stride = %d, pointer = 0x%x", size, glEnumToString(type), stride,
     // pointer)
     auto& attr = gs.fpe_state.vertexpointer_array.attributes[vp2idx(GL_VERTEX_ARRAY)];
+    if (samePointerSpec(attr, size, GL_VERTEX_ARRAY, type, GL_FALSE, stride, pointer)) {
+        rememberClientArrayBufferBinding(vp2idx(GL_VERTEX_ARRAY));
+        gs.fpe_state.vertexpointer_array.buffer_based = true;
+        return;
+    }
     attr.size = size;
     attr.usage = GL_VERTEX_ARRAY;
     attr.type = type;
@@ -330,6 +365,11 @@ void glNormalPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
     auto& gs = g_glstate;
     sfpewClientStateBarrier();
     // LOG_D("glNormalPointer, type = %s, stride = %d, pointer = 0x%x", glEnumToString(type), stride, pointer)
+    const auto& cur = gs.fpe_state.vertexpointer_array.attributes[vp2idx(GL_NORMAL_ARRAY)];
+    if (samePointerSpec(cur, 3, GL_NORMAL_ARRAY, type, static_cast<GLenum>((type == GL_FLOAT || type == GL_DOUBLE) ? GL_FALSE : GL_TRUE), stride, pointer)) {
+        rememberClientArrayBufferBinding(vp2idx(GL_NORMAL_ARRAY));
+        return;
+    }
     gs.fpe_state.vertexpointer_array.attributes[vp2idx(GL_NORMAL_ARRAY)] = {
         .size = 3,
         .usage = GL_NORMAL_ARRAY,
@@ -405,6 +445,11 @@ void glColorPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* point
     sfpewClientStateBarrier();
     // LOG_D("glColorPointer, size = %d, type = %s, stride = %d, pointer = 0x%x", size, glEnumToString(type), stride,
     // pointer)
+    const auto& cur = gs.fpe_state.vertexpointer_array.attributes[vp2idx(GL_COLOR_ARRAY)];
+    if (samePointerSpec(cur, size, GL_COLOR_ARRAY, type, GL_TRUE, stride, pointer)) {
+        rememberClientArrayBufferBinding(vp2idx(GL_COLOR_ARRAY));
+        return;
+    }
     gs.fpe_state.vertexpointer_array.attributes[vp2idx(GL_COLOR_ARRAY)] = {
         .size = size,
         .usage = GL_COLOR_ARRAY,
@@ -424,6 +469,11 @@ void glTexCoordPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* po
     // LOG_D("glTexCoordPointer, size = %d, type = %s, stride = %d, pointer = 0x%x", size, glEnumToString(type), stride,
     // pointer) LOG_D("Active texture: %s", glEnumToString(g_glstate.fpe_state.client_active_texture))
     const int index = vp2idx(GL_TEXTURE_COORD_ARRAY);
+    const auto& cur = gs.fpe_state.vertexpointer_array.attributes[index];
+    if (samePointerSpec(cur, size, GL_TEXTURE_COORD_ARRAY + (gs.fpe_state.client_active_texture - GL_TEXTURE0), type, GL_FALSE, stride, pointer)) {
+        rememberClientArrayBufferBinding(index);
+        return;
+    }
     gs.fpe_state.vertexpointer_array.attributes[index] = {
         .size = size,
         .usage = GL_TEXTURE_COORD_ARRAY + (gs.fpe_state.client_active_texture - GL_TEXTURE0),

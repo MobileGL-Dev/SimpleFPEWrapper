@@ -205,6 +205,7 @@ struct immediate_client_state_guard_t {
     ~immediate_client_state_guard_t() {
         g_glstate_c.fpe_state.vertexpointer_array = vertexPointerArray;
         g_glstate_c.fpe_state.normalized_vpa = normalizedVertexPointerArray;
+        g_glstate_c.fpe_normalized_valid = false;
     }
 
     immediate_client_state_guard_t(const immediate_client_state_guard_t&) = delete;
@@ -304,6 +305,7 @@ void drawImmediateVertices(GLenum primitive, const GLfloat* vertices, size_t flo
 
     auto& va = state.normalized_vpa;
     va = state.vertexpointer_array.normalize();
+    gs.fpe_normalized_valid = false; // immediate layout overwrote the cache
     // generate_compressed_index only reads the size array, but its legacy
     // declaration is not const-correct. It must see the shader's view
     // (stream + constant slots) so attribute indices line up.
@@ -687,6 +689,10 @@ void sfpewFlushDeferredDrawState() {
     if (held.element_array_buffer >= 0)
         sfpewBackendBindElementBuffer(static_cast<GLuint>(held.element_array_buffer));
     g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, held.array_buffer);
+    // The restore itself established this binding, so the arm may keep it:
+    // an app draw right after the hand-back (bind was already done earlier)
+    // then skips one more redundant re-bind.
+    g_glstate_c.immediate_live_buffer = static_cast<GLuint>(held.array_buffer);
 }
 
 // Test-only view of whether immediate geometry is still buffered. A pbuffer

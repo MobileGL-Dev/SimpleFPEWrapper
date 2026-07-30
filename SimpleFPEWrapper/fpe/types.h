@@ -702,6 +702,15 @@ struct glstate_t {
     // shape inherits the other's binding.
     GLuint immediate_live_buffer = 0;
 
+    // Validity of fpe_state.normalized_vpa as a reusable layout cache (see
+    // commit_fpe_state_on_draw). True only when the cached copy came from a
+    // plain normalize() - never from a gather, which bakes first/count in -
+    // and fpe_normalized_sizes snapshots the constant-attribute sizes the
+    // compressed index was generated against. Everything that overwrites or
+    // clears normalized_vpa outside that one rebuild site must drop this.
+    bool fpe_normalized_valid = false;
+    fixed_function_draw_size_t fpe_normalized_sizes{};
+
     // Attribute stack storage (defined in attribstack.cpp); lives here so
     // it is per-context like everything else on this aggregate. shared_ptr
     // erases the deleter, so the incomplete type is fine in this header.

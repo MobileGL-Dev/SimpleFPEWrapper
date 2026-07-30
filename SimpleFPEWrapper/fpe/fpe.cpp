@@ -510,14 +510,34 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint p
     // upload. The edge-flag array below is read through the RAW pointers,
     // which the gather does not touch, so it must be indexed with this.
     const GLint raw_first = *first;
-    if (gather_client_arrays(raw_vpa, *first, *count, &vpa)) {
-        *first = 0; // the gather already applied the base offset
-    } else {
-        vpa = raw_vpa.normalize();
+    // Layout reuse: normalize() reads only the pointer declarations (sizes,
+    // types, strides, client pointers) - NOT which buffer is bound, which
+    // lives in client_array_buffer_bindings and feeds the attribute send
+    // separately. MC's chunk loop respecifies BYTE-IDENTICAL pointers per
+    // chunk with only the bound VBO changing (the gl*Pointer entries skip
+    // the dirty mark for an identical respec), so the normalized layout,
+    // its compressed index and the raw mirror are all still exact. A
+    // gathered result is never reused: it bakes first/count into the copy.
+    const auto& live_sizes = g_glstate_c.fpe_state.fpe_draw.current_data.sizes;
+    const bool layout_reused =
+        !raw_vpa.dirty && g_glstate_c.fpe_normalized_valid &&
+        std::memcmp(&g_glstate_c.fpe_normalized_sizes, &live_sizes, sizeof(live_sizes)) == 0;
+    if (!layout_reused) {
+        if (gather_client_arrays(raw_vpa, *first, *count, &vpa)) {
+            *first = 0; // the gather already applied the base offset
+            g_glstate_c.fpe_normalized_valid = false;
+        } else {
+            vpa = raw_vpa.normalize();
+            g_glstate_c.fpe_normalized_valid = true;
+            g_glstate_c.fpe_normalized_sizes = live_sizes;
+        }
+        vpa.generate_compressed_index(g_glstate_c.fpe_state.fpe_draw.current_data.sizes.data);
+        // kinda cursed...
+        raw_vpa.generate_compressed_index(g_glstate_c.fpe_state.fpe_draw.current_data.sizes.data);
+        // Consumed: an identical respec keeps it clear, a real layout change
+        // sets it again and rebuilds here.
+        raw_vpa.dirty = false;
     }
-    vpa.generate_compressed_index(g_glstate_c.fpe_state.fpe_draw.current_data.sizes.data);
-    // kinda cursed...
-    raw_vpa.generate_compressed_index(g_glstate_c.fpe_state.fpe_draw.current_data.sizes.data);
 
     auto key = g_glstate_c.program_hash();
     // LOG_D("%s: key=0x%x", __func__, key)
@@ -527,7 +547,6 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint p
         // Generated program failed to compile/link: the draw is dropped, and
         // per the error contract that must be observable, not silent.
         g_glstate_c.set_error(GL_INVALID_OPERATION);
-        vpa.reset();
         return -1;
     }
     // The same program/VAO arm the immediate path uses: while the app's draw
@@ -573,7 +592,6 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint p
         if (*count <= 0 || upload_size <= 0 ||
             upload_size > (int64_t)std::numeric_limits<GLsizei>::max() || skip < 0) {
             g_glstate_c.set_error(GL_INVALID_VALUE);
-            vpa.reset();
             return -1;
         }
         const auto* draw_start = static_cast<const uint8_t*>(vpa.starting_pointer) + skip;
@@ -595,11 +613,17 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint p
         const GLuint attribute_array_buffer = previous_array_buffer == 0
                                                   ? g_glstate_c.fpe_state.fpe_vbo
                                                   : static_cast<GLuint>(previous_array_buffer);
-        g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, attribute_array_buffer);
-        gsc.immediate_live_buffer = attribute_array_buffer;
+        // The arm records the backend ARRAY binding the wrapper last saw
+        // established (its own binds and the app's direct passthrough both
+        // update it; everything else clears it). A match means the backend
+        // verifiably has this buffer bound - the MC chunk shape hits this
+        // every draw, since the app itself just bound the chunk VBO.
+        if (gsc.immediate_live_buffer != attribute_array_buffer) {
+            g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, attribute_array_buffer);
+            gsc.immediate_live_buffer = attribute_array_buffer;
+        }
         g_glstate_c.send_vertex_attributes(vpa, attribute_array_buffer);
     }
-    vpa.dirty = false;
 
     // plans/08 8.3: GL_LINE/GL_POINT polygon modes. drawImmediateVertices
     // applies the same two conversions to the glBegin/glEnd path using the
@@ -610,7 +634,6 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint p
         // Vertices repeat across shared corners; visually identical to spec.
         *mode = GL_POINTS;
         g_glstate_c.send_uniforms(prog);
-        vpa.reset();
         return 0;
     }
     if (filled_primitive && polygon_mode == GL_LINE) {
@@ -643,15 +666,11 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint p
                                    flag_count);
         // Empty means every edge was suppressed - draw nothing rather than
         // falling through to the filled path (see drawImmediateVertices).
-        if (wire.empty()) {
-            vpa.reset();
-            return -1;
-        }
+        if (wire.empty()) return -1;
         if (sfpewUploadWireframeIndices(wire)) {
             *mode = GL_LINES;
             *count = (GLsizei)wire.size();
             g_glstate_c.send_uniforms(prog);
-            vpa.reset();
             return 2; // wireframe: GL_UNSIGNED_INT indices at offset 0
         }
     }
@@ -696,7 +715,6 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint p
     }
 
     g_glstate_c.send_uniforms(prog);
-    vpa.reset();
     //    vpa.starting_pointer = 0;
     //    vpa.stride = 0;
     return ret;

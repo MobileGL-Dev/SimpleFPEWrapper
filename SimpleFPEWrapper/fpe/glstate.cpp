@@ -513,7 +513,14 @@ bool glstate_t::send_vertex_attributes(const vertex_pointer_array_t& va, GLuint 
     // LOG()
 
     //    auto& va = fpe_state.vertexpointer_array;
-    if (!va.dirty) return false;
+    // No dirty early-out here. Before the normalized-layout cache this
+    // function saw a freshly rebuilt (always-dirty) copy every draw, so a
+    // !dirty return was dead code; with the cache a REUSED layout arrives
+    // with dirty long cleared, and the work that still must happen per draw
+    // is exactly what follows - the binding-triple compare and the
+    // per-attribute compares, which are themselves the cheap deduplicators.
+    // Returning on !dirty skipped the buffer rebind after every source
+    // switch (caught by smoke_draw_batch / smoke_dlist_no_state_leak).
 
     bool use_separate_binding = g_glFuncs.glBindVertexBuffer != nullptr &&
                                 g_glFuncs.glVertexAttribFormat != nullptr &&

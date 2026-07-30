@@ -249,6 +249,99 @@ if(NOT ANDROID)
                         add_test(NAME smoke_dlist_no_state_leak COMMAND smoke_dlist_no_state_leak)
                         set_tests_properties(smoke_dlist_no_state_leak PROPERTIES SKIP_RETURN_CODE 77)
 
+                        add_executable(smoke_beginend_coverage tests/smoke_beginend_coverage.c)
+                        target_compile_definitions(smoke_beginend_coverage PRIVATE
+                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
+                        target_link_libraries(smoke_beginend_coverage PRIVATE dl ${SFPEW_TEST_EGL})
+                        add_dependencies(smoke_beginend_coverage ${CMAKE_PROJECT_NAME})
+                        add_test(NAME smoke_beginend_coverage COMMAND smoke_beginend_coverage)
+                        set_tests_properties(smoke_beginend_coverage PROPERTIES SKIP_RETURN_CODE 77)
+
+                        add_executable(smoke_empty_beginend tests/smoke_empty_beginend.c)
+                        target_compile_definitions(smoke_empty_beginend PRIVATE
+                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
+                        target_link_libraries(smoke_empty_beginend PRIVATE dl ${SFPEW_TEST_EGL})
+                        add_dependencies(smoke_empty_beginend ${CMAKE_PROJECT_NAME})
+                        add_test(NAME smoke_empty_beginend COMMAND smoke_empty_beginend)
+                        set_tests_properties(smoke_empty_beginend PROPERTIES SKIP_RETURN_CODE 77)
+
+                        add_executable(smoke_degenerate_prims tests/smoke_degenerate_prims.c)
+                        target_compile_definitions(smoke_degenerate_prims PRIVATE
+                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
+                        target_link_libraries(smoke_degenerate_prims PRIVATE dl ${SFPEW_TEST_EGL})
+                        add_dependencies(smoke_degenerate_prims ${CMAKE_PROJECT_NAME})
+                        add_test(NAME smoke_degenerate_prims COMMAND smoke_degenerate_prims)
+                        set_tests_properties(smoke_degenerate_prims PROPERTIES SKIP_RETURN_CODE 77)
+
+                        # Expected to fail: GL_LINE polygon mode is not emulated on
+                        # the immediate-mode path at all, so glEdgeFlag has nothing
+                        # to drive. The test is a real pixel probe, deliberately not
+                        # weakened - implementing the feature is verified by removing
+                        # WILL_FAIL here (tests/smoke_edgeflag.c documents the gap).
+                        add_executable(smoke_edgeflag tests/smoke_edgeflag.c)
+                        target_compile_definitions(smoke_edgeflag PRIVATE
+                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
+                        target_link_libraries(smoke_edgeflag PRIVATE dl ${SFPEW_TEST_EGL})
+                        add_dependencies(smoke_edgeflag ${CMAKE_PROJECT_NAME})
+                        add_test(NAME smoke_edgeflag COMMAND smoke_edgeflag)
+                        set_tests_properties(smoke_edgeflag PROPERTIES WILL_FAIL TRUE)
+
+                        add_executable(smoke_dlist_beginend tests/smoke_dlist_beginend.c)
+                        target_compile_definitions(smoke_dlist_beginend PRIVATE
+                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
+                        target_link_libraries(smoke_dlist_beginend PRIVATE dl ${SFPEW_TEST_EGL})
+                        add_dependencies(smoke_dlist_beginend ${CMAKE_PROJECT_NAME})
+                        add_test(NAME smoke_dlist_beginend COMMAND smoke_dlist_beginend)
+                        set_tests_properties(smoke_dlist_beginend PROPERTIES SKIP_RETURN_CODE 77)
+
+                        add_executable(smoke_rastercolor tests/smoke_rastercolor.c)
+                        target_compile_definitions(smoke_rastercolor PRIVATE
+                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
+                        target_link_libraries(smoke_rastercolor PRIVATE dl ${SFPEW_TEST_EGL})
+                        add_dependencies(smoke_rastercolor ${CMAKE_PROJECT_NAME})
+                        add_test(NAME smoke_rastercolor COMMAND smoke_rastercolor)
+                        set_tests_properties(smoke_rastercolor PROPERTIES SKIP_RETURN_CODE 77)
+
+                        add_executable(smoke_line_loop tests/smoke_line_loop.c)
+                        target_compile_definitions(smoke_line_loop PRIVATE
+                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
+                        target_link_libraries(smoke_line_loop PRIVATE dl ${SFPEW_TEST_EGL})
+                        add_dependencies(smoke_line_loop ${CMAKE_PROJECT_NAME})
+                        add_test(NAME smoke_line_loop COMMAND smoke_line_loop)
+                        set_tests_properties(smoke_line_loop PROPERTIES SKIP_RETURN_CODE 77)
+
+                        add_executable(smoke_orthpos tests/smoke_orthpos.c)
+                        target_compile_definitions(smoke_orthpos PRIVATE
+                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
+                        target_link_libraries(smoke_orthpos PRIVATE dl ${SFPEW_TEST_EGL})
+                        add_dependencies(smoke_orthpos ${CMAKE_PROJECT_NAME})
+                        add_test(NAME smoke_orthpos COMMAND smoke_orthpos)
+                        set_tests_properties(smoke_orthpos PROPERTIES SKIP_RETURN_CODE 77)
+
+                        add_executable(smoke_draw_batch tests/smoke_draw_batch.c)
+                        target_compile_definitions(smoke_draw_batch PRIVATE
+                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
+                        target_link_libraries(smoke_draw_batch PRIVATE dl ${SFPEW_TEST_EGL})
+                        add_dependencies(smoke_draw_batch ${CMAKE_PROJECT_NAME})
+                        add_test(NAME smoke_draw_batch COMMAND smoke_draw_batch)
+                        set_tests_properties(smoke_draw_batch PROPERTIES SKIP_RETURN_CODE 77)
+
+                        add_executable(smoke_long_primitives tests/smoke_long_primitives.c)
+                        target_compile_definitions(smoke_long_primitives PRIVATE
+                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
+                        target_link_libraries(smoke_long_primitives PRIVATE dl ${SFPEW_TEST_EGL})
+                        add_dependencies(smoke_long_primitives ${CMAKE_PROJECT_NAME})
+                        add_test(NAME smoke_long_primitives COMMAND smoke_long_primitives)
+                        set_tests_properties(smoke_long_primitives PROPERTIES SKIP_RETURN_CODE 77)
+
+                        add_executable(smoke_dlist_shademodel tests/smoke_dlist_shademodel.c)
+                        target_compile_definitions(smoke_dlist_shademodel PRIVATE
+                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
+                        target_link_libraries(smoke_dlist_shademodel PRIVATE dl ${SFPEW_TEST_EGL})
+                        add_dependencies(smoke_dlist_shademodel ${CMAKE_PROJECT_NAME})
+                        add_test(NAME smoke_dlist_shademodel COMMAND smoke_dlist_shademodel)
+                        set_tests_properties(smoke_dlist_shademodel PROPERTIES SKIP_RETURN_CODE 77)
+
                         add_executable(smoke_arraybuffer_heal tests/smoke_arraybuffer_heal.c)
                         target_compile_definitions(smoke_arraybuffer_heal PRIVATE
                                 WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")

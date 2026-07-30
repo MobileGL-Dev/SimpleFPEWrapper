@@ -17,22 +17,23 @@
 // quad lists, so they must be split before submission), and a constant
 // glEdgeFlag set OUTSIDE Begin/End applying to a whole primitive.
 //
-// EXPECTED TO FAIL on this wrapper, for a reason bigger than edge flags:
-// GL_LINE/GL_POINT polygon-mode wireframe emulation only exists in
-// commit_fpe_state_on_draw (fpe/fpe.cpp), the client-array/glDrawArrays
-// commit path. Immediate-mode drawing (drawImmediateVertices in
-// fpe/drawing1x.cpp, the glBegin/glVertex/glEnd path these cases use) never
-// consults polygon_mode_front/back at all and always draws filled - so the
-// probes come back with the interior filled instead of a wireframe outline.
-// glEdgeFlag/glEdgeFlagv (added alongside this port; they were missing
-// entirely before) track the current edge-flag value but have no consumer
-// either way.
+// EXPECTED TO FAIL on this wrapper, and now for exactly one reason: nothing
+// consumes the edge flag. GL_LINE polygon mode itself works on both draw
+// paths (tests/smoke_polygon_mode.c pins it), so every edge of these
+// rectangles IS drawn - the failures below are all "an edge that should have
+// been suppressed was drawn", never a missing outline.
 //
-// Implementing wireframe mode for immediate-mode draws, and then per-vertex
-// edge-flag-driven edge suppression on top of it, is real feature work and
-// is not attempted here. Kept as a real, non-weakened pixel-probe test
-// (CMake marks it WILL_FAIL) so that implementing either feature later is
-// verified by un-xfailing this file rather than by writing a new one.
+// What is missing is per-vertex edge-flag plumbing. glEdgeFlag/glEdgeFlagv
+// track the current value in fixed_function_draw_data_t, but the wireframe
+// index builder (sfpewBuildWireframeIndices) works purely from the primitive
+// mode and vertex count; to honour edge flags it would need the per-vertex
+// flags on the CPU at draw time, which means collecting them into a parallel
+// array alongside the interleaved vertex stream in advance() and threading
+// that through to both draw paths.
+//
+// Kept as a real, non-weakened pixel-probe test (CMake marks it WILL_FAIL)
+// so implementing that later is verified by removing WILL_FAIL here rather
+// than by writing a new test.
 
 #include <dlfcn.h>
 #include <stdio.h>

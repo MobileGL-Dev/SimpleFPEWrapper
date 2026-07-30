@@ -9,6 +9,8 @@
 #pragma once
 
 #include <GL/gl.h>
+#include <cstdint>
+#include <vector>
 #include "transformation.h"
 #include "state.h"
 #include "vertexpointer.h"
@@ -89,6 +91,34 @@ inline void sfpewBackendBindVertexArray(GLuint vao) {
 // Anything that binds a program, VAO or array buffer other than the
 // immediate-draw trio must call this, or the next immediate draw skips a bind
 // it actually needed (plans/12).
+// True for the primitive modes glPolygonMode applies to. Points and lines
+// are rasterized as themselves whatever the polygon mode says.
+inline bool sfpewIsFilledPrimitive(GLenum mode) {
+    return mode == GL_TRIANGLES || mode == GL_TRIANGLE_STRIP || mode == GL_TRIANGLE_FAN ||
+           mode == GL_QUADS || mode == GL_QUAD_STRIP || mode == GL_POLYGON;
+}
+
+// The polygon mode in force when both faces agree, or GL_FILL when they
+// differ. Splitting a draw by facing needs CPU-side facing tests, which
+// stays a documented gap (plans/08 8.3); until then a per-face setup
+// rasterizes filled rather than guessing which face the app meant.
+inline GLenum sfpewUniformPolygonMode() {
+    const auto& un = g_glstate_c.fpe_uniform;
+    return un.polygon_mode_front == un.polygon_mode_back ? un.polygon_mode_front : GL_FILL;
+}
+
+// Expands a filled primitive into the GL_LINES index pairs that outline it,
+// for GL_LINE polygon mode. Indices are emitted relative to `base`. Shared
+// edges are emitted twice, which is visually identical to a wireframe.
+// Shared by the client-array commit and the immediate-mode draw so the two
+// cannot disagree about what an outline is.
+void sfpewBuildWireframeIndices(GLenum mode, uint32_t base, uint32_t count,
+                                std::vector<uint32_t>& out);
+
+// Uploads wireframe indices into the dedicated element buffer and binds it.
+// Returns false when no backend buffer could be created.
+bool sfpewUploadWireframeIndices(const std::vector<uint32_t>& wire);
+
 // GL_QUAD_STRIP and GL_POLYGON have no GLES equivalent but ARE vertex-order
 // compatible with a core mode, so converting them is a mode swap plus a
 // count truncation. Both halves matter:

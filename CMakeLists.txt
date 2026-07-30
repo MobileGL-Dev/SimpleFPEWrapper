@@ -273,11 +273,19 @@ if(NOT ANDROID)
                         add_test(NAME smoke_degenerate_prims COMMAND smoke_degenerate_prims)
                         set_tests_properties(smoke_degenerate_prims PROPERTIES SKIP_RETURN_CODE 77)
 
-                        # Expected to fail: GL_LINE polygon mode is not emulated on
-                        # the immediate-mode path at all, so glEdgeFlag has nothing
-                        # to drive. The test is a real pixel probe, deliberately not
-                        # weakened - implementing the feature is verified by removing
-                        # WILL_FAIL here (tests/smoke_edgeflag.c documents the gap).
+                        add_executable(smoke_polygon_mode tests/smoke_polygon_mode.c)
+                        target_compile_definitions(smoke_polygon_mode PRIVATE
+                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
+                        target_link_libraries(smoke_polygon_mode PRIVATE dl ${SFPEW_TEST_EGL})
+                        add_dependencies(smoke_polygon_mode ${CMAKE_PROJECT_NAME})
+                        add_test(NAME smoke_polygon_mode COMMAND smoke_polygon_mode)
+                        set_tests_properties(smoke_polygon_mode PROPERTIES SKIP_RETURN_CODE 77)
+
+                        # Expected to fail: nothing consumes the per-vertex edge flag
+                        # yet (GL_LINE polygon mode itself works - see
+                        # smoke_polygon_mode). The test is a real pixel probe,
+                        # deliberately not weakened - implementing edge flags is
+                        # verified by removing WILL_FAIL here.
                         add_executable(smoke_edgeflag tests/smoke_edgeflag.c)
                         target_compile_definitions(smoke_edgeflag PRIVATE
                                 WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")

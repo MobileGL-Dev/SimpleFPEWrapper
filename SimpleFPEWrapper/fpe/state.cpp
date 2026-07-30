@@ -1468,8 +1468,15 @@ void glPolygonMode(GLenum face, GLenum mode) {
     LIST_RECORD(glPolygonMode, {}, face, mode)
     if (face == GL_FRONT || face == GL_FRONT_AND_BACK) gs.fpe_uniform.polygon_mode_front = mode;
     if (face == GL_BACK || face == GL_FRONT_AND_BACK) gs.fpe_uniform.polygon_mode_back = mode;
-    if (mode != GL_FILL)
-        SFPEW_LOGW("glPolygonMode(0x%x): LINE/POINT emulation is not implemented yet (plans/08)", mode);
+    // GL_LINE and GL_POINT are emulated on both draw paths (see
+    // sfpewBuildWireframeIndices). What is still missing is a PER-FACE
+    // setup: front and back set to different modes rasterizes filled,
+    // because splitting a draw by facing needs CPU-side facing tests.
+    if (gs.fpe_uniform.polygon_mode_front != gs.fpe_uniform.polygon_mode_back) {
+        SFPEW_LOGW("glPolygonMode: front 0x%x != back 0x%x; per-face modes are not emulated, "
+                   "drawing filled (plans/08)",
+                   gs.fpe_uniform.polygon_mode_front, gs.fpe_uniform.polygon_mode_back);
+    }
 }
 
 void glClipPlane(GLenum plane, const GLdouble* equation) {

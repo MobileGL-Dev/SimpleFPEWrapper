@@ -178,6 +178,73 @@ GLsizei type_size(GLenum type) {
     }
 }
 
+void sfpewBuildWireframeIndices(GLenum mode, uint32_t base, uint32_t n,
+                                std::vector<uint32_t>& out) {
+    out.clear();
+    const auto edge = [&](uint32_t a, uint32_t b) {
+        out.push_back(base + a);
+        out.push_back(base + b);
+    };
+    // Each PRIMITIVE gets its own outline. For the triangle modes that means
+    // per-triangle outlines, shared interior edges included - drawing a
+    // triangle strip as a wireframe really does show every triangle. But
+    // GL_POLYGON is ONE primitive and GL_QUAD_STRIP is a run of quads, so
+    // outlining those must trace their boundaries only; decomposing them
+    // first would draw diagonals the application never described.
+    switch (mode) {
+    case GL_TRIANGLES:
+        for (uint32_t i = 0; i + 2 < n; i += 3) {
+            edge(i, i + 1); edge(i + 1, i + 2); edge(i + 2, i);
+        }
+        break;
+    case GL_QUADS:
+        for (uint32_t i = 0; i + 3 < n; i += 4) {
+            edge(i, i + 1); edge(i + 1, i + 2); edge(i + 2, i + 3); edge(i + 3, i);
+        }
+        break;
+    case GL_QUAD_STRIP:
+        // Quad k is (2k, 2k+1, 2k+3, 2k+2) - note the last pair swaps, which
+        // is what makes a quad strip wind consistently.
+        for (uint32_t i = 0; i + 3 < n; i += 2) {
+            edge(i, i + 1); edge(i + 1, i + 3); edge(i + 3, i + 2); edge(i + 2, i);
+        }
+        break;
+    case GL_TRIANGLE_STRIP:
+        for (uint32_t i = 0; i + 2 < n; ++i) {
+            edge(i, i + 1); edge(i + 1, i + 2); edge(i + 2, i);
+        }
+        break;
+    case GL_POLYGON:
+        // A single convex polygon: its boundary, closed.
+        if (n >= 3) {
+            for (uint32_t i = 0; i + 1 < n; ++i) edge(i, i + 1);
+            edge(n - 1, 0);
+        }
+        break;
+    default: // GL_TRIANGLE_FAN
+        for (uint32_t i = 1; i + 1 < n; ++i) {
+            edge(0, i); edge(i, i + 1); edge(i + 1, 0);
+        }
+        break;
+    }
+}
+
+bool sfpewUploadWireframeIndices(const std::vector<uint32_t>& wire) {
+    auto& st = g_glstate_c.fpe_state;
+    if (st.fpe_element_ibo == 0) {
+        if (g_glFuncs.glGenBuffers == nullptr) return false;
+        g_glFuncs.glGenBuffers(1, &st.fpe_element_ibo);
+        sfpewNoteInternalBuffer(st.fpe_element_ibo);
+        if (st.fpe_element_ibo == 0) return false;
+    }
+    sfpewBackendBindElementBuffer(st.fpe_element_ibo);
+    st.fpe_ibo_bound = false; // fpe_vao's element binding changed
+    g_glFuncs.glBufferData(GL_ELEMENT_ARRAY_BUFFER,
+                           (GLsizeiptr)(wire.size() * sizeof(uint32_t)), wire.data(),
+                           GL_DYNAMIC_DRAW);
+    return true;
+}
+
 bool prepare_quad_indices(GLsizei n, GLuint first) {
     auto& state = g_glstate_c.fpe_state;
     const size_t num_quads = n > 0 ? static_cast<size_t>(n) / 4u : 0u;
@@ -524,54 +591,22 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint p
     }
     vpa.dirty = false;
 
-    // plans/08 8.3: GL_LINE/GL_POINT polygon modes (uniform across faces -
-    // per-face split needs CPU facing tests and stays a documented gap).
-    const GLenum polygon_mode = g_glstate_c.fpe_uniform.polygon_mode_front;
-    const bool filled_primitive = *mode == GL_TRIANGLES || *mode == GL_TRIANGLE_STRIP ||
-                                  *mode == GL_TRIANGLE_FAN || *mode == GL_QUADS ||
-                                  *mode == GL_QUAD_STRIP || *mode == GL_POLYGON;
-    if (filled_primitive && polygon_mode == g_glstate_c.fpe_uniform.polygon_mode_back &&
-        polygon_mode == GL_POINT) {
+    // plans/08 8.3: GL_LINE/GL_POINT polygon modes. drawImmediateVertices
+    // applies the same two conversions to the glBegin/glEnd path using the
+    // shared helpers below.
+    const GLenum polygon_mode = sfpewUniformPolygonMode();
+    const bool filled_primitive = sfpewIsFilledPrimitive(*mode);
+    if (filled_primitive && polygon_mode == GL_POINT) {
         // Vertices repeat across shared corners; visually identical to spec.
         *mode = GL_POINTS;
         g_glstate_c.send_uniforms(prog);
         vpa.reset();
         return 0;
     }
-    if (filled_primitive && polygon_mode == g_glstate_c.fpe_uniform.polygon_mode_back &&
-        polygon_mode == GL_LINE) {
-        // Expand every triangle (or quad) into its outline edges. Shared
-        // edges draw twice, which matches the visual result of wireframe.
+    if (filled_primitive && polygon_mode == GL_LINE) {
         thread_local std::vector<uint32_t> wire;
-        wire.clear();
-        const uint32_t base = (uint32_t)*first;
-        const uint32_t n = (uint32_t)*count;
-        const auto edge = [&](uint32_t a, uint32_t b) {
-            wire.push_back(base + a);
-            wire.push_back(base + b);
-        };
-        if (*mode == GL_TRIANGLES) {
-            for (uint32_t i = 0; i + 2 < n; i += 3) { edge(i, i + 1); edge(i + 1, i + 2); edge(i + 2, i); }
-        } else if (*mode == GL_QUADS) {
-            for (uint32_t i = 0; i + 3 < n; i += 4) {
-                edge(i, i + 1); edge(i + 1, i + 2); edge(i + 2, i + 3); edge(i + 3, i);
-            }
-        } else if (*mode == GL_TRIANGLE_STRIP || *mode == GL_QUAD_STRIP) {
-            for (uint32_t i = 0; i + 2 < n; ++i) { edge(i, i + 1); edge(i + 1, i + 2); edge(i + 2, i); }
-        } else { // FAN / POLYGON
-            for (uint32_t i = 1; i + 1 < n; ++i) { edge(0, i); edge(i, i + 1); edge(i + 1, 0); }
-        }
-        if (!wire.empty()) {
-            auto& st = g_glstate_c.fpe_state;
-            if (st.fpe_element_ibo == 0) {
-                g_glFuncs.glGenBuffers(1, &st.fpe_element_ibo);
-                sfpewNoteInternalBuffer(st.fpe_element_ibo);
-            }
-            sfpewBackendBindElementBuffer(st.fpe_element_ibo);
-            st.fpe_ibo_bound = false; // fpe_vao's element binding changed
-            g_glFuncs.glBufferData(GL_ELEMENT_ARRAY_BUFFER,
-                                   (GLsizeiptr)(wire.size() * sizeof(uint32_t)), wire.data(),
-                                   GL_DYNAMIC_DRAW);
+        sfpewBuildWireframeIndices(*mode, (uint32_t)*first, (uint32_t)*count, wire);
+        if (!wire.empty() && sfpewUploadWireframeIndices(wire)) {
             *mode = GL_LINES;
             *count = (GLsizei)wire.size();
             g_glstate_c.send_uniforms(prog);

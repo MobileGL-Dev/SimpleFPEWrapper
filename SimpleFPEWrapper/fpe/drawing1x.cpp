@@ -393,6 +393,31 @@ void drawImmediateVertices(GLenum primitive, const GLfloat* vertices, size_t flo
     gs.send_uniforms(program);
 
     const GLsizei drawCount = static_cast<GLsizei>(vertexCount);
+
+    // plans/08 8.3: GL_LINE/GL_POINT polygon modes, the same two conversions
+    // commit_fpe_state_on_draw applies to client-array draws, through the
+    // same helpers. This path used to ignore polygon mode entirely and always
+    // rasterize filled, so glPolygonMode(GL_LINE) had no effect at all on
+    // anything drawn with glBegin/glEnd. queueImmediateRun declines to merge
+    // runs while a non-FILL mode is set, so `primitive` here is still the
+    // app's own primitive and its outline is the one the app asked for.
+    const GLenum polygonMode = sfpewUniformPolygonMode();
+    if (polygonMode != GL_FILL && sfpewIsFilledPrimitive(primitive)) {
+        if (polygonMode == GL_POINT) {
+            // Vertices repeat across shared corners; visually identical to spec.
+            g_glFuncs.glDrawArrays(GL_POINTS, 0, drawCount);
+            return;
+        }
+        thread_local std::vector<uint32_t> wire;
+        sfpewBuildWireframeIndices(primitive, 0u, (uint32_t)vertexCount, wire);
+        if (!wire.empty() && sfpewUploadWireframeIndices(wire)) {
+            g_glFuncs.glDrawElements(GL_LINES, (GLsizei)wire.size(), GL_UNSIGNED_INT, (void*)0);
+            return;
+        }
+        // Falling through draws filled, which is what this path did before
+        // wireframe existed - a failed index upload should not drop the draw.
+    }
+
     if (primitive == GL_QUADS) {
         const GLsizei indexCount = (drawCount / 4) * 6;
         const bool uploadIndices = prepare_quad_indices(drawCount, 0);
@@ -545,6 +570,13 @@ bool queueImmediateRun(const fixed_function_draw_state_t& draw) {
     }
     // Selection/feedback transforms on the CPU and must stay in draw order.
     if (g_glstate_c.render_mode != GL_RENDER) return false;
+    // Merging rewrites quads and fans into independent triangles, which is
+    // invisible when they rasterize filled but NOT under GL_LINE polygon
+    // mode: outlining the triangles would draw each quad's diagonal, a line
+    // the application never asked for. Wireframe is not a hot path, so the
+    // simplest correct answer is to stop merging while it is on.
+    if (sfpewUniformPolygonMode() != GL_FILL && sfpewIsFilledPrimitive(draw.primitive))
+        return false;
     // Large runs already amortize their own fixed cost, and rewriting them
     // would copy (and for quads inflate) a stream the GPU could have taken
     // as-is. Only the small-batch case is worth merging.

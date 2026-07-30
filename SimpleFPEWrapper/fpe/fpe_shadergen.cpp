@@ -1129,55 +1129,8 @@ constexpr std::string_view mg_fog_uniforms = "uniform vec4 FogColor;\n"
                                              "uniform float FogStart;\n"
                                              "uniform float FogEnd;\n";
 
-constexpr std::string_view mg_alpharef_uniform = "uniform float alpharef;\n";
-
-const std::string alpha_test(GLenum func, const std::string_view varname, const std::string_view alpharef) {
-    constexpr std::string_view fmt = R"(
-    // Alpha Test, func = {}
-    if (!({}.a {} {})) {{
-        discard;
-    }}
-)";
-
-    constexpr std::string_view fmt_eq = R"(
-    // Alpha Test, func = GL_EQUAL
-    if (abs({0}.a - {1}) > 0.00001) {{
-        discard;
-    }}
-)";
-
-    constexpr std::string_view fmt_neq = R"(
-    // Alpha Test, func = GL_NOTEQUAL
-    if (abs({0}.a - {1}) <= 0.00001) {{
-        discard;
-    }}
-)";
-
-    switch (func) {
-    case GL_NEVER:
-        return "    // Alpha Test\n"
-               "    discard;\n";
-    case GL_LESS:
-        return std::format(fmt, glEnumToString(func), varname, "<", alpharef);
-    case GL_EQUAL:
-        return std::format(fmt_eq, varname, alpharef);
-    case GL_LEQUAL:
-        return std::format(fmt, glEnumToString(func), varname, "<=", alpharef);
-    case GL_GREATER:
-        return std::format(fmt, glEnumToString(func), varname, ">", alpharef);
-    case GL_NOTEQUAL:
-        return std::format(fmt_neq, varname, alpharef);
-    case GL_GEQUAL:
-        return std::format(fmt, glEnumToString(func), varname, ">=", alpharef);
-    case GL_ALWAYS:
-        return "    // Alpha Test\n"
-               "    // GL_ALWAYS\n";
-    }
-    // State entry points validate alpha_func; if an unknown value slips
-    // through anyway, degrade to GL_ALWAYS rather than emitting text that
-    // breaks the GLSL compile.
-    return "    // Alpha Test: unknown func, treated as GL_ALWAYS\n";
-}
+constexpr std::string_view mg_alpharef_uniform = "uniform float alpharef;\n"
+                                                 "uniform int alphafunc;\n";
 
 std::string vp2in_name(GLenum vp, int index) {
     switch (vp) {
@@ -1716,9 +1669,11 @@ void add_fs_uniforms(const fixed_function_state_t& state, [[maybe_unused]] scrat
         fs += mg_fog_uniforms;
     }
 
-    if (state.fpe_bools.alpha_test_enable) {
-        fs += mg_alpharef_uniform;
-    }
+    // Alpha test is uniform-driven (0 = off/GL_ALWAYS): declared in every
+    // program so GL_ALPHA_TEST toggles and glAlphaFunc changes never mint a
+    // new program. The branch below is uniform-coherent, which drivers
+    // specialize.
+    fs += mg_alpharef_uniform;
 }
 
 void add_fs_inout(const fixed_function_state_t& state, scratch_t& scratch, std::string& fs) {
@@ -1895,12 +1850,20 @@ void add_fs_body(const fixed_function_state_t& state, scratch_t& scratch, std::s
             fs += "    color.rgb += vertexSpecular;\n";
     }
 
-    // Alpha test
-    if (state.fpe_bools.alpha_test_enable)
-        fs += alpha_test(state.alpha_func, "color", "alpharef");
-    else
-        fs += "    // Alpha Test\n"
-              "    // (Disabled)\n";
+    // Alpha test: uniform-selected comparison, GL_NEVER..GL_GEQUAL encoded
+    // as 1..7 (send_uniforms), 0 covers both disabled and GL_ALWAYS.
+    fs += "    // Alpha Test (uniform-driven)\n"
+          "    if (alphafunc != 0) {\n"
+          "        bool alphapass;\n"
+          "        if      (alphafunc == 1) alphapass = false;\n"
+          "        else if (alphafunc == 2) alphapass = color.a < alpharef;\n"
+          "        else if (alphafunc == 3) alphapass = abs(color.a - alpharef) <= 0.00001;\n"
+          "        else if (alphafunc == 4) alphapass = color.a <= alpharef;\n"
+          "        else if (alphafunc == 5) alphapass = color.a > alpharef;\n"
+          "        else if (alphafunc == 6) alphapass = abs(color.a - alpharef) > 0.00001;\n"
+          "        else                     alphapass = color.a >= alpharef;\n"
+          "        if (!alphapass) discard;\n"
+          "    }\n";
 
     // Fog calculation
     if (state.fpe_bools.fog_enable) {

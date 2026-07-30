@@ -420,6 +420,7 @@ struct program_uniform_locations_t {
     GLint fog_start = -1;
     GLint fog_end = -1;
     GLint alpha_ref = -1;
+    GLint alpha_func = -1;
     GLint point_size = -1;
     bool initialized = false;
 
@@ -453,6 +454,9 @@ struct program_uniform_values_t {
     GLfloat fog_start = 0.0f;
     GLfloat fog_end = 0.0f;
     GLclampf alpha_ref = 0.0f;
+    // Encoded alpha func the program last received (0 = off/GL_ALWAYS,
+    // 1..7 = GL_NEVER..GL_GEQUAL); uniform-driven, never part of the key.
+    GLint alpha_func = 0;
     GLfloat point_size = 1.0f;
     bool initialized = false;
 };

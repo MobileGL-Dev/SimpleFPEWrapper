@@ -256,7 +256,13 @@ bool hijack_fpe_states(GLenum cap, bool enable, fixed_function_bool_t* bools) {
 }
 
 void glEnable(GLenum cap) {
-    sfpewEntryBarrier();
+    // Flush-only: FPE-hijacked caps mutate wrapper CPU state, and the
+    // passthrough caps (GL_BLEND, GL_DEPTH_TEST, ...) are server enables that
+    // neither read nor write the program, VAO or buffer bindings - the same
+    // bar sfpewTextureStateBarrier documents. MC's GUI toggles GL_ALPHA_TEST
+    // around every widget, so a full restore here cost a glUseProgram round
+    // trip per widget.
+    sfpewClientStateBarrier();
     // LOG()
     // LOG_D("glEnable, cap = %s", glEnumToString(cap));
 
@@ -270,7 +276,8 @@ void glEnable(GLenum cap) {
 }
 
 void glDisable(GLenum cap) {
-    sfpewEntryBarrier();
+    // Flush-only; see glEnable.
+    sfpewClientStateBarrier();
     // LOG()
     // LOG_D("glDisable, cap = %s", glEnumToString(cap))
 

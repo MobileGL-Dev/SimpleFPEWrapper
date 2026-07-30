@@ -43,6 +43,7 @@ void program_uniform_locations_t::initialize(GLuint program) {
     fog_start = location("FogStart");
     fog_end = location("FogEnd");
     alpha_ref = location("alpharef");
+    alpha_func = location("alphafunc");
     point_size = location("PointSize");
     for (int i = 0; i < 6; ++i) clip_planes[i] = location(std::format("ClipPlane{}", i));
     polygon_stipple_rows = location("PolygonStipple");
@@ -228,8 +229,21 @@ void glstate_t::send_uniforms(program_t& program) {
         send_float(locations.fog_end, fpe_uniform.fog_end, values.fog_end);
     }
 
-    if (fpe_state.fpe_bools.alpha_test_enable &&
-        (first_upload || fpe_uniform.alpha_ref != values.alpha_ref)) {
+    // Alpha test rides a uniform instead of the program key: 0 disables the
+    // shader branch (also the GL_ALWAYS encoding), 1..7 are
+    // GL_NEVER..GL_GEQUAL. MC's GUI toggles GL_ALPHA_TEST around every
+    // widget; baking the state into the key made that a program switch per
+    // widget.
+    GLint want_alpha_func = 0;
+    if (fpe_state.fpe_bools.alpha_test_enable && fpe_state.alpha_func >= GL_NEVER &&
+        fpe_state.alpha_func <= GL_GEQUAL) {
+        want_alpha_func = static_cast<GLint>(fpe_state.alpha_func - GL_NEVER) + 1;
+    }
+    if (locations.alpha_func >= 0 && (first_upload || values.alpha_func != want_alpha_func)) {
+        g_glFuncs.glUniform1i(locations.alpha_func, want_alpha_func);
+        values.alpha_func = want_alpha_func;
+    }
+    if (want_alpha_func != 0 && (first_upload || fpe_uniform.alpha_ref != values.alpha_ref)) {
         if (locations.alpha_ref >= 0) g_glFuncs.glUniform1f(locations.alpha_ref, fpe_uniform.alpha_ref);
         values.alpha_ref = fpe_uniform.alpha_ref;
     }
@@ -274,7 +288,6 @@ program_key_t glstate_t::program_hash() {
     // the cache misses on every draw (the comparison would see the raw value
     // while the store kept the canonical one).
     const auto& bools_now = fpe_state.fpe_bools;
-    const GLenum canon_alpha_func = bools_now.alpha_test_enable ? fpe_state.alpha_func : 0;
     const GLenum canon_fog_mode = bools_now.fog_enable ? fpe_state.fog_mode : 0;
     const GLint canon_fog_index = bools_now.fog_enable ? fpe_state.fog_index : 0;
     const GLenum canon_fog_coord_src = bools_now.fog_enable ? fpe_state.fog_coord_src : 0;
@@ -290,7 +303,7 @@ program_key_t glstate_t::program_hash() {
 
     bool matches = cache.valid && cache.enabled_pointers == va.enabled_pointers &&
                    cache.client_active_texture == fpe_state.client_active_texture &&
-                   cache.alpha_func == canon_alpha_func && cache.fog_mode == canon_fog_mode &&
+                   cache.fog_mode == canon_fog_mode &&
                    cache.fog_index == canon_fog_index &&
                    cache.fog_coord_src == canon_fog_coord_src &&
                    cache.shade_model == fpe_state.shade_model &&
@@ -325,7 +338,6 @@ program_key_t glstate_t::program_hash() {
     if (matches) {
         matches = previous_bools.fog_enable == bools.fog_enable &&
                   previous_bools.lighting_enable == bools.lighting_enable &&
-                  previous_bools.alpha_test_enable == bools.alpha_test_enable &&
                   previous_bools.color_material_enable == bools.color_material_enable &&
                   previous_bools.normalize_enable == bools.normalize_enable &&
                   previous_bools.rescale_normal_enable == bools.rescale_normal_enable;
@@ -402,7 +414,6 @@ program_key_t glstate_t::program_hash() {
     // Canonicalized above: only state the generator reads under the current
     // enables participates, and the values fed here are the same ones the
     // comparison tested and the store below keeps.
-    hash.add(&canon_alpha_func, sizeof(canon_alpha_func));
     hash.add(&canon_fog_mode, sizeof(canon_fog_mode));
     hash.add(&canon_fog_index, sizeof(canon_fog_index));
     hash.add(&canon_fog_coord_src, sizeof(canon_fog_coord_src));
@@ -413,7 +424,11 @@ program_key_t glstate_t::program_hash() {
     hash.add(&canon_cm_face, sizeof(canon_cm_face));
     hash.add(&canon_cm_mode, sizeof(canon_cm_mode));
 
-    hash.add(&fpe_state.fpe_bools, sizeof(fpe_state.fpe_bools));
+    // alpha_test_enable is uniform-driven (see send_uniforms); hash a
+    // canonical copy with it cleared so toggling it cannot mint a program.
+    auto canon_bools = fpe_state.fpe_bools;
+    canon_bools.alpha_test_enable = false;
+    hash.add(&canon_bools, sizeof(canon_bools));
 
     hash.add(&fpe_state.texture_env_mode, sizeof(fpe_state.texture_env_mode));
     hash.add(&fpe_state.texture_gen_mode, sizeof(fpe_state.texture_gen_mode));
@@ -442,7 +457,6 @@ program_key_t glstate_t::program_hash() {
         cache.vertices[i].normalized = va.attributes[i].normalized;
     }
     cache.client_active_texture = fpe_state.client_active_texture;
-    cache.alpha_func = canon_alpha_func;
     cache.fog_mode = canon_fog_mode;
     cache.fog_index = canon_fog_index;
     cache.fog_coord_src = canon_fog_coord_src;

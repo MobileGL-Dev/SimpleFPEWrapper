@@ -267,17 +267,38 @@ program_key_t glstate_t::program_hash() {
     const auto& sizes = fpe_state.fpe_draw.current_data.sizes;
     auto& cache = program_hash_cache;
 
+    // Canonical parameter values: a parameter the generator does not read under
+    // the current enables must not participate, or an app that sets fog_mode
+    // with fog off mints a key for a byte-identical shader. These MUST match
+    // what the hash below feeds and what gets stored into the cache, otherwise
+    // the cache misses on every draw (the comparison would see the raw value
+    // while the store kept the canonical one).
+    const auto& bools_now = fpe_state.fpe_bools;
+    const GLenum canon_alpha_func = bools_now.alpha_test_enable ? fpe_state.alpha_func : 0;
+    const GLenum canon_fog_mode = bools_now.fog_enable ? fpe_state.fog_mode : 0;
+    const GLint canon_fog_index = bools_now.fog_enable ? fpe_state.fog_index : 0;
+    const GLenum canon_fog_coord_src = bools_now.fog_enable ? fpe_state.fog_coord_src : 0;
+    const GLenum canon_lm_color_ctrl =
+        bools_now.lighting_enable ? fpe_state.light_model_color_ctrl : 0;
+    const bool canon_lm_local_viewer =
+        bools_now.lighting_enable ? fpe_state.light_model_local_viewer : false;
+    const bool canon_lm_two_side = bools_now.lighting_enable ? fpe_state.light_model_two_side : false;
+    const GLenum canon_cm_face =
+        bools_now.color_material_enable ? fpe_state.color_material_face : 0;
+    const GLenum canon_cm_mode =
+        bools_now.color_material_enable ? fpe_state.color_material_mode : 0;
+
     bool matches = cache.valid && cache.enabled_pointers == va.enabled_pointers &&
                    cache.client_active_texture == fpe_state.client_active_texture &&
-                   cache.alpha_func == fpe_state.alpha_func && cache.fog_mode == fpe_state.fog_mode &&
-                   cache.fog_index == fpe_state.fog_index &&
-                   cache.fog_coord_src == fpe_state.fog_coord_src &&
+                   cache.alpha_func == canon_alpha_func && cache.fog_mode == canon_fog_mode &&
+                   cache.fog_index == canon_fog_index &&
+                   cache.fog_coord_src == canon_fog_coord_src &&
                    cache.shade_model == fpe_state.shade_model &&
-                   cache.light_model_color_ctrl == fpe_state.light_model_color_ctrl &&
-                   cache.light_model_local_viewer == fpe_state.light_model_local_viewer &&
-                   cache.light_model_two_side == fpe_state.light_model_two_side &&
-                   cache.color_material_face == fpe_state.color_material_face &&
-                   cache.color_material_mode == fpe_state.color_material_mode;
+                   cache.light_model_color_ctrl == canon_lm_color_ctrl &&
+                   cache.light_model_local_viewer == canon_lm_local_viewer &&
+                   cache.light_model_two_side == canon_lm_two_side &&
+                   cache.color_material_face == canon_cm_face &&
+                   cache.color_material_mode == canon_cm_mode;
 
     if (matches) {
         for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
@@ -378,31 +399,22 @@ program_key_t glstate_t::program_hash() {
     }
 
     hash.add(&fpe_state.client_active_texture, sizeof(fpe_state.client_active_texture));
-    // Canonicalize: only hash state the generator reads under current enables.
-    // An app calling glAlphaFunc() while alpha test is disabled, or glFogi()
-    // with fog off, would mint a distinct key that compiles a byte-identical
-    // shader and forces a spurious program switch. Minecraft 1.12/1.16 both
-    // set alpha_func/fog_mode/lighting model constantly with the features off.
-    if (bools.alpha_test_enable) {
-        hash.add(&fpe_state.alpha_func, sizeof(fpe_state.alpha_func));
-    }
-    if (bools.fog_enable) {
-        hash.add(&fpe_state.fog_mode, sizeof(fpe_state.fog_mode));
-        hash.add(&fpe_state.fog_index, sizeof(fpe_state.fog_index));
-        hash.add(&fpe_state.fog_coord_src, sizeof(fpe_state.fog_coord_src));
-    }
+    // Canonicalized above: only state the generator reads under the current
+    // enables participates, and the values fed here are the same ones the
+    // comparison tested and the store below keeps.
+    hash.add(&canon_alpha_func, sizeof(canon_alpha_func));
+    hash.add(&canon_fog_mode, sizeof(canon_fog_mode));
+    hash.add(&canon_fog_index, sizeof(canon_fog_index));
+    hash.add(&canon_fog_coord_src, sizeof(canon_fog_coord_src));
     hash.add(&fpe_state.shade_model, sizeof(fpe_state.shade_model));
-    if (bools.lighting_enable) {
-        hash.add(&fpe_state.light_model_color_ctrl, sizeof(fpe_state.light_model_color_ctrl));
-        hash.add(&fpe_state.light_model_local_viewer, sizeof(fpe_state.light_model_local_viewer));
-        hash.add(&fpe_state.light_model_two_side, sizeof(fpe_state.light_model_two_side));
-    }
-    if (bools.color_material_enable) {
-        hash.add(&fpe_state.color_material_face, sizeof(fpe_state.color_material_face));
-        hash.add(&fpe_state.color_material_mode, sizeof(fpe_state.color_material_mode));
-    }
+    hash.add(&canon_lm_color_ctrl, sizeof(canon_lm_color_ctrl));
+    hash.add(&canon_lm_local_viewer, sizeof(canon_lm_local_viewer));
+    hash.add(&canon_lm_two_side, sizeof(canon_lm_two_side));
+    hash.add(&canon_cm_face, sizeof(canon_cm_face));
+    hash.add(&canon_cm_mode, sizeof(canon_cm_mode));
 
     hash.add(&fpe_state.fpe_bools, sizeof(fpe_state.fpe_bools));
+
     hash.add(&fpe_state.texture_env_mode, sizeof(fpe_state.texture_env_mode));
     hash.add(&fpe_state.texture_gen_mode, sizeof(fpe_state.texture_gen_mode));
 
@@ -430,16 +442,16 @@ program_key_t glstate_t::program_hash() {
         cache.vertices[i].normalized = va.attributes[i].normalized;
     }
     cache.client_active_texture = fpe_state.client_active_texture;
-    cache.alpha_func = bools.alpha_test_enable ? fpe_state.alpha_func : 0;
-    cache.fog_mode = bools.fog_enable ? fpe_state.fog_mode : 0;
-    cache.fog_index = bools.fog_enable ? fpe_state.fog_index : 0;
-    cache.fog_coord_src = bools.fog_enable ? fpe_state.fog_coord_src : 0;
+    cache.alpha_func = canon_alpha_func;
+    cache.fog_mode = canon_fog_mode;
+    cache.fog_index = canon_fog_index;
+    cache.fog_coord_src = canon_fog_coord_src;
     cache.shade_model = fpe_state.shade_model;
-    cache.light_model_color_ctrl = bools.lighting_enable ? fpe_state.light_model_color_ctrl : 0;
-    cache.light_model_local_viewer = bools.lighting_enable ? fpe_state.light_model_local_viewer : 0;
-    cache.light_model_two_side = bools.lighting_enable ? fpe_state.light_model_two_side : 0;
-    cache.color_material_face = fpe_state.color_material_face;
-    cache.color_material_mode = fpe_state.color_material_mode;
+    cache.light_model_color_ctrl = canon_lm_color_ctrl;
+    cache.light_model_local_viewer = canon_lm_local_viewer;
+    cache.light_model_two_side = canon_lm_two_side;
+    cache.color_material_face = canon_cm_face;
+    cache.color_material_mode = canon_cm_mode;
     cache.bools = fpe_state.fpe_bools;
     for (int i = 0; i < MAX_TEX; ++i) cache.texture_env_mode[i] = fpe_state.texture_env_mode[i];
     cache.hash = {hash.lo.hash(), hash.hi.hash()};

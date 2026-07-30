@@ -790,12 +790,27 @@ public:
         resident = recycleImmediateRunBuffer(context);
         if (resident == 0) g_glFuncs.glGenBuffers(1, &resident);
         if (resident == 0) return 0;
-        g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, resident);
-        g_glFuncs.glBufferData(GL_ARRAY_BUFFER,
+
+        // Upload through GL_COPY_WRITE_BUFFER, never GL_ARRAY_BUFFER.
+        //
+        // This runs as an argument to drawImmediateVertices, so it executes
+        // BEFORE that call's draw-state guard captures the app's bindings -
+        // there is no guard around it to undo the damage. Binding
+        // GL_ARRAY_BUFFER here would therefore leave the wrapper's private
+        // buffer as the live array binding, and the array-buffer shadow's
+        // periodic heal (getLogicalArrayBufferBinding) would re-read it and
+        // record it AS THE APP'S. Every later app draw then sources its
+        // attributes from this display-list buffer: texture coordinates come
+        // out as garbage, which is the "all textures wrong" failure.
+        //
+        // GL_COPY_WRITE_BUFFER exists precisely for this - it is not part of
+        // vertex array state, nothing shadows it, and it is core in both
+        // GL 3.1 and ES 3.0, inside the profile floor in docs/backend-support.md.
+        g_glFuncs.glBindBuffer(GL_COPY_WRITE_BUFFER, resident);
+        g_glFuncs.glBufferData(GL_COPY_WRITE_BUFFER,
                                (GLsizeiptr)(data.size() * sizeof(GLfloat)), data.data(),
                                GL_STATIC_DRAW);
-        // The caller's fast-path arm no longer describes the backend.
-        sfpewInvalidateImmediateDrawState();
+        g_glFuncs.glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
         resident_context = context;
         return resident;
     }

@@ -225,6 +225,14 @@ if(NOT ANDROID)
                         add_test(NAME smoke_attrib_retire COMMAND smoke_attrib_retire)
                         set_tests_properties(smoke_attrib_retire PROPERTIES SKIP_RETURN_CODE 77)
 
+                        add_executable(smoke_dlist_no_state_leak tests/smoke_dlist_no_state_leak.c)
+                        target_compile_definitions(smoke_dlist_no_state_leak PRIVATE
+                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
+                        target_link_libraries(smoke_dlist_no_state_leak PRIVATE dl ${SFPEW_TEST_EGL})
+                        add_dependencies(smoke_dlist_no_state_leak ${CMAKE_PROJECT_NAME})
+                        add_test(NAME smoke_dlist_no_state_leak COMMAND smoke_dlist_no_state_leak)
+                        set_tests_properties(smoke_dlist_no_state_leak PROPERTIES SKIP_RETURN_CODE 77)
+
                         add_executable(smoke_arraybuffer_heal tests/smoke_arraybuffer_heal.c)
                         target_compile_definitions(smoke_arraybuffer_heal PRIVATE
                                 WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")

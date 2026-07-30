@@ -83,12 +83,16 @@ inline void sfpewBackendBindVertexArray(GLuint vao) {
     // path re-arms it after its own binds. Putting the clear here means the
     // other FPE draw paths and the app's own glBindVertexArray get it for free.
     gs.immediate_live_program = -1;
+    gs.immediate_live_buffer = 0;
 }
 
 // Anything that binds a program, VAO or array buffer other than the
 // immediate-draw trio must call this, or the next immediate draw skips a bind
 // it actually needed (plans/12).
-inline void sfpewInvalidateImmediateDrawState() { g_glstate_c.immediate_live_program = -1; }
+inline void sfpewInvalidateImmediateDrawState() {
+    g_glstate_c.immediate_live_program = -1;
+    g_glstate_c.immediate_live_buffer = 0;
+}
 
 // Binds the array buffer a fixed-function draw will source attributes from,
 // skipping the call when the backend provably has it already.

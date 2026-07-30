@@ -250,9 +250,15 @@ thread_local pending_immediate_batch_t pendingGlyphBatch;
 // the live current values) - compiled display-list runs use this to inherit
 // the caller's sticky current color/normal/texcoord exactly like a live
 // replay would. The live glEnd path passes nullptr (stream == constants).
+// static_source, when non-zero, is a buffer that ALREADY holds this run's
+// vertex data at offset 0. Compiled display-list runs pass it: their data is
+// immutable after glEndList, so re-streaming it through the ring on every
+// glCallList was pure waste (measured: 59% of bench.mcentity sat in the driver,
+// and the run's data was re-uploaded once per replay).
 void drawImmediateVertices(GLenum primitive, const GLfloat* vertices, size_t floatCount,
                            size_t vertexCount, const fixed_function_draw_size_t& sizes,
-                           const fixed_function_draw_size_t* constant_sizes = nullptr) {
+                           const fixed_function_draw_size_t* constant_sizes = nullptr,
+                           GLuint static_source = 0) {
     if (vertices == nullptr || floatCount == 0 || vertexCount == 0 ||
         vertexCount > static_cast<size_t>(std::numeric_limits<GLsizei>::max())) {
         return;
@@ -315,9 +321,13 @@ void drawImmediateVertices(GLenum primitive, const GLfloat* vertices, size_t flo
         }
         if (state.fpe_user_vao != 0) {
             sfpewBackendBindVertexArray(state.fpe_user_vao);
-            g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, state.fpe_immediate_vbo);
+            const GLuint user_source =
+                static_source != 0 ? static_source : state.fpe_immediate_vbo;
+            g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, user_source);
             const GLintptr userVertexOffset =
-                sfpewUploadImmediateVertexData(vertices, floatCount * sizeof(GLfloat));
+                static_source != 0
+                    ? 0
+                    : sfpewUploadImmediateVertexData(vertices, floatCount * sizeof(GLfloat));
             sfpewSendUserProgramAttributes(user_locations, va, userVertexOffset);
             sfpewFeedUserProgramUniforms((GLuint)user_program);
 
@@ -353,16 +363,30 @@ void drawImmediateVertices(GLenum primitive, const GLfloat* vertices, size_t flo
     // which case re-issuing it is pure cost - half the per-batch driver
     // traffic (plans/12). Only valid while the app's state is still held; the
     // barrier clears the flag when it hands the state back.
-    if (gs.immediate_live_program != programId || !gs.deferred_draw.held) {
+    // Resolve the attribute source first, so the trio below binds it directly
+    // instead of binding the ring and then replacing it.
+    const GLuint source_buffer = static_source != 0 ? static_source : state.fpe_immediate_vbo;
+
+    // A preceding immediate draw may have left exactly this trio bound, in
+    // which case re-issuing it is pure cost. The armed flag has to cover the
+    // BUFFER as well as the program: a static-source replay and a ring draw
+    // bind different buffers under the same program, so tracking the program
+    // alone would let one inherit the other's binding.
+    if (gs.immediate_live_program != programId || gs.immediate_live_buffer != source_buffer ||
+        !gs.deferred_draw.held) {
         g_glFuncs.glUseProgram(programId);
         sfpewBackendBindVertexArray(state.fpe_vao); // clears the flag
-        g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, state.fpe_immediate_vbo);
+        g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, source_buffer);
         gs.immediate_live_program = programId; // re-arm after the binds
+        gs.immediate_live_buffer = source_buffer;
     }
 
+    // A resident static source needs no copy; the ring path streams as before.
     const GLintptr vertexOffset =
-        sfpewUploadImmediateVertexData(vertices, floatCount * sizeof(GLfloat));
-    gs.send_vertex_attributes(va, state.fpe_immediate_vbo, vertexOffset);
+        static_source != 0 ? 0
+                           : sfpewUploadImmediateVertexData(vertices,
+                                                            floatCount * sizeof(GLfloat));
+    gs.send_vertex_attributes(va, source_buffer, vertexOffset);
     gs.send_uniforms(program);
 
     const GLsizei drawCount = static_cast<GLsizei>(vertexCount);
@@ -652,6 +676,39 @@ namespace {
 // re-executing thousands of per-vertex wrapper entries. Runs whose colors
 // must feed glColorMaterial at replay time fall back to the retained
 // original commands (material state mutates per glColor there).
+// Retired vertex buffers from destroyed compiled runs, with the context that
+// owned each. Destructors must not call GL (see dropResident), so names land
+// here and are reused or deleted by the next residentBuffer() call, which runs
+// under a real GL entry point with a live context.
+struct retired_run_buffer_t {
+    GLuint name;
+    const void* context;
+};
+std::vector<retired_run_buffer_t>& retiredRunBuffers() {
+    static std::vector<retired_run_buffer_t> retired;
+    return retired;
+}
+void retireImmediateRunBuffer(GLuint name, const void* context) {
+    if (name == 0) return;
+    auto& retired = retiredRunBuffers();
+    // A pathological app could destroy lists without ever replaying one again,
+    // which would grow this without bound. Cap it: past the cap the name is
+    // simply forgotten, and it dies with its context like any other GL object.
+    if (retired.size() >= 4096u) return;
+    retired.push_back({name, context});
+}
+// Hands back a buffer name owned by this context, deleting any that belonged to
+// a different one (those died with their context; forgetting them is correct).
+GLuint recycleImmediateRunBuffer(const void* context) {
+    auto& retired = retiredRunBuffers();
+    while (!retired.empty()) {
+        const retired_run_buffer_t entry = retired.back();
+        retired.pop_back();
+        if (entry.context == context) return entry.name;
+    }
+    return 0;
+}
+
 class compiled_immediate_run_cmd_t final : public GLCmd {
 public:
     compiled_immediate_run_cmd_t(GLenum primitive, const fixed_function_draw_size_t& sizes,
@@ -679,7 +736,7 @@ public:
             if (shader_sizes.data[i] <= 0) shader_sizes.data[i] = live.sizes.data[i];
         }
         drawImmediateVertices(primitive, data.data(), data.size(), vertexCount, sizes,
-                              &shader_sizes);
+                              &shader_sizes, residentBuffer());
 
         // GL: attribute setters executed FROM the list update the current
         // state, and that state persists after glCallList returns. Apply the
@@ -692,6 +749,55 @@ public:
             else if (i == 2) live.color = finalData.color;
             else if (i >= 7) live.texcoord[i - 7] = finalData.texcoord[i - 7];
         }
+    }
+
+    // A compiled run's vertex data is immutable after glEndList, so it belongs
+    // in a buffer of its own rather than being re-streamed through the ring on
+    // every glCallList. Uploaded once, lazily, on the first replay that has a
+    // backend; every later replay just binds it.
+    //
+    // Returns 0 when the upload is not possible, which makes the caller fall
+    // back to the streaming path - so a failure here costs performance, never
+    // correctness.
+    // Retires the upload WITHOUT calling GL.
+    //
+    // This runs from the destructor, and a destructor can run at process
+    // teardown after the driver is unloaded while eglGetCurrentContext still
+    // reports the old context - so no context check makes a glDeleteBuffers
+    // here safe (measured: it segfaults, and a strict resolve does not help).
+    // The name goes on a retire list instead, and residentBuffer() recycles it
+    // from a live entry point. That bounds the cost of re-recording a list to
+    // reuse rather than leaking a buffer per rebuild.
+    void dropResident() const {
+        if (resident != 0) retireImmediateRunBuffer(resident, resident_context);
+        resident = 0;
+        resident_context = nullptr;
+    }
+
+    ~compiled_immediate_run_cmd_t() override { dropResident(); }
+
+    GLuint residentBuffer() const {
+        // A context switch invalidates the name: buffers are per-context and
+        // this command outlives them (contexts cannot be observed being
+        // destroyed, plans/07), so re-upload rather than reuse a stale name.
+        const void* context = glstate_t::cached_context();
+        if (resident != 0 && resident_context == context) return resident;
+
+        if (g_glFuncs.glGenBuffers == nullptr || g_glFuncs.glBindBuffer == nullptr ||
+            g_glFuncs.glBufferData == nullptr || data.empty()) {
+            return 0;
+        }
+        resident = recycleImmediateRunBuffer(context);
+        if (resident == 0) g_glFuncs.glGenBuffers(1, &resident);
+        if (resident == 0) return 0;
+        g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, resident);
+        g_glFuncs.glBufferData(GL_ARRAY_BUFFER,
+                               (GLsizeiptr)(data.size() * sizeof(GLfloat)), data.data(),
+                               GL_STATIC_DRAW);
+        // The caller's fast-path arm no longer describes the backend.
+        sfpewInvalidateImmediateDrawState();
+        resident_context = context;
+        return resident;
     }
 
     bool appendRun(GLenum otherPrimitive, const fixed_function_draw_size_t& otherSizes,
@@ -715,6 +821,11 @@ public:
         }
         if (vertexCount % group != 0 || otherVertexCount % group != 0) return false;
         data.insert(data.end(), otherData.begin(), otherData.end());
+        // Any upload of the old data is now stale. Merging happens at compile
+        // time, before the first replay, so this normally has nothing to drop -
+        // it is here so the invariant "resident matches data" cannot be broken
+        // by a later change to when merging runs.
+        dropResident();
         vertexCount += otherVertexCount;
         hasColor = hasColor || otherHasColor;
         finalData = otherFinalData;
@@ -727,6 +838,9 @@ private:
     GLenum primitive;
     fixed_function_draw_size_t sizes;
     std::vector<GLfloat> data;
+    // Lazily uploaded copy of `data`, and the context that owns it.
+    mutable GLuint resident = 0;
+    mutable const void* resident_context = nullptr;
     size_t vertexCount;
     bool hasColor;
     fixed_function_draw_data_t finalData;

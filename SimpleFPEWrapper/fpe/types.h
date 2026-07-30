@@ -638,6 +638,11 @@ struct glstate_t {
     // failing to CLEAR it would skip a needed bind, so the clear belongs with
     // the bind, not with the caller.
     GLint immediate_live_program = -1;
+    // The buffer bound alongside immediate_live_program. A compiled display
+    // list replays from its own resident buffer while a live glBegin/glEnd
+    // streams through the ring, so the armed fast path must key on both or one
+    // shape inherits the other's binding.
+    GLuint immediate_live_buffer = 0;
 
     // Attribute stack storage (defined in attribstack.cpp); lives here so
     // it is per-context like everything else on this aggregate. shared_ptr

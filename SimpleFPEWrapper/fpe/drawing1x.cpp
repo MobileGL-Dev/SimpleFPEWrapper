@@ -361,23 +361,26 @@ void drawImmediateVertices(GLenum primitive, const GLfloat* vertices, size_t flo
         return;
     }
 
-    // Resolve the attribute source first, so the trio below binds it directly
+    // Resolve the attribute source first, so the arm below binds it directly
     // instead of binding the ring and then replacing it.
     const GLuint source_buffer = static_source != 0 ? static_source : state.fpe_immediate_vbo;
 
-    // A preceding immediate draw may have left exactly this trio bound, in
-    // which case re-issuing it is pure cost - half the per-batch driver
-    // traffic (plans/12). Only valid while the app's state is still held; the
-    // barrier clears the flag when it hands the state back. The armed flag
-    // has to cover the BUFFER as well as the program: a static-source replay
-    // and a ring draw bind different buffers under the same program, so
-    // tracking the program alone would let one inherit the other's binding.
-    if (gs.immediate_live_program != programId || gs.immediate_live_buffer != source_buffer ||
-        !gs.deferred_draw.held) {
+    // A preceding immediate draw may have left this state bound, in which
+    // case re-issuing it is pure cost - half the per-batch driver traffic
+    // (plans/12). Only valid while the app's state is still held; the
+    // barrier clears the flag when it hands the state back. The program and
+    // buffer arms are separate: consecutive resident display-list replays
+    // (MC's entity model, one buffer per box) share the program and VAO but
+    // switch buffers, and re-issuing glUseProgram + glBindVertexArray for a
+    // buffer change is driver-validation cost for nothing.
+    if (gs.immediate_live_program != programId || !gs.deferred_draw.held) {
         g_glFuncs.glUseProgram(programId);
-        sfpewBackendBindVertexArray(state.fpe_vao); // clears the flag
+        sfpewBackendBindVertexArray(state.fpe_vao); // clears both arms
+        gs.immediate_live_program = programId;      // re-arm after the binds
+        gs.immediate_live_buffer = 0;
+    }
+    if (gs.immediate_live_buffer != source_buffer) {
         g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, source_buffer);
-        gs.immediate_live_program = programId; // re-arm after the binds
         gs.immediate_live_buffer = source_buffer;
     }
 

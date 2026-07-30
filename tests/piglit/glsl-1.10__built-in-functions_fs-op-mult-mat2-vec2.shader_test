@@ -1,0 +1,48 @@
+[require]
+GLSL >= 1.10
+
+[vertex shader]
+void main()
+{
+        gl_Position = gl_Vertex;
+}
+
+[fragment shader]
+uniform mat2 arg0;
+uniform vec2 arg1;
+uniform float tolerance;
+uniform vec2 expected;
+
+void main()
+{
+  vec2 result = (arg0 * arg1);
+  gl_FragColor = distance(result, expected) <= tolerance ? vec4(0.0, 1.0, 0.0, 1.0) : vec4(1.0, 0.0, 0.0, 1.0);
+}
+
+[test]
+clear color 0.0 0.0 1.0 0.0
+clear
+uniform mat2x2 arg0 1.6 1.53 0.76 -1.0
+uniform vec2 arg1 -0.1 -1.2
+uniform vec2 expected -1.072 1.047
+uniform float tolerance 1.4984636e-05
+draw rect ortho 0 0 4 4
+uniform mat2x2 arg0 1.6 1.53 0.76 -1.0
+uniform vec2 arg1 -0.42 0.48
+uniform vec2 expected -0.3072 -1.1226
+uniform float tolerance 1.1638739e-05
+draw rect ortho 4 0 4 4
+uniform mat2x2 arg0 -0.13 -1.4 -0.87 1.4
+uniform vec2 arg1 -0.1 -1.2
+uniform vec2 expected 1.057 -1.5400001
+uniform float tolerance 1.8678462e-05
+draw rect ortho 8 0 4 4
+uniform mat2x2 arg0 -0.13 -1.4 -0.87 1.4
+uniform vec2 arg1 -0.42 0.48
+uniform vec2 expected -0.363 1.26
+uniform float tolerance 1.3112471e-05
+draw rect ortho 12 0 4 4
+probe rect rgba (0, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (4, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (8, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (12, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)

@@ -1,0 +1,51 @@
+[require]
+GLSL >= 1.10
+
+[vertex shader]
+varying vec4 color;
+uniform bvec3 arg0;
+
+void main()
+{
+  gl_Position = gl_Vertex;
+  if(all(arg0))
+    color = vec4(1.0, 1.0, 0.0, 1.0);
+  else
+    color = vec4(0.0, 0.0, 1.0, 1.0);
+}
+
+[fragment shader]
+varying vec4 color;
+
+void main()
+{
+  gl_FragColor = color;
+}
+
+[test]
+clear color 0.0 0.0 1.0 0.0
+clear
+uniform ivec3 arg0 0 0 0
+draw rect ortho 0 0 4 4
+uniform ivec3 arg0 0 0 1
+draw rect ortho 4 0 4 4
+uniform ivec3 arg0 0 1 0
+draw rect ortho 8 0 4 4
+uniform ivec3 arg0 0 1 1
+draw rect ortho 12 0 4 4
+uniform ivec3 arg0 1 0 0
+draw rect ortho 16 0 4 4
+uniform ivec3 arg0 1 0 1
+draw rect ortho 20 0 4 4
+uniform ivec3 arg0 1 1 0
+draw rect ortho 24 0 4 4
+uniform ivec3 arg0 1 1 1
+draw rect ortho 28 0 4 4
+probe rect rgba (0, 0, 4, 4) (0.0, 0.0, 1.0, 1.0)
+probe rect rgba (4, 0, 4, 4) (0.0, 0.0, 1.0, 1.0)
+probe rect rgba (8, 0, 4, 4) (0.0, 0.0, 1.0, 1.0)
+probe rect rgba (12, 0, 4, 4) (0.0, 0.0, 1.0, 1.0)
+probe rect rgba (16, 0, 4, 4) (0.0, 0.0, 1.0, 1.0)
+probe rect rgba (20, 0, 4, 4) (0.0, 0.0, 1.0, 1.0)
+probe rect rgba (24, 0, 4, 4) (0.0, 0.0, 1.0, 1.0)
+probe rect rgba (28, 0, 4, 4) (1.0, 1.0, 0.0, 1.0)

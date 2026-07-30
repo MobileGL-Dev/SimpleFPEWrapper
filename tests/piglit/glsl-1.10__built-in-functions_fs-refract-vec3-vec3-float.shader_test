@@ -1,0 +1,81 @@
+[require]
+GLSL >= 1.10
+
+[vertex shader]
+void main()
+{
+        gl_Position = gl_Vertex;
+}
+
+[fragment shader]
+uniform vec3 arg0;
+uniform vec3 arg1;
+uniform float arg2;
+uniform float tolerance;
+uniform vec3 expected;
+
+void main()
+{
+  vec3 result = refract(arg0, arg1, arg2);
+  gl_FragColor = distance(result, expected) <= tolerance ? vec4(0.0, 1.0, 0.0, 1.0) : vec4(1.0, 0.0, 0.0, 1.0);
+}
+
+[test]
+clear color 0.0 0.0 1.0 0.0
+clear
+uniform vec3 arg0 -0.02366537 -0.6705188 -0.741515
+uniform vec3 arg1 -0.02366537 -0.6705188 -0.741515
+uniform float arg2 0.5
+uniform vec3 expected 0.02366537 0.6705188 0.741515
+uniform float tolerance 1e-05
+draw rect ortho 0 0 4 4
+uniform vec3 arg0 -0.02366537 -0.6705188 -0.741515
+uniform vec3 arg1 -0.02366537 -0.6705188 -0.741515
+uniform float arg2 2.0
+uniform vec3 expected 0.02366537 0.6705188 0.741515
+uniform float tolerance 1e-05
+draw rect ortho 4 0 4 4
+uniform vec3 arg0 -0.02366537 -0.6705188 -0.741515
+uniform vec3 arg1 0.64414936 0.254574 0.72129303
+uniform float arg2 0.5
+uniform vec3 expected -0.38391045 -0.48230812 -0.7873955
+uniform float tolerance 1e-05
+draw rect ortho 8 0 4 4
+uniform vec3 arg0 -0.02366537 -0.6705188 -0.741515
+uniform vec3 arg1 0.64414936 0.254574 0.72129303
+uniform float arg2 2.0
+uniform vec3 expected -0.0 -0.0 -0.0
+uniform float tolerance 0.0
+draw rect ortho 12 0 4 4
+uniform vec3 arg0 0.64414936 0.254574 0.72129303
+uniform vec3 arg1 -0.02366537 -0.6705188 -0.741515
+uniform float arg2 0.5
+uniform vec3 expected 0.33574444 0.51459646 0.7889652
+uniform float tolerance 1e-05
+draw rect ortho 16 0 4 4
+uniform vec3 arg0 0.64414936 0.254574 0.72129303
+uniform vec3 arg1 -0.02366537 -0.6705188 -0.741515
+uniform float arg2 2.0
+uniform vec3 expected 0.0 0.0 0.0
+uniform float tolerance 0.0
+draw rect ortho 20 0 4 4
+uniform vec3 arg0 0.64414936 0.254574 0.72129303
+uniform vec3 arg1 0.64414936 0.254574 0.72129303
+uniform float arg2 0.5
+uniform vec3 expected -0.64414936 -0.254574 -0.72129303
+uniform float tolerance 1e-05
+draw rect ortho 24 0 4 4
+uniform vec3 arg0 0.64414936 0.254574 0.72129303
+uniform vec3 arg1 0.64414936 0.254574 0.72129303
+uniform float arg2 2.0
+uniform vec3 expected -0.64414924 -0.25457394 -0.72129285
+uniform float tolerance 9.999998e-06
+draw rect ortho 28 0 4 4
+probe rect rgba (0, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (4, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (8, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (12, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (16, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (20, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (24, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (28, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)

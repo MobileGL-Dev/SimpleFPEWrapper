@@ -1,0 +1,67 @@
+[require]
+GLSL >= 1.10
+
+[vertex shader]
+void main()
+{
+        gl_Position = gl_Vertex;
+}
+
+[fragment shader]
+uniform float arg0;
+uniform float arg1;
+uniform vec4 arg2;
+uniform float tolerance;
+uniform vec4 expected;
+
+void main()
+{
+  vec4 result = smoothstep(arg0, arg1, arg2);
+  gl_FragColor = distance(result, expected) <= tolerance ? vec4(0.0, 1.0, 0.0, 1.0) : vec4(1.0, 0.0, 0.0, 1.0);
+}
+
+[test]
+clear color 0.0 0.0 1.0 0.0
+clear
+uniform float arg0 -1.9
+uniform float arg1 -0.6333333
+uniform vec4 arg2 -2.0 -0.6666667 0.6666667 2.0
+uniform vec4 expected 0.0 0.9979589 1.0 1.0
+uniform float tolerance 1.7308732e-05
+draw rect ortho 0 0 4 4
+uniform float arg0 -1.9
+uniform float arg1 0.6333333
+uniform vec4 arg2 -2.0 -0.6666667 0.6666667 2.0
+uniform vec4 expected 0.0 0.4802677 1.0 1.0
+uniform float tolerance 1.4935384e-05
+draw rect ortho 4 0 4 4
+uniform float arg0 -1.9
+uniform float arg1 1.9
+uniform vec4 arg2 -2.0 -0.6666667 0.6666667 2.0
+uniform vec4 expected 0.0 0.24764164 0.7523584 1.0
+uniform float tolerance 1.2756839e-05
+draw rect ortho 8 0 4 4
+uniform float arg0 -0.6333333
+uniform float arg1 0.6333333
+uniform vec4 arg2 -2.0 -0.6666667 0.6666667 2.0
+uniform vec4 expected 0.0 0.0 1.0 1.0
+uniform float tolerance 1.4142135e-05
+draw rect ortho 12 0 4 4
+uniform float arg0 -0.6333333
+uniform float arg1 1.9
+uniform vec4 arg2 -2.0 -0.6666667 0.6666667 2.0
+uniform vec4 expected 0.0 0.0 0.5197323 1.0
+uniform float tolerance 1.1269967e-05
+draw rect ortho 16 0 4 4
+uniform float arg0 0.6333333
+uniform float arg1 1.9
+uniform vec4 arg2 -2.0 -0.6666667 0.6666667 2.0
+uniform vec4 expected 0.0 0.0 0.0020411173 1.0
+uniform float tolerance 1.0000021e-05
+draw rect ortho 20 0 4 4
+probe rect rgba (0, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (4, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (8, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (12, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (16, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (20, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)

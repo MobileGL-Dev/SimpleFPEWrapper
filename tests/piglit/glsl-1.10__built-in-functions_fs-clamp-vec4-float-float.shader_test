@@ -1,0 +1,67 @@
+[require]
+GLSL >= 1.10
+
+[vertex shader]
+void main()
+{
+        gl_Position = gl_Vertex;
+}
+
+[fragment shader]
+uniform vec4 arg0;
+uniform float arg1;
+uniform float arg2;
+uniform float tolerance;
+uniform vec4 expected;
+
+void main()
+{
+  vec4 result = clamp(arg0, arg1, arg2);
+  gl_FragColor = distance(result, expected) <= tolerance ? vec4(0.0, 1.0, 0.0, 1.0) : vec4(1.0, 0.0, 0.0, 1.0);
+}
+
+[test]
+clear color 0.0 0.0 1.0 0.0
+clear
+uniform vec4 arg0 -2.0 -0.6666667 0.6666667 2.0
+uniform float arg1 -1.5
+uniform float arg2 -1.5
+uniform vec4 expected -1.5 -1.5 -1.5 -1.5
+uniform float tolerance 3e-05
+draw rect ortho 0 0 4 4
+uniform vec4 arg0 -2.0 -0.6666667 0.6666667 2.0
+uniform float arg1 -1.5
+uniform float arg2 0.0
+uniform vec4 expected -1.5 -0.6666667 0.0 0.0
+uniform float tolerance 1.6414762e-05
+draw rect ortho 4 0 4 4
+uniform vec4 arg0 -2.0 -0.6666667 0.6666667 2.0
+uniform float arg1 -1.5
+uniform float arg2 1.5
+uniform vec4 expected -1.5 -0.6666667 0.6666667 1.5
+uniform float tolerance 2.3213981e-05
+draw rect ortho 8 0 4 4
+uniform vec4 arg0 -2.0 -0.6666667 0.6666667 2.0
+uniform float arg1 0.0
+uniform float arg2 0.0
+uniform vec4 expected 0.0 0.0 0.0 0.0
+uniform float tolerance 0.0
+draw rect ortho 12 0 4 4
+uniform vec4 arg0 -2.0 -0.6666667 0.6666667 2.0
+uniform float arg1 0.0
+uniform float arg2 1.5
+uniform vec4 expected 0.0 0.0 0.6666667 1.5
+uniform float tolerance 1.6414762e-05
+draw rect ortho 16 0 4 4
+uniform vec4 arg0 -2.0 -0.6666667 0.6666667 2.0
+uniform float arg1 1.5
+uniform float arg2 1.5
+uniform vec4 expected 1.5 1.5 1.5 1.5
+uniform float tolerance 3e-05
+draw rect ortho 20 0 4 4
+probe rect rgba (0, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (4, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (8, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (12, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (16, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (20, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)

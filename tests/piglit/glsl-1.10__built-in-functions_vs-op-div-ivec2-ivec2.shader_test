@@ -1,0 +1,72 @@
+[require]
+GLSL >= 1.10
+
+[vertex shader]
+varying vec4 color;
+uniform ivec2 arg0;
+uniform ivec2 arg1;
+uniform ivec2 expected;
+
+void main()
+{
+  gl_Position = gl_Vertex;
+  ivec2 result = (arg0 / arg1);
+  color = result == expected ? vec4(0.0, 1.0, 0.0, 1.0) : vec4(1.0, 0.0, 0.0, 1.0);
+}
+
+[fragment shader]
+varying vec4 color;
+
+void main()
+{
+  gl_FragColor = color;
+}
+
+[test]
+clear color 0.0 0.0 1.0 0.0
+clear
+uniform ivec2 arg0 38 35
+uniform ivec2 arg1 38 35
+uniform ivec2 expected 1 1
+draw rect ortho 0 0 4 4
+uniform ivec2 arg0 38 35
+uniform ivec2 arg1 64 -9
+uniform ivec2 expected 0 -3
+draw rect ortho 4 0 4 4
+uniform ivec2 arg0 38 35
+uniform ivec2 arg1 64 9
+uniform ivec2 expected 0 3
+draw rect ortho 8 0 4 4
+uniform ivec2 arg0 64 -9
+uniform ivec2 arg1 38 35
+uniform ivec2 expected 1 0
+draw rect ortho 12 0 4 4
+uniform ivec2 arg0 64 -9
+uniform ivec2 arg1 64 -9
+uniform ivec2 expected 1 1
+draw rect ortho 16 0 4 4
+uniform ivec2 arg0 64 -9
+uniform ivec2 arg1 64 9
+uniform ivec2 expected 1 -1
+draw rect ortho 20 0 4 4
+uniform ivec2 arg0 64 9
+uniform ivec2 arg1 38 35
+uniform ivec2 expected 1 0
+draw rect ortho 24 0 4 4
+uniform ivec2 arg0 64 9
+uniform ivec2 arg1 64 -9
+uniform ivec2 expected 1 -1
+draw rect ortho 28 0 4 4
+uniform ivec2 arg0 64 9
+uniform ivec2 arg1 64 9
+uniform ivec2 expected 1 1
+draw rect ortho 32 0 4 4
+probe rect rgba (0, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (4, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (8, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (12, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (16, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (20, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (24, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (28, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (32, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)

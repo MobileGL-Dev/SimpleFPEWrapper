@@ -1,0 +1,122 @@
+[require]
+GLSL >= 1.10
+
+[vertex shader]
+void main()
+{
+        gl_Position = gl_Vertex;
+}
+
+[fragment shader]
+uniform ivec2 arg0;
+uniform ivec2 arg1;
+
+void main()
+{
+  bvec2 result = greaterThan(arg0, arg1);
+  gl_FragColor = vec4(result, 0.0, 0.0);
+}
+
+[test]
+clear color 0.0 0.0 1.0 0.0
+clear
+uniform ivec2 arg0 -5 -5
+uniform ivec2 arg1 -5 -2
+draw rect ortho 0 0 4 4
+uniform ivec2 arg0 -5 -5
+uniform ivec2 arg1 -1 0
+draw rect ortho 4 0 4 4
+uniform ivec2 arg0 -5 -5
+uniform ivec2 arg1 1 2
+draw rect ortho 8 0 4 4
+uniform ivec2 arg0 -5 -2
+uniform ivec2 arg1 5 -5
+draw rect ortho 12 0 4 4
+uniform ivec2 arg0 -2 -2
+uniform ivec2 arg1 -2 -1
+draw rect ortho 16 0 4 4
+uniform ivec2 arg0 -2 -2
+uniform ivec2 arg1 0 1
+draw rect ortho 20 0 4 4
+uniform ivec2 arg0 -2 -2
+uniform ivec2 arg1 2 5
+draw rect ortho 24 0 4 4
+uniform ivec2 arg0 -1 -1
+uniform ivec2 arg1 -5 -2
+draw rect ortho 28 0 4 4
+uniform ivec2 arg0 -1 -1
+uniform ivec2 arg1 -1 0
+draw rect ortho 32 0 4 4
+uniform ivec2 arg0 -1 -1
+uniform ivec2 arg1 1 2
+draw rect ortho 36 0 4 4
+uniform ivec2 arg0 -1 0
+uniform ivec2 arg1 5 -5
+draw rect ortho 40 0 4 4
+uniform ivec2 arg0 0 0
+uniform ivec2 arg1 -2 -1
+draw rect ortho 44 0 4 4
+uniform ivec2 arg0 0 0
+uniform ivec2 arg1 0 1
+draw rect ortho 48 0 4 4
+uniform ivec2 arg0 0 0
+uniform ivec2 arg1 2 5
+draw rect ortho 52 0 4 4
+uniform ivec2 arg0 1 1
+uniform ivec2 arg1 -5 -2
+draw rect ortho 56 0 4 4
+uniform ivec2 arg0 1 1
+uniform ivec2 arg1 -1 0
+draw rect ortho 60 0 4 4
+uniform ivec2 arg0 1 1
+uniform ivec2 arg1 1 2
+draw rect ortho 64 0 4 4
+uniform ivec2 arg0 1 2
+uniform ivec2 arg1 5 -5
+draw rect ortho 68 0 4 4
+uniform ivec2 arg0 2 2
+uniform ivec2 arg1 -2 -1
+draw rect ortho 72 0 4 4
+uniform ivec2 arg0 2 2
+uniform ivec2 arg1 0 1
+draw rect ortho 76 0 4 4
+uniform ivec2 arg0 2 2
+uniform ivec2 arg1 2 5
+draw rect ortho 80 0 4 4
+uniform ivec2 arg0 5 5
+uniform ivec2 arg1 -5 -2
+draw rect ortho 84 0 4 4
+uniform ivec2 arg0 5 5
+uniform ivec2 arg1 -1 0
+draw rect ortho 88 0 4 4
+uniform ivec2 arg0 5 5
+uniform ivec2 arg1 1 2
+draw rect ortho 92 0 4 4
+uniform ivec2 arg0 5 -5
+uniform ivec2 arg1 5 -5
+draw rect ortho 96 0 4 4
+probe rect rgba (0, 0, 4, 4) (0.0, 0.0, 0.0, 0.0)
+probe rect rgba (4, 0, 4, 4) (0.0, 0.0, 0.0, 0.0)
+probe rect rgba (8, 0, 4, 4) (0.0, 0.0, 0.0, 0.0)
+probe rect rgba (12, 0, 4, 4) (0.0, 1.0, 0.0, 0.0)
+probe rect rgba (16, 0, 4, 4) (0.0, 0.0, 0.0, 0.0)
+probe rect rgba (20, 0, 4, 4) (0.0, 0.0, 0.0, 0.0)
+probe rect rgba (24, 0, 4, 4) (0.0, 0.0, 0.0, 0.0)
+probe rect rgba (28, 0, 4, 4) (1.0, 1.0, 0.0, 0.0)
+probe rect rgba (32, 0, 4, 4) (0.0, 0.0, 0.0, 0.0)
+probe rect rgba (36, 0, 4, 4) (0.0, 0.0, 0.0, 0.0)
+probe rect rgba (40, 0, 4, 4) (0.0, 1.0, 0.0, 0.0)
+probe rect rgba (44, 0, 4, 4) (1.0, 1.0, 0.0, 0.0)
+probe rect rgba (48, 0, 4, 4) (0.0, 0.0, 0.0, 0.0)
+probe rect rgba (52, 0, 4, 4) (0.0, 0.0, 0.0, 0.0)
+probe rect rgba (56, 0, 4, 4) (1.0, 1.0, 0.0, 0.0)
+probe rect rgba (60, 0, 4, 4) (1.0, 1.0, 0.0, 0.0)
+probe rect rgba (64, 0, 4, 4) (0.0, 0.0, 0.0, 0.0)
+probe rect rgba (68, 0, 4, 4) (0.0, 1.0, 0.0, 0.0)
+probe rect rgba (72, 0, 4, 4) (1.0, 1.0, 0.0, 0.0)
+probe rect rgba (76, 0, 4, 4) (1.0, 1.0, 0.0, 0.0)
+probe rect rgba (80, 0, 4, 4) (0.0, 0.0, 0.0, 0.0)
+probe rect rgba (84, 0, 4, 4) (1.0, 1.0, 0.0, 0.0)
+probe rect rgba (88, 0, 4, 4) (1.0, 1.0, 0.0, 0.0)
+probe rect rgba (92, 0, 4, 4) (1.0, 1.0, 0.0, 0.0)
+probe rect rgba (96, 0, 4, 4) (0.0, 0.0, 0.0, 0.0)

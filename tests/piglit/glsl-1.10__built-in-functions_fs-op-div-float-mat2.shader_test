@@ -1,0 +1,62 @@
+[require]
+GLSL >= 1.10
+
+[vertex shader]
+void main()
+{
+        gl_Position = gl_Vertex;
+}
+
+[fragment shader]
+uniform float arg0;
+uniform mat2 arg1;
+uniform float tolerance;
+uniform mat2 expected;
+
+void main()
+{
+  mat2 result = (arg0 / arg1);
+  mat2 residual = result - expected;
+  float error_sq = residual[0][0] * residual[0][0] + residual[0][1] * residual[0][1] + residual[1][0] * residual[1][0] + residual[1][1] * residual[1][1];
+  gl_FragColor = error_sq <= tolerance * tolerance ? vec4(0.0, 1.0, 0.0, 1.0) : vec4(1.0, 0.0, 0.0, 1.0);
+}
+
+[test]
+clear color 0.0 0.0 1.0 0.0
+clear
+uniform float arg0 0.0
+uniform mat2x2 arg1 1.6 1.53 0.76 -1.0
+uniform mat2x2 expected 0.0 0.0 0.0 -0.0
+uniform float tolerance 0.0
+draw rect ortho 0 0 4 4
+uniform float arg0 0.0
+uniform mat2x2 arg1 -0.13 -1.4 -0.87 1.4
+uniform mat2x2 expected -0.0 -0.0 -0.0 0.0
+uniform float tolerance 0.0
+draw rect ortho 4 0 4 4
+uniform float arg0 -1.33
+uniform mat2x2 arg1 1.6 1.53 0.76 -1.0
+uniform mat2x2 expected -0.83125 -0.8692811 -1.7500001 1.33
+uniform float tolerance 2.505599e-05
+draw rect ortho 8 0 4 4
+uniform float arg0 -1.33
+uniform mat2x2 arg1 -0.13 -1.4 -0.87 1.4
+uniform mat2x2 expected 10.23077 0.95000005 1.5287356 -0.95000005
+uniform float tolerance 0.00010431236
+draw rect ortho 12 0 4 4
+uniform float arg0 0.85
+uniform mat2x2 arg1 1.6 1.53 0.76 -1.0
+uniform mat2x2 expected 0.53125 0.5555556 1.1184211 -0.85
+uniform float tolerance 1.6013228e-05
+draw rect ortho 16 0 4 4
+uniform float arg0 0.85
+uniform mat2x2 arg1 -0.13 -1.4 -0.87 1.4
+uniform mat2x2 expected -6.538462 -0.60714287 -0.9770115 0.60714287
+uniform float tolerance 6.6665794e-05
+draw rect ortho 20 0 4 4
+probe rect rgba (0, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (4, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (8, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (12, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (16, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (20, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)

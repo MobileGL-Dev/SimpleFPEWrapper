@@ -1,0 +1,54 @@
+[require]
+GLSL >= 1.10
+
+[vertex shader]
+varying vec4 color;
+uniform mat4 arg0;
+uniform mat4 arg1;
+uniform float tolerance;
+uniform mat4 expected;
+
+void main()
+{
+  gl_Position = gl_Vertex;
+  mat4 result = matrixCompMult(arg0, arg1);
+  mat4 residual = result - expected;
+  float error_sq = residual[0][0] * residual[0][0] + residual[0][1] * residual[0][1] + residual[0][2] * residual[0][2] + residual[0][3] * residual[0][3] + residual[1][0] * residual[1][0] + residual[1][1] * residual[1][1] + residual[1][2] * residual[1][2] + residual[1][3] * residual[1][3] + residual[2][0] * residual[2][0] + residual[2][1] * residual[2][1] + residual[2][2] * residual[2][2] + residual[2][3] * residual[2][3] + residual[3][0] * residual[3][0] + residual[3][1] * residual[3][1] + residual[3][2] * residual[3][2] + residual[3][3] * residual[3][3];
+  color = error_sq <= tolerance * tolerance ? vec4(0.0, 1.0, 0.0, 1.0) : vec4(1.0, 0.0, 0.0, 1.0);
+}
+
+[fragment shader]
+varying vec4 color;
+
+void main()
+{
+  gl_FragColor = color;
+}
+
+[test]
+clear color 0.0 0.0 1.0 0.0
+clear
+uniform mat4x4 arg0 -1.0 1.77 0.09 -0.91 -0.55 0.62 -0.71 -1.82 -1.08 0.48 -1.39 -1.43 1.79 -1.35 -1.21 0.72
+uniform mat4x4 arg1 -1.0 1.77 0.09 -0.91 -0.55 0.62 -0.71 -1.82 -1.08 0.48 -1.39 -1.43 1.79 -1.35 -1.21 0.72
+uniform mat4x4 expected 1.0 3.1329 0.0081 0.8281 0.3025 0.3844 0.50409997 3.3124 1.1664001 0.2304 1.9320999 2.0449 3.2041 1.8225001 1.4641001 0.5184
+uniform float tolerance 6.949428e-05
+draw rect ortho 0 0 4 4
+uniform mat4x4 arg0 -1.0 1.77 0.09 -0.91 -0.55 0.62 -0.71 -1.82 -1.08 0.48 -1.39 -1.43 1.79 -1.35 -1.21 0.72
+uniform mat4x4 arg1 0.06 1.6 1.25 -0.16 1.31 -0.32 0.45 0.45 1.52 0.51 1.9 -0.88 -1.96 -1.84 -0.72 0.39
+uniform mat4x4 expected -0.06 2.832 0.112500004 0.1456 -0.7205 -0.19839999 -0.31949997 -0.819 -1.6416 0.24479999 -2.641 1.2584 -3.5084 2.4840002 0.8712001 0.2808
+uniform float tolerance 6.3260726e-05
+draw rect ortho 4 0 4 4
+uniform mat4x4 arg0 0.06 1.6 1.25 -0.16 1.31 -0.32 0.45 0.45 1.52 0.51 1.9 -0.88 -1.96 -1.84 -0.72 0.39
+uniform mat4x4 arg1 -1.0 1.77 0.09 -0.91 -0.55 0.62 -0.71 -1.82 -1.08 0.48 -1.39 -1.43 1.79 -1.35 -1.21 0.72
+uniform mat4x4 expected -0.06 2.832 0.112500004 0.1456 -0.7205 -0.19839999 -0.31949997 -0.819 -1.6416 0.24479999 -2.641 1.2584 -3.5084 2.4840002 0.8712001 0.2808
+uniform float tolerance 6.3260726e-05
+draw rect ortho 8 0 4 4
+uniform mat4x4 arg0 0.06 1.6 1.25 -0.16 1.31 -0.32 0.45 0.45 1.52 0.51 1.9 -0.88 -1.96 -1.84 -0.72 0.39
+uniform mat4x4 arg1 0.06 1.6 1.25 -0.16 1.31 -0.32 0.45 0.45 1.52 0.51 1.9 -0.88 -1.96 -1.84 -0.72 0.39
+uniform mat4x4 expected 0.0036 2.5600002 1.5625 0.0256 1.7160999 0.1024 0.20249999 0.20249999 2.3104 0.26009998 3.61 0.7744 3.8416002 3.3856 0.5184 0.15209998
+uniform float tolerance 7.588321e-05
+draw rect ortho 12 0 4 4
+probe rect rgba (0, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (4, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (8, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (12, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)

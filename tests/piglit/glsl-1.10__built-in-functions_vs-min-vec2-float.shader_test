@@ -1,0 +1,76 @@
+[require]
+GLSL >= 1.10
+
+[vertex shader]
+varying vec4 color;
+uniform vec2 arg0;
+uniform float arg1;
+uniform float tolerance;
+uniform vec2 expected;
+
+void main()
+{
+  gl_Position = gl_Vertex;
+  vec2 result = min(arg0, arg1);
+  color = distance(result, expected) <= tolerance ? vec4(0.0, 1.0, 0.0, 1.0) : vec4(1.0, 0.0, 0.0, 1.0);
+}
+
+[fragment shader]
+varying vec4 color;
+
+void main()
+{
+  gl_FragColor = color;
+}
+
+[test]
+clear color 0.0 0.0 1.0 0.0
+clear
+uniform vec2 arg0 -2.0 -0.6666667
+uniform float arg1 -2.0
+uniform vec2 expected -2.0 -2.0
+uniform float tolerance 2.828427e-05
+draw rect ortho 0 0 4 4
+uniform vec2 arg0 0.6666667 2.0
+uniform float arg1 -2.0
+uniform vec2 expected -2.0 -2.0
+uniform float tolerance 2.828427e-05
+draw rect ortho 4 0 4 4
+uniform vec2 arg0 -2.0 -0.6666667
+uniform float arg1 -0.6666667
+uniform vec2 expected -2.0 -0.6666667
+uniform float tolerance 2.108185e-05
+draw rect ortho 8 0 4 4
+uniform vec2 arg0 0.6666667 2.0
+uniform float arg1 -0.6666667
+uniform vec2 expected -0.6666667 -0.6666667
+uniform float tolerance 9.42809e-06
+draw rect ortho 12 0 4 4
+uniform vec2 arg0 -2.0 -0.6666667
+uniform float arg1 0.6666667
+uniform vec2 expected -2.0 -0.6666667
+uniform float tolerance 2.108185e-05
+draw rect ortho 16 0 4 4
+uniform vec2 arg0 0.6666667 2.0
+uniform float arg1 0.6666667
+uniform vec2 expected 0.6666667 0.6666667
+uniform float tolerance 9.42809e-06
+draw rect ortho 20 0 4 4
+uniform vec2 arg0 -2.0 -0.6666667
+uniform float arg1 2.0
+uniform vec2 expected -2.0 -0.6666667
+uniform float tolerance 2.108185e-05
+draw rect ortho 24 0 4 4
+uniform vec2 arg0 0.6666667 2.0
+uniform float arg1 2.0
+uniform vec2 expected 0.6666667 2.0
+uniform float tolerance 2.108185e-05
+draw rect ortho 28 0 4 4
+probe rect rgba (0, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (4, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (8, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (12, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (16, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (20, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (24, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (28, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)

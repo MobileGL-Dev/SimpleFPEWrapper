@@ -1,0 +1,103 @@
+[require]
+GLSL >= 1.10
+
+[vertex shader]
+varying vec4 color;
+uniform ivec3 arg0;
+uniform int arg1;
+uniform ivec3 expected;
+
+void main()
+{
+  gl_Position = gl_Vertex;
+  ivec3 result = arg0;
+  result += arg1;
+  color = result == expected ? vec4(0.0, 1.0, 0.0, 1.0) : vec4(1.0, 0.0, 0.0, 1.0);
+}
+
+[fragment shader]
+varying vec4 color;
+
+void main()
+{
+  gl_FragColor = color;
+}
+
+[test]
+clear color 0.0 0.0 1.0 0.0
+clear
+uniform ivec3 arg0 -36 32 -88
+uniform int arg1 12
+uniform ivec3 expected -24 44 -76
+draw rect ortho 0 0 4 4
+uniform ivec3 arg0 -36 32 -88
+uniform int arg1 -6
+uniform ivec3 expected -42 26 -94
+draw rect ortho 4 0 4 4
+uniform ivec3 arg0 -36 32 -88
+uniform int arg1 76
+uniform ivec3 expected 40 108 -12
+draw rect ortho 8 0 4 4
+uniform ivec3 arg0 -36 32 -88
+uniform int arg1 -32
+uniform ivec3 expected -68 0 -120
+draw rect ortho 12 0 4 4
+uniform ivec3 arg0 -36 32 -88
+uniform int arg1 0
+uniform ivec3 expected -36 32 -88
+draw rect ortho 16 0 4 4
+uniform ivec3 arg0 36 32 88
+uniform int arg1 12
+uniform ivec3 expected 48 44 100
+draw rect ortho 20 0 4 4
+uniform ivec3 arg0 36 32 88
+uniform int arg1 -6
+uniform ivec3 expected 30 26 82
+draw rect ortho 24 0 4 4
+uniform ivec3 arg0 36 32 88
+uniform int arg1 76
+uniform ivec3 expected 112 108 164
+draw rect ortho 28 0 4 4
+uniform ivec3 arg0 36 32 88
+uniform int arg1 -32
+uniform ivec3 expected 4 0 56
+draw rect ortho 32 0 4 4
+uniform ivec3 arg0 36 32 88
+uniform int arg1 0
+uniform ivec3 expected 36 32 88
+draw rect ortho 36 0 4 4
+uniform ivec3 arg0 59 77 68
+uniform int arg1 12
+uniform ivec3 expected 71 89 80
+draw rect ortho 40 0 4 4
+uniform ivec3 arg0 59 77 68
+uniform int arg1 -6
+uniform ivec3 expected 53 71 62
+draw rect ortho 44 0 4 4
+uniform ivec3 arg0 59 77 68
+uniform int arg1 76
+uniform ivec3 expected 135 153 144
+draw rect ortho 48 0 4 4
+uniform ivec3 arg0 59 77 68
+uniform int arg1 -32
+uniform ivec3 expected 27 45 36
+draw rect ortho 52 0 4 4
+uniform ivec3 arg0 59 77 68
+uniform int arg1 0
+uniform ivec3 expected 59 77 68
+draw rect ortho 56 0 4 4
+probe rect rgba (0, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (4, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (8, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (12, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (16, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (20, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (24, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (28, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (32, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (36, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (40, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (44, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (48, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (52, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (56, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)

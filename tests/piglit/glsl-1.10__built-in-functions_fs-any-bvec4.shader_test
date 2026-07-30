@@ -1,0 +1,69 @@
+[require]
+GLSL >= 1.10
+
+[vertex shader]
+void main()
+{
+        gl_Position = gl_Vertex;
+}
+
+[fragment shader]
+uniform bvec4 arg0;
+
+void main()
+{
+  bool result = any(arg0);
+  gl_FragColor = vec4(result, 0.0, 0.0, 0.0);
+}
+
+[test]
+clear color 0.0 0.0 1.0 0.0
+clear
+uniform ivec4 arg0 0 0 0 0
+draw rect ortho 0 0 4 4
+uniform ivec4 arg0 0 0 0 1
+draw rect ortho 4 0 4 4
+uniform ivec4 arg0 0 0 1 0
+draw rect ortho 8 0 4 4
+uniform ivec4 arg0 0 0 1 1
+draw rect ortho 12 0 4 4
+uniform ivec4 arg0 0 1 0 0
+draw rect ortho 16 0 4 4
+uniform ivec4 arg0 0 1 0 1
+draw rect ortho 20 0 4 4
+uniform ivec4 arg0 0 1 1 0
+draw rect ortho 24 0 4 4
+uniform ivec4 arg0 0 1 1 1
+draw rect ortho 28 0 4 4
+uniform ivec4 arg0 1 0 0 0
+draw rect ortho 32 0 4 4
+uniform ivec4 arg0 1 0 0 1
+draw rect ortho 36 0 4 4
+uniform ivec4 arg0 1 0 1 0
+draw rect ortho 40 0 4 4
+uniform ivec4 arg0 1 0 1 1
+draw rect ortho 44 0 4 4
+uniform ivec4 arg0 1 1 0 0
+draw rect ortho 48 0 4 4
+uniform ivec4 arg0 1 1 0 1
+draw rect ortho 52 0 4 4
+uniform ivec4 arg0 1 1 1 0
+draw rect ortho 56 0 4 4
+uniform ivec4 arg0 1 1 1 1
+draw rect ortho 60 0 4 4
+probe rect rgba (0, 0, 4, 4) (0.0, 0.0, 0.0, 0.0)
+probe rect rgba (4, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (8, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (12, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (16, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (20, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (24, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (28, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (32, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (36, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (40, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (44, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (48, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (52, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (56, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (60, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)

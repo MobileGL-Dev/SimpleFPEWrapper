@@ -1,0 +1,38 @@
+[require]
+GLSL >= 1.20
+
+[vertex shader]
+void main()
+{
+        gl_Position = gl_Vertex;
+}
+
+[fragment shader]
+uniform mat4x2 arg0;
+uniform mat4x2 arg1;
+
+void main()
+{
+  bool result = (arg0 != arg1);
+  gl_FragColor = vec4(result, 0.0, 0.0, 0.0);
+}
+
+[test]
+clear color 0.0 0.0 1.0 0.0
+clear
+uniform mat4x2 arg0 1.81 -1.16 -0.87 -1.52 0.81 0.25 0.65 -1.51
+uniform mat4x2 arg1 1.81 -1.16 -0.87 -1.52 0.81 0.25 0.65 -1.51
+draw rect ortho 0 0 4 4
+uniform mat4x2 arg0 1.81 -1.16 -0.87 -1.52 0.81 0.25 0.65 -1.51
+uniform mat4x2 arg1 1.93 0.49 -1.63 0.27 0.29 0.14 1.6 0.94
+draw rect ortho 4 0 4 4
+uniform mat4x2 arg0 1.93 0.49 -1.63 0.27 0.29 0.14 1.6 0.94
+uniform mat4x2 arg1 1.81 -1.16 -0.87 -1.52 0.81 0.25 0.65 -1.51
+draw rect ortho 8 0 4 4
+uniform mat4x2 arg0 1.93 0.49 -1.63 0.27 0.29 0.14 1.6 0.94
+uniform mat4x2 arg1 1.93 0.49 -1.63 0.27 0.29 0.14 1.6 0.94
+draw rect ortho 12 0 4 4
+probe rect rgba (0, 0, 4, 4) (0.0, 0.0, 0.0, 0.0)
+probe rect rgba (4, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (8, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (12, 0, 4, 4) (0.0, 0.0, 0.0, 0.0)

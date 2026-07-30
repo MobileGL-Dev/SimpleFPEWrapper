@@ -1,0 +1,193 @@
+[require]
+GLSL >= 1.10
+
+[vertex shader]
+void main()
+{
+        gl_Position = gl_Vertex;
+}
+
+[fragment shader]
+uniform float arg0;
+uniform float arg1;
+uniform float arg2;
+uniform float tolerance;
+uniform float expected;
+
+void main()
+{
+  float result = smoothstep(arg0, arg1, arg2);
+  gl_FragColor = distance(result, expected) <= tolerance ? vec4(0.0, 1.0, 0.0, 1.0) : vec4(1.0, 0.0, 0.0, 1.0);
+}
+
+[test]
+clear color 0.0 0.0 1.0 0.0
+clear
+uniform float arg0 -1.9
+uniform float arg1 -0.6333333
+uniform float arg2 -2.0
+uniform float expected 0.0
+uniform float tolerance 0.0
+draw rect ortho 0 0 4 4
+uniform float arg0 -1.9
+uniform float arg1 -0.6333333
+uniform float arg2 -0.6666667
+uniform float expected 0.9979589
+uniform float tolerance 9.979589e-06
+draw rect ortho 4 0 4 4
+uniform float arg0 -1.9
+uniform float arg1 -0.6333333
+uniform float arg2 0.6666667
+uniform float expected 1.0
+uniform float tolerance 1e-05
+draw rect ortho 8 0 4 4
+uniform float arg0 -1.9
+uniform float arg1 -0.6333333
+uniform float arg2 2.0
+uniform float expected 1.0
+uniform float tolerance 1e-05
+draw rect ortho 12 0 4 4
+uniform float arg0 -1.9
+uniform float arg1 0.6333333
+uniform float arg2 -2.0
+uniform float expected 0.0
+uniform float tolerance 0.0
+draw rect ortho 16 0 4 4
+uniform float arg0 -1.9
+uniform float arg1 0.6333333
+uniform float arg2 -0.6666667
+uniform float expected 0.4802677
+uniform float tolerance 4.802677e-06
+draw rect ortho 20 0 4 4
+uniform float arg0 -1.9
+uniform float arg1 0.6333333
+uniform float arg2 0.6666667
+uniform float expected 1.0
+uniform float tolerance 1e-05
+draw rect ortho 24 0 4 4
+uniform float arg0 -1.9
+uniform float arg1 0.6333333
+uniform float arg2 2.0
+uniform float expected 1.0
+uniform float tolerance 1e-05
+draw rect ortho 28 0 4 4
+uniform float arg0 -1.9
+uniform float arg1 1.9
+uniform float arg2 -2.0
+uniform float expected 0.0
+uniform float tolerance 0.0
+draw rect ortho 32 0 4 4
+uniform float arg0 -1.9
+uniform float arg1 1.9
+uniform float arg2 -0.6666667
+uniform float expected 0.24764164
+uniform float tolerance 2.4764163e-06
+draw rect ortho 36 0 4 4
+uniform float arg0 -1.9
+uniform float arg1 1.9
+uniform float arg2 0.6666667
+uniform float expected 0.7523584
+uniform float tolerance 7.5235835e-06
+draw rect ortho 40 0 4 4
+uniform float arg0 -1.9
+uniform float arg1 1.9
+uniform float arg2 2.0
+uniform float expected 1.0
+uniform float tolerance 1e-05
+draw rect ortho 44 0 4 4
+uniform float arg0 -0.6333333
+uniform float arg1 0.6333333
+uniform float arg2 -2.0
+uniform float expected 0.0
+uniform float tolerance 0.0
+draw rect ortho 48 0 4 4
+uniform float arg0 -0.6333333
+uniform float arg1 0.6333333
+uniform float arg2 -0.6666667
+uniform float expected 0.0
+uniform float tolerance 0.0
+draw rect ortho 52 0 4 4
+uniform float arg0 -0.6333333
+uniform float arg1 0.6333333
+uniform float arg2 0.6666667
+uniform float expected 1.0
+uniform float tolerance 1e-05
+draw rect ortho 56 0 4 4
+uniform float arg0 -0.6333333
+uniform float arg1 0.6333333
+uniform float arg2 2.0
+uniform float expected 1.0
+uniform float tolerance 1e-05
+draw rect ortho 60 0 4 4
+uniform float arg0 -0.6333333
+uniform float arg1 1.9
+uniform float arg2 -2.0
+uniform float expected 0.0
+uniform float tolerance 0.0
+draw rect ortho 64 0 4 4
+uniform float arg0 -0.6333333
+uniform float arg1 1.9
+uniform float arg2 -0.6666667
+uniform float expected 0.0
+uniform float tolerance 0.0
+draw rect ortho 68 0 4 4
+uniform float arg0 -0.6333333
+uniform float arg1 1.9
+uniform float arg2 0.6666667
+uniform float expected 0.5197323
+uniform float tolerance 5.197323e-06
+draw rect ortho 72 0 4 4
+uniform float arg0 -0.6333333
+uniform float arg1 1.9
+uniform float arg2 2.0
+uniform float expected 1.0
+uniform float tolerance 1e-05
+draw rect ortho 76 0 4 4
+uniform float arg0 0.6333333
+uniform float arg1 1.9
+uniform float arg2 -2.0
+uniform float expected 0.0
+uniform float tolerance 0.0
+draw rect ortho 80 0 4 4
+uniform float arg0 0.6333333
+uniform float arg1 1.9
+uniform float arg2 -0.6666667
+uniform float expected 0.0
+uniform float tolerance 0.0
+draw rect ortho 84 0 4 4
+uniform float arg0 0.6333333
+uniform float arg1 1.9
+uniform float arg2 0.6666667
+uniform float expected 0.0020411173
+uniform float tolerance 2.0411173e-08
+draw rect ortho 88 0 4 4
+uniform float arg0 0.6333333
+uniform float arg1 1.9
+uniform float arg2 2.0
+uniform float expected 1.0
+uniform float tolerance 1e-05
+draw rect ortho 92 0 4 4
+probe rect rgba (0, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (4, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (8, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (12, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (16, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (20, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (24, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (28, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (32, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (36, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (40, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (44, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (48, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (52, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (56, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (60, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (64, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (68, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (72, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (76, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (80, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (84, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (88, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (92, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)

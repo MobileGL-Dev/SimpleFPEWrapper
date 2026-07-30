@@ -1,0 +1,81 @@
+[require]
+GLSL >= 1.10
+
+[vertex shader]
+void main()
+{
+        gl_Position = gl_Vertex;
+}
+
+[fragment shader]
+uniform vec4 arg0;
+uniform vec4 arg1;
+uniform float arg2;
+uniform float tolerance;
+uniform vec4 expected;
+
+void main()
+{
+  vec4 result = refract(arg0, arg1, arg2);
+  gl_FragColor = distance(result, expected) <= tolerance ? vec4(0.0, 1.0, 0.0, 1.0) : vec4(1.0, 0.0, 0.0, 1.0);
+}
+
+[test]
+clear color 0.0 0.0 1.0 0.0
+clear
+uniform vec4 arg0 -0.55640775 0.44849837 0.6508285 0.2562848
+uniform vec4 arg1 -0.55640775 0.44849837 0.6508285 0.2562848
+uniform float arg2 0.5
+uniform vec4 expected 0.55640775 -0.44849837 -0.6508285 -0.2562848
+uniform float tolerance 1e-05
+draw rect ortho 0 0 4 4
+uniform vec4 arg0 -0.55640775 0.44849837 0.6508285 0.2562848
+uniform vec4 arg1 -0.55640775 0.44849837 0.6508285 0.2562848
+uniform float arg2 2.0
+uniform vec4 expected 0.5564077 -0.4484983 -0.6508284 -0.25628477
+uniform float tolerance 9.999999e-06
+draw rect ortho 4 0 4 4
+uniform vec4 arg0 -0.55640775 0.44849837 0.6508285 0.2562848
+uniform vec4 arg1 0.83288157 -0.1561653 -0.530962 0.0
+uniform float arg2 0.5
+uniform vec4 expected -0.7210112 0.30727556 0.6077039 0.1281424
+uniform float tolerance 1e-05
+draw rect ortho 8 0 4 4
+uniform vec4 arg0 -0.55640775 0.44849837 0.6508285 0.2562848
+uniform vec4 arg1 0.83288157 -0.1561653 -0.530962 0.0
+uniform float arg2 2.0
+uniform vec4 expected 0.1005279 0.66949487 0.52815056 0.5125696
+uniform float tolerance 9.999999e-06
+draw rect ortho 12 0 4 4
+uniform vec4 arg0 0.83288157 -0.1561653 -0.530962 0.0
+uniform vec4 arg1 -0.55640775 0.44849837 0.6508285 0.2562848
+uniform float arg2 0.5
+uniform vec4 expected 0.7122589 -0.31652996 -0.61149853 -0.13625562
+uniform float tolerance 1e-05
+draw rect ortho 16 0 4 4
+uniform vec4 arg0 0.83288157 -0.1561653 -0.530962 0.0
+uniform vec4 arg1 -0.55640775 0.44849837 0.6508285 0.2562848
+uniform float arg2 2.0
+uniform vec4 expected 0.8551873 0.34104264 -0.113795854 0.37335616
+uniform float tolerance 9.999999e-06
+draw rect ortho 20 0 4 4
+uniform vec4 arg0 0.83288157 -0.1561653 -0.530962 0.0
+uniform vec4 arg1 0.83288157 -0.1561653 -0.530962 0.0
+uniform float arg2 0.5
+uniform vec4 expected -0.8328815 0.1561653 0.530962 0.0
+uniform float tolerance 1e-05
+draw rect ortho 24 0 4 4
+uniform vec4 arg0 0.83288157 -0.1561653 -0.530962 0.0
+uniform vec4 arg1 0.83288157 -0.1561653 -0.530962 0.0
+uniform float arg2 2.0
+uniform vec4 expected -0.8328813 0.15616526 0.5309618 0.0
+uniform float tolerance 9.999996e-06
+draw rect ortho 28 0 4 4
+probe rect rgba (0, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (4, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (8, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (12, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (16, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (20, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (24, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (28, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)

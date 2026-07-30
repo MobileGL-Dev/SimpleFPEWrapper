@@ -1,0 +1,328 @@
+[require]
+GLSL >= 1.10
+
+[vertex shader]
+varying vec4 color;
+uniform bool arg0;
+uniform int arg1;
+uniform int arg2;
+uniform int expected;
+
+void main()
+{
+  gl_Position = gl_Vertex;
+  int result = (arg0 ? arg1 : arg2);
+  color = result == expected ? vec4(0.0, 1.0, 0.0, 1.0) : vec4(1.0, 0.0, 0.0, 1.0);
+}
+
+[fragment shader]
+varying vec4 color;
+
+void main()
+{
+  gl_FragColor = color;
+}
+
+[test]
+clear color 0.0 0.0 1.0 0.0
+clear
+uniform int arg0 0
+uniform int arg1 12
+uniform int arg2 12
+uniform int expected 12
+draw rect ortho 0 0 4 4
+uniform int arg0 0
+uniform int arg1 12
+uniform int arg2 -6
+uniform int expected -6
+draw rect ortho 4 0 4 4
+uniform int arg0 0
+uniform int arg1 12
+uniform int arg2 76
+uniform int expected 76
+draw rect ortho 8 0 4 4
+uniform int arg0 0
+uniform int arg1 12
+uniform int arg2 -32
+uniform int expected -32
+draw rect ortho 12 0 4 4
+uniform int arg0 0
+uniform int arg1 12
+uniform int arg2 0
+uniform int expected 0
+draw rect ortho 16 0 4 4
+uniform int arg0 0
+uniform int arg1 -6
+uniform int arg2 12
+uniform int expected 12
+draw rect ortho 20 0 4 4
+uniform int arg0 0
+uniform int arg1 -6
+uniform int arg2 -6
+uniform int expected -6
+draw rect ortho 24 0 4 4
+uniform int arg0 0
+uniform int arg1 -6
+uniform int arg2 76
+uniform int expected 76
+draw rect ortho 28 0 4 4
+uniform int arg0 0
+uniform int arg1 -6
+uniform int arg2 -32
+uniform int expected -32
+draw rect ortho 32 0 4 4
+uniform int arg0 0
+uniform int arg1 -6
+uniform int arg2 0
+uniform int expected 0
+draw rect ortho 36 0 4 4
+uniform int arg0 0
+uniform int arg1 76
+uniform int arg2 12
+uniform int expected 12
+draw rect ortho 40 0 4 4
+uniform int arg0 0
+uniform int arg1 76
+uniform int arg2 -6
+uniform int expected -6
+draw rect ortho 44 0 4 4
+uniform int arg0 0
+uniform int arg1 76
+uniform int arg2 76
+uniform int expected 76
+draw rect ortho 48 0 4 4
+uniform int arg0 0
+uniform int arg1 76
+uniform int arg2 -32
+uniform int expected -32
+draw rect ortho 52 0 4 4
+uniform int arg0 0
+uniform int arg1 76
+uniform int arg2 0
+uniform int expected 0
+draw rect ortho 56 0 4 4
+uniform int arg0 0
+uniform int arg1 -32
+uniform int arg2 12
+uniform int expected 12
+draw rect ortho 60 0 4 4
+uniform int arg0 0
+uniform int arg1 -32
+uniform int arg2 -6
+uniform int expected -6
+draw rect ortho 64 0 4 4
+uniform int arg0 0
+uniform int arg1 -32
+uniform int arg2 76
+uniform int expected 76
+draw rect ortho 68 0 4 4
+uniform int arg0 0
+uniform int arg1 -32
+uniform int arg2 -32
+uniform int expected -32
+draw rect ortho 72 0 4 4
+uniform int arg0 0
+uniform int arg1 -32
+uniform int arg2 0
+uniform int expected 0
+draw rect ortho 76 0 4 4
+uniform int arg0 0
+uniform int arg1 0
+uniform int arg2 12
+uniform int expected 12
+draw rect ortho 80 0 4 4
+uniform int arg0 0
+uniform int arg1 0
+uniform int arg2 -6
+uniform int expected -6
+draw rect ortho 84 0 4 4
+uniform int arg0 0
+uniform int arg1 0
+uniform int arg2 76
+uniform int expected 76
+draw rect ortho 88 0 4 4
+uniform int arg0 0
+uniform int arg1 0
+uniform int arg2 -32
+uniform int expected -32
+draw rect ortho 92 0 4 4
+uniform int arg0 0
+uniform int arg1 0
+uniform int arg2 0
+uniform int expected 0
+draw rect ortho 96 0 4 4
+uniform int arg0 1
+uniform int arg1 12
+uniform int arg2 12
+uniform int expected 12
+draw rect ortho 100 0 4 4
+uniform int arg0 1
+uniform int arg1 12
+uniform int arg2 -6
+uniform int expected 12
+draw rect ortho 104 0 4 4
+uniform int arg0 1
+uniform int arg1 12
+uniform int arg2 76
+uniform int expected 12
+draw rect ortho 108 0 4 4
+uniform int arg0 1
+uniform int arg1 12
+uniform int arg2 -32
+uniform int expected 12
+draw rect ortho 112 0 4 4
+uniform int arg0 1
+uniform int arg1 12
+uniform int arg2 0
+uniform int expected 12
+draw rect ortho 116 0 4 4
+uniform int arg0 1
+uniform int arg1 -6
+uniform int arg2 12
+uniform int expected -6
+draw rect ortho 120 0 4 4
+uniform int arg0 1
+uniform int arg1 -6
+uniform int arg2 -6
+uniform int expected -6
+draw rect ortho 124 0 4 4
+uniform int arg0 1
+uniform int arg1 -6
+uniform int arg2 76
+uniform int expected -6
+draw rect ortho 128 0 4 4
+uniform int arg0 1
+uniform int arg1 -6
+uniform int arg2 -32
+uniform int expected -6
+draw rect ortho 132 0 4 4
+uniform int arg0 1
+uniform int arg1 -6
+uniform int arg2 0
+uniform int expected -6
+draw rect ortho 136 0 4 4
+uniform int arg0 1
+uniform int arg1 76
+uniform int arg2 12
+uniform int expected 76
+draw rect ortho 140 0 4 4
+uniform int arg0 1
+uniform int arg1 76
+uniform int arg2 -6
+uniform int expected 76
+draw rect ortho 144 0 4 4
+uniform int arg0 1
+uniform int arg1 76
+uniform int arg2 76
+uniform int expected 76
+draw rect ortho 148 0 4 4
+uniform int arg0 1
+uniform int arg1 76
+uniform int arg2 -32
+uniform int expected 76
+draw rect ortho 152 0 4 4
+uniform int arg0 1
+uniform int arg1 76
+uniform int arg2 0
+uniform int expected 76
+draw rect ortho 156 0 4 4
+uniform int arg0 1
+uniform int arg1 -32
+uniform int arg2 12
+uniform int expected -32
+draw rect ortho 160 0 4 4
+uniform int arg0 1
+uniform int arg1 -32
+uniform int arg2 -6
+uniform int expected -32
+draw rect ortho 164 0 4 4
+uniform int arg0 1
+uniform int arg1 -32
+uniform int arg2 76
+uniform int expected -32
+draw rect ortho 168 0 4 4
+uniform int arg0 1
+uniform int arg1 -32
+uniform int arg2 -32
+uniform int expected -32
+draw rect ortho 172 0 4 4
+uniform int arg0 1
+uniform int arg1 -32
+uniform int arg2 0
+uniform int expected -32
+draw rect ortho 176 0 4 4
+uniform int arg0 1
+uniform int arg1 0
+uniform int arg2 12
+uniform int expected 0
+draw rect ortho 180 0 4 4
+uniform int arg0 1
+uniform int arg1 0
+uniform int arg2 -6
+uniform int expected 0
+draw rect ortho 184 0 4 4
+uniform int arg0 1
+uniform int arg1 0
+uniform int arg2 76
+uniform int expected 0
+draw rect ortho 188 0 4 4
+uniform int arg0 1
+uniform int arg1 0
+uniform int arg2 -32
+uniform int expected 0
+draw rect ortho 192 0 4 4
+uniform int arg0 1
+uniform int arg1 0
+uniform int arg2 0
+uniform int expected 0
+draw rect ortho 196 0 4 4
+probe rect rgba (0, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (4, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (8, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (12, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (16, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (20, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (24, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (28, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (32, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (36, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (40, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (44, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (48, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (52, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (56, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (60, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (64, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (68, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (72, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (76, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (80, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (84, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (88, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (92, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (96, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (100, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (104, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (108, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (112, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (116, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (120, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (124, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (128, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (132, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (136, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (140, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (144, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (148, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (152, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (156, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (160, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (164, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (168, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (172, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (176, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (180, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (184, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (188, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (192, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (196, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)

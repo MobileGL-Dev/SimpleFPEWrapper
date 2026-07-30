@@ -61,6 +61,13 @@ static void (*pUniform4i)(GLint, GLint, GLint, GLint, GLint);
 static void (*pUniformMatrix2fv)(GLint, GLsizei, GLboolean, const GLfloat*);
 static void (*pUniformMatrix3fv)(GLint, GLsizei, GLboolean, const GLfloat*);
 static void (*pUniformMatrix4fv)(GLint, GLsizei, GLboolean, const GLfloat*);
+static void (*pUniformMatrix2x3fv)(GLint, GLsizei, GLboolean, const GLfloat*);
+static void (*pUniformMatrix2x4fv)(GLint, GLsizei, GLboolean, const GLfloat*);
+static void (*pUniformMatrix3x2fv)(GLint, GLsizei, GLboolean, const GLfloat*);
+static void (*pUniformMatrix3x4fv)(GLint, GLsizei, GLboolean, const GLfloat*);
+static void (*pUniformMatrix4x2fv)(GLint, GLsizei, GLboolean, const GLfloat*);
+static void (*pUniformMatrix4x3fv)(GLint, GLsizei, GLboolean, const GLfloat*);
+static void (*pGetIntegerv)(GLenum, GLint*);
 static void (*pClearColor)(GLfloat, GLfloat, GLfloat, GLfloat);
 static void (*pClear)(GLbitfield);
 static void (*pOrtho)(double, double, double, double, double, double);
@@ -115,6 +122,13 @@ static int resolve_all(void) {
     R(pUniformMatrix2fv, "glUniformMatrix2fv");
     R(pUniformMatrix3fv, "glUniformMatrix3fv");
     R(pUniformMatrix4fv, "glUniformMatrix4fv");
+    R(pUniformMatrix2x3fv, "glUniformMatrix2x3fv");
+    R(pUniformMatrix2x4fv, "glUniformMatrix2x4fv");
+    R(pUniformMatrix3x2fv, "glUniformMatrix3x2fv");
+    R(pUniformMatrix3x4fv, "glUniformMatrix3x4fv");
+    R(pUniformMatrix4x2fv, "glUniformMatrix4x2fv");
+    R(pUniformMatrix4x3fv, "glUniformMatrix4x3fv");
+    R(pGetIntegerv, "glGetIntegerv");
     R(pClearColor, "glClearColor");
     R(pClear, "glClear");
     R(pOrtho, "glOrtho");
@@ -181,6 +195,7 @@ static GLuint compile_stage(GLenum stage, const char* src, const char* tag) {
     return shader;
 }
 
+static int g_max_varying_req = 0; // from [require] GL_MAX_VARYING_COMPONENTS
 static GLuint g_program;
 static GLint g_linked; // LINK_STATUS, for `link success` / `link error`
 static float g_ortho_w = 0.0f, g_ortho_h = 0.0f; // nonzero after `ortho`
@@ -344,6 +359,14 @@ static int run_test_section(char* body) {
             pOrtho(0, WIN, 0, WIN, -1, 1);
             g_ortho_w = WIN;
             g_ortho_h = WIN;
+        } else if (sscanf(line, "draw rect ortho %f %f %f %f", &a, &b, &c, &d) == 4) {
+            // Upstream's draw_ortho_rect: window coordinates mapped to NDC on
+            // the CPU, so pass-through vertex shaders (gl_Position =
+            // gl_Vertex) land on the right pixels without any matrix.
+            if (!draw_rect(-1.0f + 2.0f * a / WIN, -1.0f + 2.0f * b / WIN, 2.0f * c / WIN,
+                           2.0f * d / WIN)) {
+                return 0;
+            }
         } else if (sscanf(line, "draw rect tex %f %f %f %f %f %f %f %f", &a, &b, &c, &d, &e, &f,
                           &g, &h_) == 8) {
             if (!draw_rect_tex(a, b, c, d, e, f, g, h_)) return 0;
@@ -389,6 +412,14 @@ static int run_test_section(char* body) {
             if (px >= WIN) px = WIN - 1;
             if (py >= WIN) py = WIN - 1;
             if (!probe_pixels(px, py, 1, 1, exp3, 3)) return 0;
+        } else if (sscanf(line, "probe rect rgba ( %f , %f , %f , %f ) ( %f , %f , %f , %f )",
+                          &a, &b, &c, &d, &e, &f, &g, &h_) == 8) {
+            const float exp4[4] = {e, f, g, h_};
+            if (!probe_pixels((int)a, (int)b, (int)c, (int)d, exp4, 4)) return 0;
+        } else if (sscanf(line, "probe rect rgb ( %f , %f , %f , %f ) ( %f , %f , %f )",
+                          &a, &b, &c, &d, &e, &f, &g) == 7) {
+            const float exp3[4] = {e, f, g, 0};
+            if (!probe_pixels((int)a, (int)b, (int)c, (int)d, exp3, 3)) return 0;
         } else if (sscanf(line, "probe all rgba %f %f %f %f", &a, &b, &c, &d) == 4) {
             const float exp4[4] = {a, b, c, d};
             if (!probe_pixels(0, 0, WIN, WIN, exp4, 4)) return 0;
@@ -425,13 +456,26 @@ static int run_test_section(char* body) {
             else if (strcmp(type, "ivec3") == 0) pUniform3i(loc, (GLint)a, (GLint)b, (GLint)c);
             else if (strcmp(type, "ivec4") == 0) pUniform4i(loc, (GLint)a, (GLint)b, (GLint)c, (GLint)d);
             else if (strncmp(type, "mat", 3) == 0) {
+                // "mat3" or "mat3x2" (GLSL: columns x rows).
+                const int cols = type[3] - '0';
+                const int rows = (type[4] == 'x') ? type[5] - '0' : cols;
+                if (cols < 2 || cols > 4 || rows < 2 || rows > 4) {
+                    fprintf(stderr, "SKIP: uniform type %s unsupported\n", type);
+                    exit(77);
+                }
                 float m[16];
-                const int want = (type[3] - '0') * (type[3] - '0');
-                char* cursor = strstr(line, name) + strlen(name);
-                for (int i = 0; i < want; ++i) m[i] = strtof(cursor, &cursor);
-                if (type[3] == '2') pUniformMatrix2fv(loc, 1, 0, m);
-                else if (type[3] == '3') pUniformMatrix3fv(loc, 1, 0, m);
-                else pUniformMatrix4fv(loc, 1, 0, m);
+                // Seek the name AFTER the type token: strstr(line, name)
+                // would match a name like "m" inside "mat2x2" and parse
+                // zeros for every element.
+                char* cursor = strstr(line, type) + strlen(type);
+                cursor = strstr(cursor, name) + strlen(name);
+                for (int i = 0; i < cols * rows; ++i) m[i] = strtof(cursor, &cursor);
+                void (*matfn[3][3])(GLint, GLsizei, GLboolean, const GLfloat*) = {
+                    {pUniformMatrix2fv, pUniformMatrix2x3fv, pUniformMatrix2x4fv},
+                    {pUniformMatrix3x2fv, pUniformMatrix3fv, pUniformMatrix3x4fv},
+                    {pUniformMatrix4x2fv, pUniformMatrix4x3fv, pUniformMatrix4fv},
+                };
+                matfn[cols - 2][rows - 2](loc, 1, 0, m);
             } else {
                 fprintf(stderr, "SKIP: uniform type %s unsupported\n", type);
                 exit(77);
@@ -482,6 +526,11 @@ int main(int argc, char** argv) {
         for (char* line = strtok_r(require, "\n", &save); line; line = strtok_r(NULL, "\n", &save)) {
             while (*line == ' ' || *line == '\t') ++line;
             if (*line == '\0') continue;
+            int varying_req = 0;
+            if (sscanf(line, "GL_MAX_VARYING_COMPONENTS >= %d", &varying_req) == 1) {
+                if (varying_req > g_max_varying_req) g_max_varying_req = varying_req;
+                continue; // checked against the real limit once a context exists
+            }
             if (strncmp(line, "GLSL >= 1.1", 11) && strncmp(line, "GLSL >= 1.2", 11) &&
                 strncmp(line, "GL >= ", 6)) {
                 printf("SKIP: unsupported requirement: %s\n", line);
@@ -521,6 +570,20 @@ int main(int argc, char** argv) {
         !eglMakeCurrent(display, surface, surface, context)) {
         printf("SKIP: no current context\n");
         return 77;
+    }
+
+    if (g_max_varying_req > 0) {
+        GLint comps = 0;
+        pGetIntegerv(0x8B4B /* GL_MAX_VARYING_COMPONENTS */, &comps);
+        if (comps == 0) {
+            GLint vectors = 0;
+            pGetIntegerv(0x8DFC /* GL_MAX_VARYING_VECTORS */, &vectors);
+            comps = vectors * 4;
+        }
+        if (comps < g_max_varying_req) {
+            printf("SKIP: GL_MAX_VARYING_COMPONENTS %d < %d\n", comps, g_max_varying_req);
+            return 77;
+        }
     }
 
     if (!section_body(text, "fragment shader")) return 1;

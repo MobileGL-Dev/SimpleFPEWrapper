@@ -1,0 +1,1050 @@
+[require]
+GLSL >= 1.10
+
+[vertex shader]
+varying vec4 color;
+uniform bvec4 arg0;
+uniform bvec4 arg1;
+
+void main()
+{
+  gl_Position = gl_Vertex;
+  bool result = (arg0 != arg1);
+  color = vec4(result, 0.0, 0.0, 0.0);
+}
+
+[fragment shader]
+varying vec4 color;
+
+void main()
+{
+  gl_FragColor = color;
+}
+
+[test]
+clear color 0.0 0.0 1.0 0.0
+clear
+uniform ivec4 arg0 0 0 0 0
+uniform ivec4 arg1 0 0 0 0
+draw rect ortho 0 0 4 4
+uniform ivec4 arg0 0 0 0 0
+uniform ivec4 arg1 0 0 0 1
+draw rect ortho 4 0 4 4
+uniform ivec4 arg0 0 0 0 0
+uniform ivec4 arg1 0 0 1 0
+draw rect ortho 8 0 4 4
+uniform ivec4 arg0 0 0 0 0
+uniform ivec4 arg1 0 0 1 1
+draw rect ortho 12 0 4 4
+uniform ivec4 arg0 0 0 0 0
+uniform ivec4 arg1 0 1 0 0
+draw rect ortho 16 0 4 4
+uniform ivec4 arg0 0 0 0 0
+uniform ivec4 arg1 0 1 0 1
+draw rect ortho 20 0 4 4
+uniform ivec4 arg0 0 0 0 0
+uniform ivec4 arg1 0 1 1 0
+draw rect ortho 24 0 4 4
+uniform ivec4 arg0 0 0 0 0
+uniform ivec4 arg1 0 1 1 1
+draw rect ortho 28 0 4 4
+uniform ivec4 arg0 0 0 0 0
+uniform ivec4 arg1 1 0 0 0
+draw rect ortho 32 0 4 4
+uniform ivec4 arg0 0 0 0 0
+uniform ivec4 arg1 1 0 0 1
+draw rect ortho 36 0 4 4
+uniform ivec4 arg0 0 0 0 0
+uniform ivec4 arg1 1 0 1 0
+draw rect ortho 40 0 4 4
+uniform ivec4 arg0 0 0 0 0
+uniform ivec4 arg1 1 0 1 1
+draw rect ortho 44 0 4 4
+uniform ivec4 arg0 0 0 0 0
+uniform ivec4 arg1 1 1 0 0
+draw rect ortho 48 0 4 4
+uniform ivec4 arg0 0 0 0 0
+uniform ivec4 arg1 1 1 0 1
+draw rect ortho 52 0 4 4
+uniform ivec4 arg0 0 0 0 0
+uniform ivec4 arg1 1 1 1 0
+draw rect ortho 56 0 4 4
+uniform ivec4 arg0 0 0 0 0
+uniform ivec4 arg1 1 1 1 1
+draw rect ortho 60 0 4 4
+uniform ivec4 arg0 0 0 0 1
+uniform ivec4 arg1 0 0 0 0
+draw rect ortho 64 0 4 4
+uniform ivec4 arg0 0 0 0 1
+uniform ivec4 arg1 0 0 0 1
+draw rect ortho 68 0 4 4
+uniform ivec4 arg0 0 0 0 1
+uniform ivec4 arg1 0 0 1 0
+draw rect ortho 72 0 4 4
+uniform ivec4 arg0 0 0 0 1
+uniform ivec4 arg1 0 0 1 1
+draw rect ortho 76 0 4 4
+uniform ivec4 arg0 0 0 0 1
+uniform ivec4 arg1 0 1 0 0
+draw rect ortho 80 0 4 4
+uniform ivec4 arg0 0 0 0 1
+uniform ivec4 arg1 0 1 0 1
+draw rect ortho 84 0 4 4
+uniform ivec4 arg0 0 0 0 1
+uniform ivec4 arg1 0 1 1 0
+draw rect ortho 88 0 4 4
+uniform ivec4 arg0 0 0 0 1
+uniform ivec4 arg1 0 1 1 1
+draw rect ortho 92 0 4 4
+uniform ivec4 arg0 0 0 0 1
+uniform ivec4 arg1 1 0 0 0
+draw rect ortho 96 0 4 4
+uniform ivec4 arg0 0 0 0 1
+uniform ivec4 arg1 1 0 0 1
+draw rect ortho 100 0 4 4
+uniform ivec4 arg0 0 0 0 1
+uniform ivec4 arg1 1 0 1 0
+draw rect ortho 104 0 4 4
+uniform ivec4 arg0 0 0 0 1
+uniform ivec4 arg1 1 0 1 1
+draw rect ortho 108 0 4 4
+uniform ivec4 arg0 0 0 0 1
+uniform ivec4 arg1 1 1 0 0
+draw rect ortho 112 0 4 4
+uniform ivec4 arg0 0 0 0 1
+uniform ivec4 arg1 1 1 0 1
+draw rect ortho 116 0 4 4
+uniform ivec4 arg0 0 0 0 1
+uniform ivec4 arg1 1 1 1 0
+draw rect ortho 120 0 4 4
+uniform ivec4 arg0 0 0 0 1
+uniform ivec4 arg1 1 1 1 1
+draw rect ortho 124 0 4 4
+uniform ivec4 arg0 0 0 1 0
+uniform ivec4 arg1 0 0 0 0
+draw rect ortho 128 0 4 4
+uniform ivec4 arg0 0 0 1 0
+uniform ivec4 arg1 0 0 0 1
+draw rect ortho 132 0 4 4
+uniform ivec4 arg0 0 0 1 0
+uniform ivec4 arg1 0 0 1 0
+draw rect ortho 136 0 4 4
+uniform ivec4 arg0 0 0 1 0
+uniform ivec4 arg1 0 0 1 1
+draw rect ortho 140 0 4 4
+uniform ivec4 arg0 0 0 1 0
+uniform ivec4 arg1 0 1 0 0
+draw rect ortho 144 0 4 4
+uniform ivec4 arg0 0 0 1 0
+uniform ivec4 arg1 0 1 0 1
+draw rect ortho 148 0 4 4
+uniform ivec4 arg0 0 0 1 0
+uniform ivec4 arg1 0 1 1 0
+draw rect ortho 152 0 4 4
+uniform ivec4 arg0 0 0 1 0
+uniform ivec4 arg1 0 1 1 1
+draw rect ortho 156 0 4 4
+uniform ivec4 arg0 0 0 1 0
+uniform ivec4 arg1 1 0 0 0
+draw rect ortho 160 0 4 4
+uniform ivec4 arg0 0 0 1 0
+uniform ivec4 arg1 1 0 0 1
+draw rect ortho 164 0 4 4
+uniform ivec4 arg0 0 0 1 0
+uniform ivec4 arg1 1 0 1 0
+draw rect ortho 168 0 4 4
+uniform ivec4 arg0 0 0 1 0
+uniform ivec4 arg1 1 0 1 1
+draw rect ortho 172 0 4 4
+uniform ivec4 arg0 0 0 1 0
+uniform ivec4 arg1 1 1 0 0
+draw rect ortho 176 0 4 4
+uniform ivec4 arg0 0 0 1 0
+uniform ivec4 arg1 1 1 0 1
+draw rect ortho 180 0 4 4
+uniform ivec4 arg0 0 0 1 0
+uniform ivec4 arg1 1 1 1 0
+draw rect ortho 184 0 4 4
+uniform ivec4 arg0 0 0 1 0
+uniform ivec4 arg1 1 1 1 1
+draw rect ortho 188 0 4 4
+uniform ivec4 arg0 0 0 1 1
+uniform ivec4 arg1 0 0 0 0
+draw rect ortho 192 0 4 4
+uniform ivec4 arg0 0 0 1 1
+uniform ivec4 arg1 0 0 0 1
+draw rect ortho 196 0 4 4
+uniform ivec4 arg0 0 0 1 1
+uniform ivec4 arg1 0 0 1 0
+draw rect ortho 200 0 4 4
+uniform ivec4 arg0 0 0 1 1
+uniform ivec4 arg1 0 0 1 1
+draw rect ortho 204 0 4 4
+uniform ivec4 arg0 0 0 1 1
+uniform ivec4 arg1 0 1 0 0
+draw rect ortho 208 0 4 4
+uniform ivec4 arg0 0 0 1 1
+uniform ivec4 arg1 0 1 0 1
+draw rect ortho 212 0 4 4
+uniform ivec4 arg0 0 0 1 1
+uniform ivec4 arg1 0 1 1 0
+draw rect ortho 216 0 4 4
+uniform ivec4 arg0 0 0 1 1
+uniform ivec4 arg1 0 1 1 1
+draw rect ortho 220 0 4 4
+uniform ivec4 arg0 0 0 1 1
+uniform ivec4 arg1 1 0 0 0
+draw rect ortho 224 0 4 4
+uniform ivec4 arg0 0 0 1 1
+uniform ivec4 arg1 1 0 0 1
+draw rect ortho 228 0 4 4
+uniform ivec4 arg0 0 0 1 1
+uniform ivec4 arg1 1 0 1 0
+draw rect ortho 232 0 4 4
+uniform ivec4 arg0 0 0 1 1
+uniform ivec4 arg1 1 0 1 1
+draw rect ortho 236 0 4 4
+uniform ivec4 arg0 0 0 1 1
+uniform ivec4 arg1 1 1 0 0
+draw rect ortho 240 0 4 4
+uniform ivec4 arg0 0 0 1 1
+uniform ivec4 arg1 1 1 0 1
+draw rect ortho 244 0 4 4
+uniform ivec4 arg0 0 0 1 1
+uniform ivec4 arg1 1 1 1 0
+draw rect ortho 0 4 4 4
+uniform ivec4 arg0 0 0 1 1
+uniform ivec4 arg1 1 1 1 1
+draw rect ortho 4 4 4 4
+uniform ivec4 arg0 0 1 0 0
+uniform ivec4 arg1 0 0 0 0
+draw rect ortho 8 4 4 4
+uniform ivec4 arg0 0 1 0 0
+uniform ivec4 arg1 0 0 0 1
+draw rect ortho 12 4 4 4
+uniform ivec4 arg0 0 1 0 0
+uniform ivec4 arg1 0 0 1 0
+draw rect ortho 16 4 4 4
+uniform ivec4 arg0 0 1 0 0
+uniform ivec4 arg1 0 0 1 1
+draw rect ortho 20 4 4 4
+uniform ivec4 arg0 0 1 0 0
+uniform ivec4 arg1 0 1 0 0
+draw rect ortho 24 4 4 4
+uniform ivec4 arg0 0 1 0 0
+uniform ivec4 arg1 0 1 0 1
+draw rect ortho 28 4 4 4
+uniform ivec4 arg0 0 1 0 0
+uniform ivec4 arg1 0 1 1 0
+draw rect ortho 32 4 4 4
+uniform ivec4 arg0 0 1 0 0
+uniform ivec4 arg1 0 1 1 1
+draw rect ortho 36 4 4 4
+uniform ivec4 arg0 0 1 0 0
+uniform ivec4 arg1 1 0 0 0
+draw rect ortho 40 4 4 4
+uniform ivec4 arg0 0 1 0 0
+uniform ivec4 arg1 1 0 0 1
+draw rect ortho 44 4 4 4
+uniform ivec4 arg0 0 1 0 0
+uniform ivec4 arg1 1 0 1 0
+draw rect ortho 48 4 4 4
+uniform ivec4 arg0 0 1 0 0
+uniform ivec4 arg1 1 0 1 1
+draw rect ortho 52 4 4 4
+uniform ivec4 arg0 0 1 0 0
+uniform ivec4 arg1 1 1 0 0
+draw rect ortho 56 4 4 4
+uniform ivec4 arg0 0 1 0 0
+uniform ivec4 arg1 1 1 0 1
+draw rect ortho 60 4 4 4
+uniform ivec4 arg0 0 1 0 0
+uniform ivec4 arg1 1 1 1 0
+draw rect ortho 64 4 4 4
+uniform ivec4 arg0 0 1 0 0
+uniform ivec4 arg1 1 1 1 1
+draw rect ortho 68 4 4 4
+uniform ivec4 arg0 0 1 0 1
+uniform ivec4 arg1 0 0 0 0
+draw rect ortho 72 4 4 4
+uniform ivec4 arg0 0 1 0 1
+uniform ivec4 arg1 0 0 0 1
+draw rect ortho 76 4 4 4
+uniform ivec4 arg0 0 1 0 1
+uniform ivec4 arg1 0 0 1 0
+draw rect ortho 80 4 4 4
+uniform ivec4 arg0 0 1 0 1
+uniform ivec4 arg1 0 0 1 1
+draw rect ortho 84 4 4 4
+uniform ivec4 arg0 0 1 0 1
+uniform ivec4 arg1 0 1 0 0
+draw rect ortho 88 4 4 4
+uniform ivec4 arg0 0 1 0 1
+uniform ivec4 arg1 0 1 0 1
+draw rect ortho 92 4 4 4
+uniform ivec4 arg0 0 1 0 1
+uniform ivec4 arg1 0 1 1 0
+draw rect ortho 96 4 4 4
+uniform ivec4 arg0 0 1 0 1
+uniform ivec4 arg1 0 1 1 1
+draw rect ortho 100 4 4 4
+uniform ivec4 arg0 0 1 0 1
+uniform ivec4 arg1 1 0 0 0
+draw rect ortho 104 4 4 4
+uniform ivec4 arg0 0 1 0 1
+uniform ivec4 arg1 1 0 0 1
+draw rect ortho 108 4 4 4
+uniform ivec4 arg0 0 1 0 1
+uniform ivec4 arg1 1 0 1 0
+draw rect ortho 112 4 4 4
+uniform ivec4 arg0 0 1 0 1
+uniform ivec4 arg1 1 0 1 1
+draw rect ortho 116 4 4 4
+uniform ivec4 arg0 0 1 0 1
+uniform ivec4 arg1 1 1 0 0
+draw rect ortho 120 4 4 4
+uniform ivec4 arg0 0 1 0 1
+uniform ivec4 arg1 1 1 0 1
+draw rect ortho 124 4 4 4
+uniform ivec4 arg0 0 1 0 1
+uniform ivec4 arg1 1 1 1 0
+draw rect ortho 128 4 4 4
+uniform ivec4 arg0 0 1 0 1
+uniform ivec4 arg1 1 1 1 1
+draw rect ortho 132 4 4 4
+uniform ivec4 arg0 0 1 1 0
+uniform ivec4 arg1 0 0 0 0
+draw rect ortho 136 4 4 4
+uniform ivec4 arg0 0 1 1 0
+uniform ivec4 arg1 0 0 0 1
+draw rect ortho 140 4 4 4
+uniform ivec4 arg0 0 1 1 0
+uniform ivec4 arg1 0 0 1 0
+draw rect ortho 144 4 4 4
+uniform ivec4 arg0 0 1 1 0
+uniform ivec4 arg1 0 0 1 1
+draw rect ortho 148 4 4 4
+uniform ivec4 arg0 0 1 1 0
+uniform ivec4 arg1 0 1 0 0
+draw rect ortho 152 4 4 4
+uniform ivec4 arg0 0 1 1 0
+uniform ivec4 arg1 0 1 0 1
+draw rect ortho 156 4 4 4
+uniform ivec4 arg0 0 1 1 0
+uniform ivec4 arg1 0 1 1 0
+draw rect ortho 160 4 4 4
+uniform ivec4 arg0 0 1 1 0
+uniform ivec4 arg1 0 1 1 1
+draw rect ortho 164 4 4 4
+uniform ivec4 arg0 0 1 1 0
+uniform ivec4 arg1 1 0 0 0
+draw rect ortho 168 4 4 4
+uniform ivec4 arg0 0 1 1 0
+uniform ivec4 arg1 1 0 0 1
+draw rect ortho 172 4 4 4
+uniform ivec4 arg0 0 1 1 0
+uniform ivec4 arg1 1 0 1 0
+draw rect ortho 176 4 4 4
+uniform ivec4 arg0 0 1 1 0
+uniform ivec4 arg1 1 0 1 1
+draw rect ortho 180 4 4 4
+uniform ivec4 arg0 0 1 1 0
+uniform ivec4 arg1 1 1 0 0
+draw rect ortho 184 4 4 4
+uniform ivec4 arg0 0 1 1 0
+uniform ivec4 arg1 1 1 0 1
+draw rect ortho 188 4 4 4
+uniform ivec4 arg0 0 1 1 0
+uniform ivec4 arg1 1 1 1 0
+draw rect ortho 192 4 4 4
+uniform ivec4 arg0 0 1 1 0
+uniform ivec4 arg1 1 1 1 1
+draw rect ortho 196 4 4 4
+uniform ivec4 arg0 0 1 1 1
+uniform ivec4 arg1 0 0 0 0
+draw rect ortho 200 4 4 4
+uniform ivec4 arg0 0 1 1 1
+uniform ivec4 arg1 0 0 0 1
+draw rect ortho 204 4 4 4
+uniform ivec4 arg0 0 1 1 1
+uniform ivec4 arg1 0 0 1 0
+draw rect ortho 208 4 4 4
+uniform ivec4 arg0 0 1 1 1
+uniform ivec4 arg1 0 0 1 1
+draw rect ortho 212 4 4 4
+uniform ivec4 arg0 0 1 1 1
+uniform ivec4 arg1 0 1 0 0
+draw rect ortho 216 4 4 4
+uniform ivec4 arg0 0 1 1 1
+uniform ivec4 arg1 0 1 0 1
+draw rect ortho 220 4 4 4
+uniform ivec4 arg0 0 1 1 1
+uniform ivec4 arg1 0 1 1 0
+draw rect ortho 224 4 4 4
+uniform ivec4 arg0 0 1 1 1
+uniform ivec4 arg1 0 1 1 1
+draw rect ortho 228 4 4 4
+uniform ivec4 arg0 0 1 1 1
+uniform ivec4 arg1 1 0 0 0
+draw rect ortho 232 4 4 4
+uniform ivec4 arg0 0 1 1 1
+uniform ivec4 arg1 1 0 0 1
+draw rect ortho 236 4 4 4
+uniform ivec4 arg0 0 1 1 1
+uniform ivec4 arg1 1 0 1 0
+draw rect ortho 240 4 4 4
+uniform ivec4 arg0 0 1 1 1
+uniform ivec4 arg1 1 0 1 1
+draw rect ortho 244 4 4 4
+uniform ivec4 arg0 0 1 1 1
+uniform ivec4 arg1 1 1 0 0
+draw rect ortho 0 8 4 4
+uniform ivec4 arg0 0 1 1 1
+uniform ivec4 arg1 1 1 0 1
+draw rect ortho 4 8 4 4
+uniform ivec4 arg0 0 1 1 1
+uniform ivec4 arg1 1 1 1 0
+draw rect ortho 8 8 4 4
+uniform ivec4 arg0 0 1 1 1
+uniform ivec4 arg1 1 1 1 1
+draw rect ortho 12 8 4 4
+uniform ivec4 arg0 1 0 0 0
+uniform ivec4 arg1 0 0 0 0
+draw rect ortho 16 8 4 4
+uniform ivec4 arg0 1 0 0 0
+uniform ivec4 arg1 0 0 0 1
+draw rect ortho 20 8 4 4
+uniform ivec4 arg0 1 0 0 0
+uniform ivec4 arg1 0 0 1 0
+draw rect ortho 24 8 4 4
+uniform ivec4 arg0 1 0 0 0
+uniform ivec4 arg1 0 0 1 1
+draw rect ortho 28 8 4 4
+uniform ivec4 arg0 1 0 0 0
+uniform ivec4 arg1 0 1 0 0
+draw rect ortho 32 8 4 4
+uniform ivec4 arg0 1 0 0 0
+uniform ivec4 arg1 0 1 0 1
+draw rect ortho 36 8 4 4
+uniform ivec4 arg0 1 0 0 0
+uniform ivec4 arg1 0 1 1 0
+draw rect ortho 40 8 4 4
+uniform ivec4 arg0 1 0 0 0
+uniform ivec4 arg1 0 1 1 1
+draw rect ortho 44 8 4 4
+uniform ivec4 arg0 1 0 0 0
+uniform ivec4 arg1 1 0 0 0
+draw rect ortho 48 8 4 4
+uniform ivec4 arg0 1 0 0 0
+uniform ivec4 arg1 1 0 0 1
+draw rect ortho 52 8 4 4
+uniform ivec4 arg0 1 0 0 0
+uniform ivec4 arg1 1 0 1 0
+draw rect ortho 56 8 4 4
+uniform ivec4 arg0 1 0 0 0
+uniform ivec4 arg1 1 0 1 1
+draw rect ortho 60 8 4 4
+uniform ivec4 arg0 1 0 0 0
+uniform ivec4 arg1 1 1 0 0
+draw rect ortho 64 8 4 4
+uniform ivec4 arg0 1 0 0 0
+uniform ivec4 arg1 1 1 0 1
+draw rect ortho 68 8 4 4
+uniform ivec4 arg0 1 0 0 0
+uniform ivec4 arg1 1 1 1 0
+draw rect ortho 72 8 4 4
+uniform ivec4 arg0 1 0 0 0
+uniform ivec4 arg1 1 1 1 1
+draw rect ortho 76 8 4 4
+uniform ivec4 arg0 1 0 0 1
+uniform ivec4 arg1 0 0 0 0
+draw rect ortho 80 8 4 4
+uniform ivec4 arg0 1 0 0 1
+uniform ivec4 arg1 0 0 0 1
+draw rect ortho 84 8 4 4
+uniform ivec4 arg0 1 0 0 1
+uniform ivec4 arg1 0 0 1 0
+draw rect ortho 88 8 4 4
+uniform ivec4 arg0 1 0 0 1
+uniform ivec4 arg1 0 0 1 1
+draw rect ortho 92 8 4 4
+uniform ivec4 arg0 1 0 0 1
+uniform ivec4 arg1 0 1 0 0
+draw rect ortho 96 8 4 4
+uniform ivec4 arg0 1 0 0 1
+uniform ivec4 arg1 0 1 0 1
+draw rect ortho 100 8 4 4
+uniform ivec4 arg0 1 0 0 1
+uniform ivec4 arg1 0 1 1 0
+draw rect ortho 104 8 4 4
+uniform ivec4 arg0 1 0 0 1
+uniform ivec4 arg1 0 1 1 1
+draw rect ortho 108 8 4 4
+uniform ivec4 arg0 1 0 0 1
+uniform ivec4 arg1 1 0 0 0
+draw rect ortho 112 8 4 4
+uniform ivec4 arg0 1 0 0 1
+uniform ivec4 arg1 1 0 0 1
+draw rect ortho 116 8 4 4
+uniform ivec4 arg0 1 0 0 1
+uniform ivec4 arg1 1 0 1 0
+draw rect ortho 120 8 4 4
+uniform ivec4 arg0 1 0 0 1
+uniform ivec4 arg1 1 0 1 1
+draw rect ortho 124 8 4 4
+uniform ivec4 arg0 1 0 0 1
+uniform ivec4 arg1 1 1 0 0
+draw rect ortho 128 8 4 4
+uniform ivec4 arg0 1 0 0 1
+uniform ivec4 arg1 1 1 0 1
+draw rect ortho 132 8 4 4
+uniform ivec4 arg0 1 0 0 1
+uniform ivec4 arg1 1 1 1 0
+draw rect ortho 136 8 4 4
+uniform ivec4 arg0 1 0 0 1
+uniform ivec4 arg1 1 1 1 1
+draw rect ortho 140 8 4 4
+uniform ivec4 arg0 1 0 1 0
+uniform ivec4 arg1 0 0 0 0
+draw rect ortho 144 8 4 4
+uniform ivec4 arg0 1 0 1 0
+uniform ivec4 arg1 0 0 0 1
+draw rect ortho 148 8 4 4
+uniform ivec4 arg0 1 0 1 0
+uniform ivec4 arg1 0 0 1 0
+draw rect ortho 152 8 4 4
+uniform ivec4 arg0 1 0 1 0
+uniform ivec4 arg1 0 0 1 1
+draw rect ortho 156 8 4 4
+uniform ivec4 arg0 1 0 1 0
+uniform ivec4 arg1 0 1 0 0
+draw rect ortho 160 8 4 4
+uniform ivec4 arg0 1 0 1 0
+uniform ivec4 arg1 0 1 0 1
+draw rect ortho 164 8 4 4
+uniform ivec4 arg0 1 0 1 0
+uniform ivec4 arg1 0 1 1 0
+draw rect ortho 168 8 4 4
+uniform ivec4 arg0 1 0 1 0
+uniform ivec4 arg1 0 1 1 1
+draw rect ortho 172 8 4 4
+uniform ivec4 arg0 1 0 1 0
+uniform ivec4 arg1 1 0 0 0
+draw rect ortho 176 8 4 4
+uniform ivec4 arg0 1 0 1 0
+uniform ivec4 arg1 1 0 0 1
+draw rect ortho 180 8 4 4
+uniform ivec4 arg0 1 0 1 0
+uniform ivec4 arg1 1 0 1 0
+draw rect ortho 184 8 4 4
+uniform ivec4 arg0 1 0 1 0
+uniform ivec4 arg1 1 0 1 1
+draw rect ortho 188 8 4 4
+uniform ivec4 arg0 1 0 1 0
+uniform ivec4 arg1 1 1 0 0
+draw rect ortho 192 8 4 4
+uniform ivec4 arg0 1 0 1 0
+uniform ivec4 arg1 1 1 0 1
+draw rect ortho 196 8 4 4
+uniform ivec4 arg0 1 0 1 0
+uniform ivec4 arg1 1 1 1 0
+draw rect ortho 200 8 4 4
+uniform ivec4 arg0 1 0 1 0
+uniform ivec4 arg1 1 1 1 1
+draw rect ortho 204 8 4 4
+uniform ivec4 arg0 1 0 1 1
+uniform ivec4 arg1 0 0 0 0
+draw rect ortho 208 8 4 4
+uniform ivec4 arg0 1 0 1 1
+uniform ivec4 arg1 0 0 0 1
+draw rect ortho 212 8 4 4
+uniform ivec4 arg0 1 0 1 1
+uniform ivec4 arg1 0 0 1 0
+draw rect ortho 216 8 4 4
+uniform ivec4 arg0 1 0 1 1
+uniform ivec4 arg1 0 0 1 1
+draw rect ortho 220 8 4 4
+uniform ivec4 arg0 1 0 1 1
+uniform ivec4 arg1 0 1 0 0
+draw rect ortho 224 8 4 4
+uniform ivec4 arg0 1 0 1 1
+uniform ivec4 arg1 0 1 0 1
+draw rect ortho 228 8 4 4
+uniform ivec4 arg0 1 0 1 1
+uniform ivec4 arg1 0 1 1 0
+draw rect ortho 232 8 4 4
+uniform ivec4 arg0 1 0 1 1
+uniform ivec4 arg1 0 1 1 1
+draw rect ortho 236 8 4 4
+uniform ivec4 arg0 1 0 1 1
+uniform ivec4 arg1 1 0 0 0
+draw rect ortho 240 8 4 4
+uniform ivec4 arg0 1 0 1 1
+uniform ivec4 arg1 1 0 0 1
+draw rect ortho 244 8 4 4
+uniform ivec4 arg0 1 0 1 1
+uniform ivec4 arg1 1 0 1 0
+draw rect ortho 0 12 4 4
+uniform ivec4 arg0 1 0 1 1
+uniform ivec4 arg1 1 0 1 1
+draw rect ortho 4 12 4 4
+uniform ivec4 arg0 1 0 1 1
+uniform ivec4 arg1 1 1 0 0
+draw rect ortho 8 12 4 4
+uniform ivec4 arg0 1 0 1 1
+uniform ivec4 arg1 1 1 0 1
+draw rect ortho 12 12 4 4
+uniform ivec4 arg0 1 0 1 1
+uniform ivec4 arg1 1 1 1 0
+draw rect ortho 16 12 4 4
+uniform ivec4 arg0 1 0 1 1
+uniform ivec4 arg1 1 1 1 1
+draw rect ortho 20 12 4 4
+uniform ivec4 arg0 1 1 0 0
+uniform ivec4 arg1 0 0 0 0
+draw rect ortho 24 12 4 4
+uniform ivec4 arg0 1 1 0 0
+uniform ivec4 arg1 0 0 0 1
+draw rect ortho 28 12 4 4
+uniform ivec4 arg0 1 1 0 0
+uniform ivec4 arg1 0 0 1 0
+draw rect ortho 32 12 4 4
+uniform ivec4 arg0 1 1 0 0
+uniform ivec4 arg1 0 0 1 1
+draw rect ortho 36 12 4 4
+uniform ivec4 arg0 1 1 0 0
+uniform ivec4 arg1 0 1 0 0
+draw rect ortho 40 12 4 4
+uniform ivec4 arg0 1 1 0 0
+uniform ivec4 arg1 0 1 0 1
+draw rect ortho 44 12 4 4
+uniform ivec4 arg0 1 1 0 0
+uniform ivec4 arg1 0 1 1 0
+draw rect ortho 48 12 4 4
+uniform ivec4 arg0 1 1 0 0
+uniform ivec4 arg1 0 1 1 1
+draw rect ortho 52 12 4 4
+uniform ivec4 arg0 1 1 0 0
+uniform ivec4 arg1 1 0 0 0
+draw rect ortho 56 12 4 4
+uniform ivec4 arg0 1 1 0 0
+uniform ivec4 arg1 1 0 0 1
+draw rect ortho 60 12 4 4
+uniform ivec4 arg0 1 1 0 0
+uniform ivec4 arg1 1 0 1 0
+draw rect ortho 64 12 4 4
+uniform ivec4 arg0 1 1 0 0
+uniform ivec4 arg1 1 0 1 1
+draw rect ortho 68 12 4 4
+uniform ivec4 arg0 1 1 0 0
+uniform ivec4 arg1 1 1 0 0
+draw rect ortho 72 12 4 4
+uniform ivec4 arg0 1 1 0 0
+uniform ivec4 arg1 1 1 0 1
+draw rect ortho 76 12 4 4
+uniform ivec4 arg0 1 1 0 0
+uniform ivec4 arg1 1 1 1 0
+draw rect ortho 80 12 4 4
+uniform ivec4 arg0 1 1 0 0
+uniform ivec4 arg1 1 1 1 1
+draw rect ortho 84 12 4 4
+uniform ivec4 arg0 1 1 0 1
+uniform ivec4 arg1 0 0 0 0
+draw rect ortho 88 12 4 4
+uniform ivec4 arg0 1 1 0 1
+uniform ivec4 arg1 0 0 0 1
+draw rect ortho 92 12 4 4
+uniform ivec4 arg0 1 1 0 1
+uniform ivec4 arg1 0 0 1 0
+draw rect ortho 96 12 4 4
+uniform ivec4 arg0 1 1 0 1
+uniform ivec4 arg1 0 0 1 1
+draw rect ortho 100 12 4 4
+uniform ivec4 arg0 1 1 0 1
+uniform ivec4 arg1 0 1 0 0
+draw rect ortho 104 12 4 4
+uniform ivec4 arg0 1 1 0 1
+uniform ivec4 arg1 0 1 0 1
+draw rect ortho 108 12 4 4
+uniform ivec4 arg0 1 1 0 1
+uniform ivec4 arg1 0 1 1 0
+draw rect ortho 112 12 4 4
+uniform ivec4 arg0 1 1 0 1
+uniform ivec4 arg1 0 1 1 1
+draw rect ortho 116 12 4 4
+uniform ivec4 arg0 1 1 0 1
+uniform ivec4 arg1 1 0 0 0
+draw rect ortho 120 12 4 4
+uniform ivec4 arg0 1 1 0 1
+uniform ivec4 arg1 1 0 0 1
+draw rect ortho 124 12 4 4
+uniform ivec4 arg0 1 1 0 1
+uniform ivec4 arg1 1 0 1 0
+draw rect ortho 128 12 4 4
+uniform ivec4 arg0 1 1 0 1
+uniform ivec4 arg1 1 0 1 1
+draw rect ortho 132 12 4 4
+uniform ivec4 arg0 1 1 0 1
+uniform ivec4 arg1 1 1 0 0
+draw rect ortho 136 12 4 4
+uniform ivec4 arg0 1 1 0 1
+uniform ivec4 arg1 1 1 0 1
+draw rect ortho 140 12 4 4
+uniform ivec4 arg0 1 1 0 1
+uniform ivec4 arg1 1 1 1 0
+draw rect ortho 144 12 4 4
+uniform ivec4 arg0 1 1 0 1
+uniform ivec4 arg1 1 1 1 1
+draw rect ortho 148 12 4 4
+uniform ivec4 arg0 1 1 1 0
+uniform ivec4 arg1 0 0 0 0
+draw rect ortho 152 12 4 4
+uniform ivec4 arg0 1 1 1 0
+uniform ivec4 arg1 0 0 0 1
+draw rect ortho 156 12 4 4
+uniform ivec4 arg0 1 1 1 0
+uniform ivec4 arg1 0 0 1 0
+draw rect ortho 160 12 4 4
+uniform ivec4 arg0 1 1 1 0
+uniform ivec4 arg1 0 0 1 1
+draw rect ortho 164 12 4 4
+uniform ivec4 arg0 1 1 1 0
+uniform ivec4 arg1 0 1 0 0
+draw rect ortho 168 12 4 4
+uniform ivec4 arg0 1 1 1 0
+uniform ivec4 arg1 0 1 0 1
+draw rect ortho 172 12 4 4
+uniform ivec4 arg0 1 1 1 0
+uniform ivec4 arg1 0 1 1 0
+draw rect ortho 176 12 4 4
+uniform ivec4 arg0 1 1 1 0
+uniform ivec4 arg1 0 1 1 1
+draw rect ortho 180 12 4 4
+uniform ivec4 arg0 1 1 1 0
+uniform ivec4 arg1 1 0 0 0
+draw rect ortho 184 12 4 4
+uniform ivec4 arg0 1 1 1 0
+uniform ivec4 arg1 1 0 0 1
+draw rect ortho 188 12 4 4
+uniform ivec4 arg0 1 1 1 0
+uniform ivec4 arg1 1 0 1 0
+draw rect ortho 192 12 4 4
+uniform ivec4 arg0 1 1 1 0
+uniform ivec4 arg1 1 0 1 1
+draw rect ortho 196 12 4 4
+uniform ivec4 arg0 1 1 1 0
+uniform ivec4 arg1 1 1 0 0
+draw rect ortho 200 12 4 4
+uniform ivec4 arg0 1 1 1 0
+uniform ivec4 arg1 1 1 0 1
+draw rect ortho 204 12 4 4
+uniform ivec4 arg0 1 1 1 0
+uniform ivec4 arg1 1 1 1 0
+draw rect ortho 208 12 4 4
+uniform ivec4 arg0 1 1 1 0
+uniform ivec4 arg1 1 1 1 1
+draw rect ortho 212 12 4 4
+uniform ivec4 arg0 1 1 1 1
+uniform ivec4 arg1 0 0 0 0
+draw rect ortho 216 12 4 4
+uniform ivec4 arg0 1 1 1 1
+uniform ivec4 arg1 0 0 0 1
+draw rect ortho 220 12 4 4
+uniform ivec4 arg0 1 1 1 1
+uniform ivec4 arg1 0 0 1 0
+draw rect ortho 224 12 4 4
+uniform ivec4 arg0 1 1 1 1
+uniform ivec4 arg1 0 0 1 1
+draw rect ortho 228 12 4 4
+uniform ivec4 arg0 1 1 1 1
+uniform ivec4 arg1 0 1 0 0
+draw rect ortho 232 12 4 4
+uniform ivec4 arg0 1 1 1 1
+uniform ivec4 arg1 0 1 0 1
+draw rect ortho 236 12 4 4
+uniform ivec4 arg0 1 1 1 1
+uniform ivec4 arg1 0 1 1 0
+draw rect ortho 240 12 4 4
+uniform ivec4 arg0 1 1 1 1
+uniform ivec4 arg1 0 1 1 1
+draw rect ortho 244 12 4 4
+uniform ivec4 arg0 1 1 1 1
+uniform ivec4 arg1 1 0 0 0
+draw rect ortho 0 16 4 4
+uniform ivec4 arg0 1 1 1 1
+uniform ivec4 arg1 1 0 0 1
+draw rect ortho 4 16 4 4
+uniform ivec4 arg0 1 1 1 1
+uniform ivec4 arg1 1 0 1 0
+draw rect ortho 8 16 4 4
+uniform ivec4 arg0 1 1 1 1
+uniform ivec4 arg1 1 0 1 1
+draw rect ortho 12 16 4 4
+uniform ivec4 arg0 1 1 1 1
+uniform ivec4 arg1 1 1 0 0
+draw rect ortho 16 16 4 4
+uniform ivec4 arg0 1 1 1 1
+uniform ivec4 arg1 1 1 0 1
+draw rect ortho 20 16 4 4
+uniform ivec4 arg0 1 1 1 1
+uniform ivec4 arg1 1 1 1 0
+draw rect ortho 24 16 4 4
+uniform ivec4 arg0 1 1 1 1
+uniform ivec4 arg1 1 1 1 1
+draw rect ortho 28 16 4 4
+probe rect rgba (0, 0, 4, 4) (0.0, 0.0, 0.0, 0.0)
+probe rect rgba (4, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (8, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (12, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (16, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (20, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (24, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (28, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (32, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (36, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (40, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (44, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (48, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (52, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (56, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (60, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (64, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (68, 0, 4, 4) (0.0, 0.0, 0.0, 0.0)
+probe rect rgba (72, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (76, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (80, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (84, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (88, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (92, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (96, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (100, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (104, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (108, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (112, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (116, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (120, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (124, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (128, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (132, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (136, 0, 4, 4) (0.0, 0.0, 0.0, 0.0)
+probe rect rgba (140, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (144, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (148, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (152, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (156, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (160, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (164, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (168, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (172, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (176, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (180, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (184, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (188, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (192, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (196, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (200, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (204, 0, 4, 4) (0.0, 0.0, 0.0, 0.0)
+probe rect rgba (208, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (212, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (216, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (220, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (224, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (228, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (232, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (236, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (240, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (244, 0, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (0, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (4, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (8, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (12, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (16, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (20, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (24, 4, 4, 4) (0.0, 0.0, 0.0, 0.0)
+probe rect rgba (28, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (32, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (36, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (40, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (44, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (48, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (52, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (56, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (60, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (64, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (68, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (72, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (76, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (80, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (84, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (88, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (92, 4, 4, 4) (0.0, 0.0, 0.0, 0.0)
+probe rect rgba (96, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (100, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (104, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (108, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (112, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (116, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (120, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (124, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (128, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (132, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (136, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (140, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (144, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (148, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (152, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (156, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (160, 4, 4, 4) (0.0, 0.0, 0.0, 0.0)
+probe rect rgba (164, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (168, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (172, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (176, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (180, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (184, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (188, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (192, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (196, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (200, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (204, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (208, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (212, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (216, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (220, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (224, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (228, 4, 4, 4) (0.0, 0.0, 0.0, 0.0)
+probe rect rgba (232, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (236, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (240, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (244, 4, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (0, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (4, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (8, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (12, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (16, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (20, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (24, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (28, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (32, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (36, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (40, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (44, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (48, 8, 4, 4) (0.0, 0.0, 0.0, 0.0)
+probe rect rgba (52, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (56, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (60, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (64, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (68, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (72, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (76, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (80, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (84, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (88, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (92, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (96, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (100, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (104, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (108, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (112, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (116, 8, 4, 4) (0.0, 0.0, 0.0, 0.0)
+probe rect rgba (120, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (124, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (128, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (132, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (136, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (140, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (144, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (148, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (152, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (156, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (160, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (164, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (168, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (172, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (176, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (180, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (184, 8, 4, 4) (0.0, 0.0, 0.0, 0.0)
+probe rect rgba (188, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (192, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (196, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (200, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (204, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (208, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (212, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (216, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (220, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (224, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (228, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (232, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (236, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (240, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (244, 8, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (0, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (4, 12, 4, 4) (0.0, 0.0, 0.0, 0.0)
+probe rect rgba (8, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (12, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (16, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (20, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (24, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (28, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (32, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (36, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (40, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (44, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (48, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (52, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (56, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (60, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (64, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (68, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (72, 12, 4, 4) (0.0, 0.0, 0.0, 0.0)
+probe rect rgba (76, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (80, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (84, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (88, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (92, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (96, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (100, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (104, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (108, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (112, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (116, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (120, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (124, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (128, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (132, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (136, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (140, 12, 4, 4) (0.0, 0.0, 0.0, 0.0)
+probe rect rgba (144, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (148, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (152, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (156, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (160, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (164, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (168, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (172, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (176, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (180, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (184, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (188, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (192, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (196, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (200, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (204, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (208, 12, 4, 4) (0.0, 0.0, 0.0, 0.0)
+probe rect rgba (212, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (216, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (220, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (224, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (228, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (232, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (236, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (240, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (244, 12, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (0, 16, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (4, 16, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (8, 16, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (12, 16, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (16, 16, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (20, 16, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (24, 16, 4, 4) (1.0, 0.0, 0.0, 0.0)
+probe rect rgba (28, 16, 4, 4) (0.0, 0.0, 0.0, 0.0)

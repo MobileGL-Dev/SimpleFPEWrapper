@@ -1,0 +1,66 @@
+[require]
+GLSL >= 1.10
+
+[vertex shader]
+varying vec4 color;
+uniform float arg0;
+uniform mat3 arg1;
+uniform float tolerance;
+uniform mat3 expected;
+
+void main()
+{
+  gl_Position = gl_Vertex;
+  mat3 result = (arg0 - arg1);
+  mat3 residual = result - expected;
+  float error_sq = residual[0][0] * residual[0][0] + residual[0][1] * residual[0][1] + residual[0][2] * residual[0][2] + residual[1][0] * residual[1][0] + residual[1][1] * residual[1][1] + residual[1][2] * residual[1][2] + residual[2][0] * residual[2][0] + residual[2][1] * residual[2][1] + residual[2][2] * residual[2][2];
+  color = error_sq <= tolerance * tolerance ? vec4(0.0, 1.0, 0.0, 1.0) : vec4(1.0, 0.0, 0.0, 1.0);
+}
+
+[fragment shader]
+varying vec4 color;
+
+void main()
+{
+  gl_FragColor = color;
+}
+
+[test]
+clear color 0.0 0.0 1.0 0.0
+clear
+uniform float arg0 0.0
+uniform mat3x3 arg1 -1.11 0.13 0.56 1.67 1.09 0.95 -0.41 -0.02 0.24
+uniform mat3x3 expected 1.11 -0.13 -0.56 -1.67 -1.09 -0.95 0.41 0.02 -0.24
+uniform float tolerance 2.5822857e-05
+draw rect ortho 0 0 4 4
+uniform float arg0 0.0
+uniform mat3x3 arg1 -1.69 -1.09 -1.53 -0.46 1.75 -0.7 -0.18 2.0 -1.47
+uniform mat3x3 expected 1.69 1.09 1.53 0.46 -1.75 0.7 0.18 -2.0 1.47
+uniform float tolerance 4.0425857e-05
+draw rect ortho 4 0 4 4
+uniform float arg0 -1.33
+uniform mat3x3 arg1 -1.11 0.13 0.56 1.67 1.09 0.95 -0.41 -0.02 0.24
+uniform mat3x3 expected -0.22000003 -1.46 -1.8900001 -3.0 -2.42 -2.28 -0.9200001 -1.3100001 -1.57
+uniform float tolerance 5.5528642e-05
+draw rect ortho 8 0 4 4
+uniform float arg0 -1.33
+uniform mat3x3 arg1 -1.69 -1.09 -1.53 -0.46 1.75 -0.7 -0.18 2.0 -1.47
+uniform mat3x3 expected 0.36 -0.24000001 0.19999993 -0.87 -3.08 -0.63000005 -1.1500001 -3.33 0.13999999
+uniform float tolerance 4.8268415e-05
+draw rect ortho 12 0 4 4
+uniform float arg0 0.85
+uniform mat3x3 arg1 -1.11 0.13 0.56 1.67 1.09 0.95 -0.41 -0.02 0.24
+uniform mat3x3 expected 1.96 0.72 0.29000002 -0.81999993 -0.24000001 -0.099999964 1.26 0.87 0.61
+uniform float tolerance 2.8108185e-05
+draw rect ortho 16 0 4 4
+uniform float arg0 0.85
+uniform mat3x3 arg1 -1.69 -1.09 -1.53 -0.46 1.75 -0.7 -0.18 2.0 -1.47
+uniform mat3x3 expected 2.54 1.94 2.38 1.3100001 -0.9 1.55 1.03 -1.15 2.3200002
+uniform float tolerance 5.3454656e-05
+draw rect ortho 20 0 4 4
+probe rect rgba (0, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (4, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (8, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (12, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (16, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (20, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)

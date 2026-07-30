@@ -1,0 +1,39 @@
+[require]
+GLSL >= 1.10
+
+[vertex shader]
+varying vec4 color;
+uniform mat3 arg0;
+uniform float tolerance;
+uniform mat3 expected;
+
+void main()
+{
+  gl_Position = gl_Vertex;
+  mat3 result = (- arg0);
+  mat3 residual = result - expected;
+  float error_sq = residual[0][0] * residual[0][0] + residual[0][1] * residual[0][1] + residual[0][2] * residual[0][2] + residual[1][0] * residual[1][0] + residual[1][1] * residual[1][1] + residual[1][2] * residual[1][2] + residual[2][0] * residual[2][0] + residual[2][1] * residual[2][1] + residual[2][2] * residual[2][2];
+  color = error_sq <= tolerance * tolerance ? vec4(0.0, 1.0, 0.0, 1.0) : vec4(1.0, 0.0, 0.0, 1.0);
+}
+
+[fragment shader]
+varying vec4 color;
+
+void main()
+{
+  gl_FragColor = color;
+}
+
+[test]
+clear color 0.0 0.0 1.0 0.0
+clear
+uniform mat3x3 arg0 -1.11 0.13 0.56 1.67 1.09 0.95 -0.41 -0.02 0.24
+uniform mat3x3 expected 1.11 -0.13 -0.56 -1.67 -1.09 -0.95 0.41 0.02 -0.24
+uniform float tolerance 2.5822857e-05
+draw rect ortho 0 0 4 4
+uniform mat3x3 arg0 -1.69 -1.09 -1.53 -0.46 1.75 -0.7 -0.18 2.0 -1.47
+uniform mat3x3 expected 1.69 1.09 1.53 0.46 -1.75 0.7 0.18 -2.0 1.47
+uniform float tolerance 4.0425857e-05
+draw rect ortho 4 0 4 4
+probe rect rgba (0, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (4, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)

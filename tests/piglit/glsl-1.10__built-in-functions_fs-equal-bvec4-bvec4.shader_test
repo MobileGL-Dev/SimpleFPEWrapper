@@ -1,0 +1,26 @@
+[require]
+GLSL >= 1.10
+
+[vertex shader]
+void main()
+{
+        gl_Position = gl_Vertex;
+}
+
+[fragment shader]
+uniform bvec4 arg0;
+uniform bvec4 arg1;
+
+void main()
+{
+  bvec4 result = equal(arg0, arg1);
+  gl_FragColor = vec4(result);
+}
+
+[test]
+clear color 0.0 0.0 1.0 0.0
+clear
+uniform ivec4 arg0 0 0 1 1
+uniform ivec4 arg1 0 1 0 1
+draw rect ortho 0 0 4 4
+probe rect rgba (0, 0, 4, 4) (1.0, 0.0, 0.0, 1.0)

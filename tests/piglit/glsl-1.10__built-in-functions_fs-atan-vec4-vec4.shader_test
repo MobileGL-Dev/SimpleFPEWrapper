@@ -1,0 +1,204 @@
+[require]
+GLSL >= 1.10
+
+[vertex shader]
+void main()
+{
+        gl_Position = gl_Vertex;
+}
+
+[fragment shader]
+uniform vec4 arg0;
+uniform vec4 arg1;
+uniform float tolerance;
+uniform vec4 expected;
+
+void main()
+{
+  vec4 result = atan(arg0, arg1);
+  gl_FragColor = distance(result, expected) <= tolerance ? vec4(0.0, 1.0, 0.0, 1.0) : vec4(1.0, 0.0, 0.0, 1.0);
+}
+
+[test]
+clear color 0.0 0.0 1.0 0.0
+clear
+uniform vec4 arg0 0.0 0.0 0.0 0.0
+uniform vec4 arg1 1e-10 -1e-10 0.1 -0.1
+uniform vec4 expected 0.0 3.1415927 0.0 3.1415927
+uniform float tolerance 0.0044451333
+draw rect ortho 0 0 4 4
+uniform vec4 arg0 0.0 0.0 0.0 0.0
+uniform vec4 arg1 1.0 -1.0 10.0 -10.0
+uniform vec4 expected 0.0 3.1415927 0.0 3.1415927
+uniform float tolerance 0.0044451333
+draw rect ortho 4 0 4 4
+uniform vec4 arg0 0.0 0.0 1e-10 1e-10
+uniform vec4 arg1 10000000000.0 -10000000000.0 0.0 1e-10
+uniform vec4 expected 0.0 3.1415927 1.5707964 0.7853982
+uniform float tolerance 0.0036005354
+draw rect ortho 8 0 4 4
+uniform vec4 arg0 1e-10 1e-10 1e-10 1e-10
+uniform vec4 arg1 -1e-10 0.1 -0.1 1.0
+uniform vec4 expected 2.3561945 1e-09 3.1415927 1e-10
+uniform float tolerance 0.0039295363
+draw rect ortho 12 0 4 4
+uniform vec4 arg0 1e-10 1e-10 1e-10 1e-10
+uniform vec4 arg1 -1.0 10.0 -10.0 10000000000.0
+uniform vec4 expected 3.1415927 1e-11 3.1415927 1.00000005e-20
+uniform float tolerance 0.0044451333
+draw rect ortho 16 0 4 4
+uniform vec4 arg0 1e-10 -1e-10 -1e-10 -1e-10
+uniform vec4 arg1 -10000000000.0 0.0 1e-10 -1e-10
+uniform vec4 expected 3.1415927 -1.5707964 -0.7853982 -2.3561945
+uniform float tolerance 0.004301803
+draw rect ortho 20 0 4 4
+uniform vec4 arg0 -1e-10 -1e-10 -1e-10 -1e-10
+uniform vec4 arg1 0.1 -0.1 1.0 -1.0
+uniform vec4 expected -1e-09 -3.1415927 -1e-10 -3.1415927
+uniform float tolerance 0.0044451333
+draw rect ortho 24 0 4 4
+uniform vec4 arg0 -1e-10 -1e-10 -1e-10 -1e-10
+uniform vec4 arg1 10.0 -10.0 10000000000.0 -10000000000.0
+uniform vec4 expected -1e-11 -3.1415927 -1.00000005e-20 -3.1415927
+uniform float tolerance 0.0044451333
+draw rect ortho 28 0 4 4
+uniform vec4 arg0 0.1 0.1 0.1 0.1
+uniform vec4 arg1 0.0 1e-10 -1e-10 0.1
+uniform vec4 expected 1.5707964 1.5707964 1.5707964 0.7853982
+uniform float tolerance 0.0028317934
+draw rect ortho 32 0 4 4
+uniform vec4 arg0 0.1 0.1 0.1 0.1
+uniform vec4 arg1 -0.1 1.0 -1.0 10.0
+uniform vec4 expected 2.3561945 0.09966865 3.041924 0.009999667
+uniform float tolerance 0.0038503187
+draw rect ortho 36 0 4 4
+uniform vec4 arg0 0.1 0.1 0.1 -0.1
+uniform vec4 arg1 -10.0 10000000000.0 -10000000000.0 0.0
+uniform vec4 expected 3.131593 1e-11 3.1415927 -1.5707964
+uniform float tolerance 0.0047067907
+draw rect ortho 40 0 4 4
+uniform vec4 arg0 -0.1 -0.1 -0.1 -0.1
+uniform vec4 arg1 1e-10 -1e-10 0.1 -0.1
+uniform vec4 expected -1.5707964 -1.5707964 -0.7853982 -2.3561945
+uniform float tolerance 0.0033321623
+draw rect ortho 44 0 4 4
+uniform vec4 arg0 -0.1 -0.1 -0.1 -0.1
+uniform vec4 arg1 1.0 -1.0 10.0 -10.0
+uniform vec4 expected -0.09966865 -3.041924 -0.009999667 -3.131593
+uniform float tolerance 0.0043680863
+draw rect ortho 48 0 4 4
+uniform vec4 arg0 -0.1 -0.1 1.0 1.0
+uniform vec4 arg1 10000000000.0 -10000000000.0 0.0 1e-10
+uniform vec4 expected -1e-11 -3.1415927 1.5707964 1.5707964
+uniform float tolerance 0.0038489487
+draw rect ortho 52 0 4 4
+uniform vec4 arg0 1.0 1.0 1.0 1.0
+uniform vec4 arg1 -1e-10 0.1 -0.1 1.0
+uniform vec4 expected 1.5707964 1.4711276 1.670465 0.7853982
+uniform float tolerance 0.0028352991
+draw rect ortho 56 0 4 4
+uniform vec4 arg0 1.0 1.0 1.0 1.0
+uniform vec4 arg1 -1.0 10.0 -10.0 10000000000.0
+uniform vec4 expected 2.3561945 0.09966865 3.041924 1e-10
+uniform float tolerance 0.0038503187
+draw rect ortho 60 0 4 4
+uniform vec4 arg0 1.0 -1.0 -1.0 -1.0
+uniform vec4 arg1 -10000000000.0 0.0 1e-10 -1e-10
+uniform vec4 expected 3.1415927 -1.5707964 -1.5707964 -1.5707964
+uniform float tolerance 0.0041559367
+draw rect ortho 64 0 4 4
+uniform vec4 arg0 -1.0 -1.0 -1.0 -1.0
+uniform vec4 arg1 0.1 -0.1 1.0 -1.0
+uniform vec4 expected -1.4711276 -1.670465 -0.7853982 -2.3561945
+uniform float tolerance 0.003335142
+draw rect ortho 68 0 4 4
+uniform vec4 arg0 -1.0 -1.0 -1.0 -1.0
+uniform vec4 arg1 10.0 -10.0 10000000000.0 -10000000000.0
+uniform vec4 expected -0.09966865 -3.041924 -1e-10 -3.1415927
+uniform float tolerance 0.004375261
+draw rect ortho 72 0 4 4
+uniform vec4 arg0 10.0 10.0 10.0 10.0
+uniform vec4 arg1 0.0 1e-10 -1e-10 0.1
+uniform vec4 expected 1.5707964 1.5707964 1.5707964 1.5607966
+uniform float tolerance 0.0031366048
+draw rect ortho 76 0 4 4
+uniform vec4 arg0 10.0 10.0 10.0 10.0
+uniform vec4 arg1 -0.1 1.0 -1.0 10.0
+uniform vec4 expected 1.580796 1.4711276 1.670465 0.7853982
+uniform float tolerance 0.0028408512
+draw rect ortho 80 0 4 4
+uniform vec4 arg0 10.0 10.0 10.0 -10.0
+uniform vec4 arg1 -10.0 10000000000.0 -10000000000.0 0.0
+uniform vec4 expected 2.3561945 1e-09 3.1415927 -1.5707964
+uniform float tolerance 0.0042306804
+draw rect ortho 84 0 4 4
+uniform vec4 arg0 -10.0 -10.0 -10.0 -10.0
+uniform vec4 arg1 1e-10 -1e-10 0.1 -0.1
+uniform vec4 expected -1.5707964 -1.5707964 -1.5607966 -1.580796
+uniform float tolerance 0.0031416244
+draw rect ortho 88 0 4 4
+uniform vec4 arg0 -10.0 -10.0 -10.0 -10.0
+uniform vec4 arg1 1.0 -1.0 10.0 -10.0
+uniform vec4 expected -1.4711276 -1.670465 -0.7853982 -2.3561945
+uniform float tolerance 0.003335142
+draw rect ortho 92 0 4 4
+uniform vec4 arg0 -10.0 -10.0 10000000000.0 10000000000.0
+uniform vec4 arg1 10000000000.0 -10000000000.0 0.0 1e-10
+uniform vec4 expected -1e-09 -3.1415927 1.5707964 1.5707964
+uniform float tolerance 0.0038489487
+draw rect ortho 96 0 4 4
+uniform vec4 arg0 10000000000.0 10000000000.0 10000000000.0 10000000000.0
+uniform vec4 arg1 -1e-10 0.1 -0.1 1.0
+uniform vec4 expected 1.5707964 1.5707964 1.5707964 1.5707964
+uniform float tolerance 0.0031415927
+draw rect ortho 100 0 4 4
+uniform vec4 arg0 10000000000.0 10000000000.0 10000000000.0 10000000000.0
+uniform vec4 arg1 -1.0 10.0 -10.0 10000000000.0
+uniform vec4 expected 1.5707964 1.5707964 1.5707964 0.7853982
+uniform float tolerance 0.0028317934
+draw rect ortho 104 0 4 4
+uniform vec4 arg0 10000000000.0 -10000000000.0 -10000000000.0 -10000000000.0
+uniform vec4 arg1 -10000000000.0 0.0 1e-10 -1e-10
+uniform vec4 expected 2.3561945 -1.5707964 -1.5707964 -1.5707964
+uniform float tolerance 0.0035991466
+draw rect ortho 108 0 4 4
+uniform vec4 arg0 -10000000000.0 -10000000000.0 -10000000000.0 -10000000000.0
+uniform vec4 arg1 0.1 -0.1 1.0 -1.0
+uniform vec4 expected -1.5707964 -1.5707964 -1.5707964 -1.5707964
+uniform float tolerance 0.0031415927
+draw rect ortho 112 0 4 4
+uniform vec4 arg0 -10000000000.0 -10000000000.0 -10000000000.0 -10000000000.0
+uniform vec4 arg1 10.0 -10.0 10000000000.0 -10000000000.0
+uniform vec4 expected -1.5707964 -1.5707964 -0.7853982 -2.3561945
+uniform float tolerance 0.0033321623
+draw rect ortho 116 0 4 4
+probe rect rgba (0, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (4, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (8, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (12, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (16, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (20, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (24, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (28, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (32, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (36, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (40, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (44, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (48, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (52, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (56, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (60, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (64, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (68, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (72, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (76, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (80, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (84, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (88, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (92, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (96, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (100, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (104, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (108, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (112, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)
+probe rect rgba (116, 0, 4, 4) (0.0, 1.0, 0.0, 1.0)

@@ -1,0 +1,44 @@
+[require]
+GLSL >= 1.10
+
+[vertex shader]
+varying vec4 color;
+uniform mat3 arg0;
+uniform mat3 arg1;
+
+void main()
+{
+  gl_Position = gl_Vertex;
+  if((arg0 != arg1))
+    color = vec4(1.0, 1.0, 0.0, 1.0);
+  else
+    color = vec4(0.0, 0.0, 1.0, 1.0);
+}
+
+[fragment shader]
+varying vec4 color;
+
+void main()
+{
+  gl_FragColor = color;
+}
+
+[test]
+clear color 0.0 0.0 1.0 0.0
+clear
+uniform mat3x3 arg0 -1.11 0.13 0.56 1.67 1.09 0.95 -0.41 -0.02 0.24
+uniform mat3x3 arg1 -1.11 0.13 0.56 1.67 1.09 0.95 -0.41 -0.02 0.24
+draw rect ortho 0 0 4 4
+uniform mat3x3 arg0 -1.11 0.13 0.56 1.67 1.09 0.95 -0.41 -0.02 0.24
+uniform mat3x3 arg1 -1.69 -1.09 -1.53 -0.46 1.75 -0.7 -0.18 2.0 -1.47
+draw rect ortho 4 0 4 4
+uniform mat3x3 arg0 -1.69 -1.09 -1.53 -0.46 1.75 -0.7 -0.18 2.0 -1.47
+uniform mat3x3 arg1 -1.11 0.13 0.56 1.67 1.09 0.95 -0.41 -0.02 0.24
+draw rect ortho 8 0 4 4
+uniform mat3x3 arg0 -1.69 -1.09 -1.53 -0.46 1.75 -0.7 -0.18 2.0 -1.47
+uniform mat3x3 arg1 -1.69 -1.09 -1.53 -0.46 1.75 -0.7 -0.18 2.0 -1.47
+draw rect ortho 12 0 4 4
+probe rect rgba (0, 0, 4, 4) (0.0, 0.0, 1.0, 1.0)
+probe rect rgba (4, 0, 4, 4) (1.0, 1.0, 0.0, 1.0)
+probe rect rgba (8, 0, 4, 4) (1.0, 1.0, 0.0, 1.0)
+probe rect rgba (12, 0, 4, 4) (0.0, 0.0, 1.0, 1.0)

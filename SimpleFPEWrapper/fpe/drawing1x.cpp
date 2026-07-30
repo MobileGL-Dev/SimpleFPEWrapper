@@ -586,6 +586,15 @@ void sfpewFlushDeferredDrawState() {
     sfpewBackendBindVertexArray(static_cast<GLuint>(held.vertex_array));
     // A non-zero restored VAO already carries its element binding; only VAO 0's
     // must be re-bound explicitly.
+    //
+    // This bind is measurably redundant - the wrapper binds its own element
+    // buffer while its OWN VAO is current, and an element binding is VAO state,
+    // so VAO 0's binding is never disturbed (100% of restores: 20000/20000 in
+    // bench.mcgui, 140000/140000 in bench.mcentity). Eliding it against the
+    // shadow was tried and measured SLOWER on 6 of 12 phases and faster on
+    // none: the driver already fast-paths a bind that does not change the
+    // binding, so the shadow read and branch cost more than the call they
+    // skip. Left unconditional deliberately; see plans/12.
     if (held.element_array_buffer >= 0)
         sfpewBackendBindElementBuffer(static_cast<GLuint>(held.element_array_buffer));
     g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, held.array_buffer);

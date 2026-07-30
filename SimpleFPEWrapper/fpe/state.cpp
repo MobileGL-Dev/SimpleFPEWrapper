@@ -1079,6 +1079,22 @@ DEFINE_COLOR4_VECTOR(us, GLushort)
 #undef DEFINE_COLOR4_SCALAR
 #undef DEFINE_COLOR3_SCALAR
 
+// glEdgeFlag* (GL 1.0 spec 2.6.3): legal inside Begin/End, part of the
+// current-vertex-state family like color/normal. Tracked for spec
+// completeness and display-list replay; per-edge wireframe suppression in
+// GL_LINE polygon mode is a separate, already-documented gap (plans/08) that
+// does not consume this value yet.
+void glEdgeFlag(GLboolean flag) {
+    LIST_RECORD(glEdgeFlag, {}, flag)
+    g_glstate.fpe_state.fpe_draw.current_data.edge_flag = flag;
+}
+
+void glEdgeFlagv(const GLboolean* flag) {
+    LIST_RECORD(glEdgeFlagv, {{0, sizeof(GLboolean)}}, flag)
+    if (!flag) return;
+    g_glstate.fpe_state.fpe_draw.current_data.edge_flag = *flag;
+}
+
 // Complete the glTexCoord/glMultiTexCoord families the same way as the
 // Vertex/Normal/Color families above: one float-backed draw state behind
 // desktop aliases. Per the GL spec texture coordinates are converted

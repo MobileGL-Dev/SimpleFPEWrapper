@@ -162,7 +162,7 @@ void mglVertex(std::array<Type, N> vertex) {
     // Release builds define NDEBUG, so this must be a real check: a glVertex*
     // outside glBegin/glEnd would otherwise append stray data that leaks into
     // the next primitive's vertex stream.
-    if (state.primitive == GL_NONE) return;
+    if (state.primitive == kNoPrimitive) return;
     state.set_attribute_size(0, N);
     auto& cur = state.current_data.vertex;
     // Missing components are (0, 0, 0, 1), rather than values left over

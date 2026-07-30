@@ -752,6 +752,8 @@ SFPEW_APIENTRY __eglMustCastToProperFunctionPointerType eglGetProcAddress(const 
     GETPROC(glIndexPointer, name)
     GETPROC(glInterleavedArrays, name)
     GETPROC(glEdgeFlagPointer, name)
+    GETPROC(glEdgeFlag, name)
+    GETPROC(glEdgeFlagv, name)
     GETPROC(glSecondaryColorPointer, name)
     if (std::strcmp("glSecondaryColorPointerEXT", name) == 0) {
         return (__eglMustCastToProperFunctionPointerType)glSecondaryColorPointer;

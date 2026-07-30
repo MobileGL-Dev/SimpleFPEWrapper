@@ -1,6 +1,6 @@
 {
  "source": "lookup.cpp",
- "count": 529,
+ "count": 531,
  "entries": {
   "eglSwapBuffersWithDamageKHR": {
    "status": "alias",
@@ -434,9 +434,17 @@
    "status": "alias",
    "target": "glDrawRangeElements"
   },
+  "glEdgeFlag": {
+   "status": "resolvable",
+   "target": "glEdgeFlag"
+  },
   "glEdgeFlagPointer": {
    "status": "resolvable",
    "target": "glEdgeFlagPointer"
+  },
+  "glEdgeFlagv": {
+   "status": "resolvable",
+   "target": "glEdgeFlagv"
   },
   "glEnable": {
    "status": "resolvable",

@@ -89,6 +89,30 @@ inline void sfpewBackendBindVertexArray(GLuint vao) {
 // Anything that binds a program, VAO or array buffer other than the
 // immediate-draw trio must call this, or the next immediate draw skips a bind
 // it actually needed (plans/12).
+// GL_QUAD_STRIP and GL_POLYGON have no GLES equivalent but ARE vertex-order
+// compatible with a core mode, so converting them is a mode swap plus a
+// count truncation. Both halves matter:
+//
+//   - Without the swap the raw legacy enum reaches the backend and the draw
+//     dies with GL_INVALID_ENUM, rendering nothing.
+//   - Without the truncation an INCOMPLETE trailing group starts drawing.
+//     GL_QUAD_STRIP needs vertices in pairs and at least four of them; a
+//     3-vertex strip must draw nothing, but GL_TRIANGLE_STRIP happily draws
+//     a triangle from those same three vertices. (GL_POLYGON needs no
+//     truncation: a fan of fewer than three vertices already draws nothing.)
+//
+// Leaves every other mode, GL_QUADS included, untouched - quads convert to
+// indexed triangles separately, and that path does its own (count / 4) * 6
+// truncation.
+inline void sfpewConvertLegacyDrawMode(GLenum* mode, GLsizei* count) {
+    if (*mode == GL_QUAD_STRIP) {
+        *mode = GL_TRIANGLE_STRIP;
+        *count = *count >= 4 ? (*count & ~GLsizei{1}) : 0;
+    } else if (*mode == GL_POLYGON) {
+        *mode = GL_TRIANGLE_FAN;
+    }
+}
+
 inline void sfpewInvalidateImmediateDrawState() {
     g_glstate_c.immediate_live_program = -1;
     g_glstate_c.immediate_live_buffer = 0;

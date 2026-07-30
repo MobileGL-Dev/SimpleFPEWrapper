@@ -173,13 +173,24 @@ struct fixed_function_draw_data_t {
     glm::vec4 color = {1, 1, 1, 1};
     glm::vec4 secondary_color = {0, 0, 0, 1};
     GLfloat fog_coord = 0.0f; // glFogCoord* (GL 1.4 / EXT_fog_coord)
+    GLboolean edge_flag = 1; // glEdgeFlag*; GL_TRUE by default (spec 2.6.3)
     glm::vec4 texcoord[MAX_TEX];
 
     fixed_function_draw_size_t sizes;
 };
 
+// Sentinel for "no Begin/End block is open". GL_NONE is 0 - the SAME value as
+// GL_POINTS, the first legal glBegin() mode - so using GL_NONE here made every
+// GL_POINTS run indistinguishable from "not in a primitive": mglVertex/mglColor/
+// etc. silently dropped every vertex (checked against this exact sentinel),
+// glEnd() raised a spurious GL_INVALID_OPERATION on every legal empty-or-full
+// GL_POINTS block, and glBegin()'s nested-Begin check silently passed through
+// a second glBegin(GL_POINTS) instead of erroring. Found via piglit's
+// beginend-coverage.c port, which primes every subtest through GL_POINTS.
+constexpr GLenum kNoPrimitive = 0xFFFFFFFFu;
+
 struct fixed_function_draw_state_t {
-    GLenum primitive = GL_NONE;
+    GLenum primitive = kNoPrimitive;
 
     fixed_function_draw_data_t current_data;
 
@@ -314,6 +325,10 @@ struct fixed_function_state_t {
     size_t fpe_ib_quad_count = 0;
     GLenum fpe_ib_type = GL_UNSIGNED_SHORT;
     bool fpe_ib_valid = false;
+    // Which of the two quad triangulations the cached indices hold; see
+    // prepare_quad_indices. Part of the cache key: switching shade models
+    // has to regenerate them.
+    bool fpe_ib_flat = false;
     bool fpe_ibo_bound = false;
 
     struct vertex_pointer_array_t vertexpointer_array;
@@ -694,7 +709,7 @@ struct glstate_t {
     static glstate_t& current();
 
     // Vertex-data accessor for glVertex/glColor/glTexCoord/glNormal-class
-    // entries: while a Begin/End batch is collecting (primitive != GL_NONE)
+    // entries: while a Begin/End batch is collecting (primitive != kNoPrimitive)
     // the batch stays pinned to the snapshot context and skips the strict
     // resolve entirely (a context switch mid-Begin/End is undefined; we
     // define it as "the batch belongs to the Begin context"). Outside a

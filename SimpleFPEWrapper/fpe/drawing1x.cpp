@@ -345,9 +345,9 @@ void drawImmediateVertices(GLenum primitive, const GLfloat* vertices, size_t flo
                 g_glFuncs.glDrawElements(GL_TRIANGLES, indexCount, quad_index_type(), (void*)0);
             } else {
                 GLenum draw_mode = primitive;
-                if (primitive == GL_QUAD_STRIP) draw_mode = GL_TRIANGLE_STRIP;
-                else if (primitive == GL_POLYGON) draw_mode = GL_TRIANGLE_FAN;
-                g_glFuncs.glDrawArrays(draw_mode, 0, userDrawCount);
+                GLsizei converted = userDrawCount;
+                sfpewConvertLegacyDrawMode(&draw_mode, &converted);
+                if (converted > 0) g_glFuncs.glDrawArrays(draw_mode, 0, converted);
             }
             return;
         }
@@ -406,7 +406,17 @@ void drawImmediateVertices(GLenum primitive, const GLfloat* vertices, size_t flo
         }
         g_glFuncs.glDrawElements(GL_TRIANGLES, indexCount, quad_index_type(), (void*)0);
     } else {
-        g_glFuncs.glDrawArrays(primitive, 0, drawCount);
+        // The remaining two legacy modes reached the backend RAW here, so
+        // every one of them died with GL_INVALID_ENUM and drew nothing: an
+        // unmerged run keeps its original primitive (flushPendingImmediateDraws'
+        // `unexpanded` case) and a run past the merge-size limit never enters
+        // the expander at all, so a lone glBegin(GL_POLYGON) or
+        // glBegin(GL_QUAD_STRIP) was ALWAYS broken, at every vertex count.
+        // Found by the piglit degenerate-prims port.
+        GLenum draw_mode = primitive;
+        GLsizei convertedCount = drawCount;
+        sfpewConvertLegacyDrawMode(&draw_mode, &convertedCount);
+        if (convertedCount > 0) g_glFuncs.glDrawArrays(draw_mode, 0, convertedCount);
     }
 }
 
@@ -494,10 +504,20 @@ void appendMergedRun(GLenum primitive, const GLfloat* src, size_t count, size_t 
         for (size_t i = 1; i + 1 < count; ++i) emitTriangle(0, i, i + 1);
         break;
     case GL_QUADS:
-        // Matches the index order the non-merged quad path uses.
-        for (size_t q = 0; q + 3 < count; q += 4) {
-            emitTriangle(q, q + 1, q + 2);
-            emitTriangle(q + 2, q + 3, q);
+        // Matches the index order the non-merged quad path uses, including
+        // its flat-shading diagonal swap (see prepare_quad_indices): under
+        // GL_FLAT both triangles must end on the quad's 4th vertex, which is
+        // where desktop GL_QUADS takes a flat primitive's colour from.
+        if (g_glstate_c.fpe_state.shade_model == GL_FLAT) {
+            for (size_t q = 0; q + 3 < count; q += 4) {
+                emitTriangle(q, q + 1, q + 3);
+                emitTriangle(q + 1, q + 2, q + 3);
+            }
+        } else {
+            for (size_t q = 0; q + 3 < count; q += 4) {
+                emitTriangle(q, q + 1, q + 2);
+                emitTriangle(q + 2, q + 3, q);
+            }
         }
         break;
     case GL_QUAD_STRIP:
@@ -1042,7 +1062,7 @@ void glBegin(GLenum mode) {
 
     auto& s = gs.fpe_state.fpe_draw;
 
-    if (s.primitive != GL_NONE) {
+    if (s.primitive != kNoPrimitive) {
         // Nested glBegin. Report it; keep collecting the outer primitive.
         // Checked BEFORE backend init so the error contract holds even
         // without a current context.
@@ -1064,11 +1084,11 @@ void glEnd() {
 
     // Entry strict resolve; the draw below is GPU-visible, so glEnd always
     // re-observes the real current context. A context switched mid-batch
-    // resolves to a state whose primitive is GL_NONE (the pinned batch
+    // resolves to a state whose primitive is kNoPrimitive (the pinned batch
     // stays on the Begin context), which lands in the error path below.
     auto& gs = g_glstate;
     auto& s = gs.fpe_state.fpe_draw;
-    if (s.primitive == GL_NONE) {
+    if (s.primitive == kNoPrimitive) {
         // glEnd without a matching glBegin. Also drop any stray vertices
         // collected outside a Begin/End pair so they cannot leak into the
         // next primitive.

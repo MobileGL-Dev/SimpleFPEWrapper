@@ -117,7 +117,7 @@ glstate_t& glstate_t::get_instance() {
     // contexts) into the stale batch. This runs only on actual switches and
     // implements the documented drop-the-batch semantics (context-model.md).
     if (tls_snapshot_state != nullptr && tls_snapshot_context != EGL_NO_CONTEXT &&
-        tls_snapshot_state->fpe_state.fpe_draw.primitive != GL_NONE) {
+        tls_snapshot_state->fpe_state.fpe_draw.primitive != kNoPrimitive) {
         tls_snapshot_state->fpe_state.fpe_draw.reset();
     }
 
@@ -142,9 +142,9 @@ glstate_t& glstate_t::current_vertex_data() {
     // Pin only to a real context: a Begin issued with no current context
     // lands on no_context_state, and vertices arriving after the app then
     // makes a context current must resolve strictly (and be dropped by the
-    // primitive==GL_NONE guard) exactly like the pre-snapshot behavior.
+    // primitive==kNoPrimitive guard) exactly like the pre-snapshot behavior.
     glstate_t* state = tls_snapshot_state;
-    if (state != nullptr && state->fpe_state.fpe_draw.primitive != GL_NONE &&
+    if (state != nullptr && state->fpe_state.fpe_draw.primitive != kNoPrimitive &&
         tls_snapshot_context != EGL_NO_CONTEXT) {
         return *state;
     }
@@ -187,42 +187,59 @@ bool prepare_quad_indices(GLsizei n, GLuint first) {
     const GLenum index_type = max_index <= std::numeric_limits<uint16_t>::max()
                                   ? GL_UNSIGNED_SHORT
                                   : GL_UNSIGNED_INT;
+    // Which diagonal splits each quad. Flat shading takes a primitive's
+    // colour from its LAST vertex, and desktop GL_QUADS defines that to be
+    // the quad's 4th vertex - but the usual 0-2 diagonal produces triangles
+    // (0,1,2) and (2,3,0), neither of which even CONTAINS vertex 3, so a
+    // flat-shaded quad came out in the wrong colour entirely. The 1-3
+    // diagonal gives (0,1,3) and (1,2,3): both end on vertex 3, which is
+    // exactly the desktop rule.
+    //
+    // Only used when GL_FLAT is actually current. Both diagonals cover the
+    // same area for the convex planar quads GL_QUADS requires, but they
+    // interpolate a smooth-shaded quad's per-vertex colours differently, and
+    // Minecraft's terrain is exactly that - so the smooth path keeps the
+    // triangulation it has always used and its rendering is untouched.
+    // Found by the piglit dlist-shademodel port.
+    const bool flat = g_glstate_c.fpe_state.shade_model == GL_FLAT;
     if (state.fpe_ib_valid && state.fpe_ib_first == first && state.fpe_ib_type == index_type &&
-        state.fpe_ib_quad_count >= num_quads) {
+        state.fpe_ib_flat == flat && state.fpe_ib_quad_count >= num_quads) {
         return false;
     }
 
     size_t first_quad_to_generate = 0;
-    if (state.fpe_ib_valid && state.fpe_ib_first == first && state.fpe_ib_type == index_type) {
+    if (state.fpe_ib_valid && state.fpe_ib_first == first && state.fpe_ib_type == index_type &&
+        state.fpe_ib_flat == flat) {
         first_quad_to_generate = state.fpe_ib_quad_count;
     }
+
+    // (a,b,c) offsets of the two triangles, per diagonal.
+    const unsigned t0[3] = {0u, 1u, flat ? 3u : 2u};
+    const unsigned t1[3] = {flat ? 1u : 2u, flat ? 2u : 3u, flat ? 3u : 0u};
 
     if (index_type == GL_UNSIGNED_SHORT) {
         state.fpe_ib16.resize(num_quads * 6u);
         for (size_t i = first_quad_to_generate; i < num_quads; ++i) {
             const uint16_t base_index = static_cast<uint16_t>(first + i * 4u);
-            state.fpe_ib16[i * 6u + 0u] = static_cast<uint16_t>(base_index + 0u);
-            state.fpe_ib16[i * 6u + 1u] = static_cast<uint16_t>(base_index + 1u);
-            state.fpe_ib16[i * 6u + 2u] = static_cast<uint16_t>(base_index + 2u);
-            state.fpe_ib16[i * 6u + 3u] = static_cast<uint16_t>(base_index + 2u);
-            state.fpe_ib16[i * 6u + 4u] = static_cast<uint16_t>(base_index + 3u);
-            state.fpe_ib16[i * 6u + 5u] = static_cast<uint16_t>(base_index + 0u);
+            for (unsigned k = 0; k < 3u; ++k) {
+                state.fpe_ib16[i * 6u + k] = static_cast<uint16_t>(base_index + t0[k]);
+                state.fpe_ib16[i * 6u + 3u + k] = static_cast<uint16_t>(base_index + t1[k]);
+            }
         }
     } else {
         state.fpe_ib.resize(num_quads * 6u);
         for (size_t i = first_quad_to_generate; i < num_quads; ++i) {
             const uint32_t base_index = first + static_cast<uint32_t>(i * 4u);
-            state.fpe_ib[i * 6u + 0u] = base_index + 0u;
-            state.fpe_ib[i * 6u + 1u] = base_index + 1u;
-            state.fpe_ib[i * 6u + 2u] = base_index + 2u;
-            state.fpe_ib[i * 6u + 3u] = base_index + 2u;
-            state.fpe_ib[i * 6u + 4u] = base_index + 3u;
-            state.fpe_ib[i * 6u + 5u] = base_index + 0u;
+            for (unsigned k = 0; k < 3u; ++k) {
+                state.fpe_ib[i * 6u + k] = base_index + t0[k];
+                state.fpe_ib[i * 6u + 3u + k] = base_index + t1[k];
+            }
         }
     }
     state.fpe_ib_first = first;
     state.fpe_ib_quad_count = num_quads;
     state.fpe_ib_type = index_type;
+    state.fpe_ib_flat = flat;
     state.fpe_ib_valid = true;
     return true;
 }
@@ -593,6 +610,13 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint p
 
         *mode = GL_TRIANGLES;
         ret = 1;
+    } else {
+        // The other two legacy modes passed through raw and died with
+        // GL_INVALID_ENUM on the backend. Only glDrawArrays callers reached
+        // here with them (glDrawElements converts in drawElementsNow), which
+        // is why it went unnoticed - Minecraft draws quads, not quad strips.
+        // Found by the piglit degenerate-prims port.
+        sfpewConvertLegacyDrawMode(mode, count);
     }
 
     g_glstate_c.send_uniforms(prog);

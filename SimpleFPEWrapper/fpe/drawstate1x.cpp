@@ -12,7 +12,7 @@
 #define DEBUG 0
 
 void fixed_function_draw_state_t::reset() {
-    primitive = GL_NONE;
+    primitive = kNoPrimitive;
     vertex_count = 0;
     vb.clear();
     repacked = false;
@@ -20,7 +20,7 @@ void fixed_function_draw_state_t::reset() {
 
 void fixed_function_draw_state_t::set_attribute_size(int slot, GLint requested) {
     GLint& stored = current_data.sizes.data[slot];
-    if (primitive == GL_NONE || vertex_count == 0) {
+    if (primitive == kNoPrimitive || vertex_count == 0) {
         stored = requested;
         return;
     }

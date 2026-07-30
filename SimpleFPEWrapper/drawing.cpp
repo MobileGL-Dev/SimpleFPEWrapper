@@ -703,13 +703,12 @@ struct captured_display_list_batch_cache_t {
 // binding is needed, and that IS VAO state, so it is saved and restored around
 // the draw. Returns true when the draw was issued here.
 bool passthroughLegacyDrawArrays(GLenum mode, GLint first, GLsizei count) {
-    if (mode == GL_QUAD_STRIP) {
-        // Vertex order is identical; no index rewrite needed.
-        g_glFuncs.glDrawArrays(GL_TRIANGLE_STRIP, first, count);
-        return true;
-    }
-    if (mode == GL_POLYGON) {
-        g_glFuncs.glDrawArrays(GL_TRIANGLE_FAN, first, count);
+    if (mode == GL_QUAD_STRIP || mode == GL_POLYGON) {
+        // Vertex order is identical; no index rewrite needed, but an
+        // incomplete trailing group still has to be dropped.
+        GLenum converted = mode;
+        sfpewConvertLegacyDrawMode(&converted, &count);
+        if (count > 0) g_glFuncs.glDrawArrays(converted, first, count);
         return true;
     }
     if (mode != GL_QUADS) return false;
@@ -759,6 +758,12 @@ bool passthroughLegacyDrawArrays(GLenum mode, GLint first, GLsizei count) {
 
 void drawArraysNow(GLenum mode, GLint first, GLsizei count, bool forceFixedFunction,
                    GLint arrayBufferOverride) {
+    // A zero-vertex draw is legal and simply draws nothing - only a NEGATIVE
+    // count is an error. Returning here keeps it away from the client-array
+    // upload sizing in commit_fpe_state_on_draw, which assumes at least one
+    // vertex and rejected count == 0 with a spurious GL_INVALID_VALUE.
+    // Nothing below this point is observable for a zero-vertex draw.
+    if (count == 0) return;
 
     // A display-list API call owns one backend guard around the whole replay.
     // Captured draws always provide an explicit static VBO (or zero for the

@@ -1105,6 +1105,10 @@ void drawElementsNow(GLenum mode, GLsizei count, GLenum type, const GLvoid* indi
     const uint32_t vertex_array_mask = 1u << vp2idx(GL_VERTEX_ARRAY);
 
     if (current_program != 0 || !(vertex_array.enabled_pointers & vertex_array_mask)) {
+        // These paths draw with the app's own program/VAO/element state; the
+        // glDrawElements entry no longer restores it for fixed-function
+        // draws, so it must come back before anything reaches the backend.
+        sfpewFlushDeferredDrawState();
         if (current_program != 0) {
             if ((vertex_array.enabled_pointers & vertex_array_mask) &&
                 userProgramDrawElements((GLuint)current_program, mode, count, type, indices)) {
@@ -1133,10 +1137,26 @@ void drawElementsNow(GLenum mode, GLsizei count, GLenum type, const GLvoid* indi
         return;
     }
 
-    // The caller's element-array binding is VAO state; snapshot it before
-    // we switch to fpe_vao.
+    // The caller's element-array binding is VAO state. Resolve it from the
+    // wrapper's shadows instead of a synchronous glGetIntegerv per draw:
+    // while a fixed-function draw holds the app's state the held snapshot
+    // has it, and outside that VAO 0's binding is shadowed (healed every
+    // 256 draws by the guard). The leftover cases - app VAO unknown or
+    // non-zero - restore and take the real query.
     GLint element_buffer = 0;
-    g_glFuncs.glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &element_buffer);
+    {
+        auto& gsc = g_glstate_c;
+        if (gsc.deferred_draw.held && gsc.deferred_draw.vertex_array == 0 &&
+            gsc.deferred_draw.element_array_buffer >= 0) {
+            element_buffer = gsc.deferred_draw.element_array_buffer;
+        } else if (!gsc.deferred_draw.held && gsc.backend_vao_known &&
+                   gsc.backend_vao_binding == 0 && gsc.backend_vao0_element_known) {
+            element_buffer = gsc.backend_vao0_element_binding;
+        } else {
+            sfpewFlushDeferredDrawState();
+            g_glFuncs.glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &element_buffer);
+        }
+    }
 
     // Legacy modes: GL_QUADS needs index rewriting; the strip/fan quads
     // modes are vertex-order compatible with core modes.
@@ -1167,6 +1187,12 @@ void drawElementsNow(GLenum mode, GLsizei count, GLenum type, const GLvoid* indi
             return;
         }
         const size_t byte_count = static_cast<size_t>(count) * index_size;
+        // Bind the caller's index VBO explicitly before mapping: with the
+        // draw state held, the current VAO is the wrapper's and its element
+        // binding is the wrapper's ring - mapping GL_ELEMENT_ARRAY_BUFFER
+        // without this would read the wrong buffer.
+        sfpewBackendBindElementBuffer(static_cast<GLuint>(element_buffer));
+        g_glstate_c.fpe_state.fpe_ibo_bound = false;
         void* mapped = g_glFuncs.glMapBufferRange(GL_ELEMENT_ARRAY_BUFFER,
                                                   (GLintptr)reinterpret_cast<uintptr_t>(indices),
                                                   (GLsizeiptr)byte_count, GL_MAP_READ_BIT);
@@ -1236,19 +1262,65 @@ void drawElementsNow(GLenum mode, GLsizei count, GLenum type, const GLvoid* indi
 
     auto& state = g_glstate_c.fpe_state;
     if (rewrite_quads || element_buffer == 0) {
-        // CPU-side index data streams through the persistent-mapped element
-        // ring. glBufferData here orphaned and reallocated a buffer on every
-        // indexed client-array draw, which measured as about half that draw's
-        // cost (plans/12).
-        if (state.fpe_element_ring == 0) g_glFuncs.glGenBuffers(1, &state.fpe_element_ring); sfpewNoteInternalBuffer(state.fpe_element_ring);
-        sfpewBackendBindElementBuffer(state.fpe_element_ring);
-        state.fpe_ibo_bound = false; // fpe_vao's element binding changed
         const void* upload_data = rewrite_quads ? (const void*)expanded_indices.data()
                                                 : (const void*)cpu_indices;
         const size_t upload_bytes = rewrite_quads
                                         ? expanded_indices.size() * sizeof(uint32_t)
                                         : static_cast<size_t>(count) * index_size;
-        draw_indices = (const void*)(uintptr_t)sfpewUploadElementData(upload_data, upload_bytes);
+
+        // Apps redraw the same client-memory index pattern every frame (GUI
+        // widgets, glyph quads, chunk passes). The second consecutive draw
+        // with byte-identical indices promotes them into a device-local
+        // buffer; every later repeat pays a memcmp instead of a ring upload,
+        // and the GPU reads its indices from device memory instead of the
+        // coherent ring. Capped so a pathological app cannot pin memory.
+        constexpr size_t kElementReuseLimit = 1u << 20;
+        bool reused = false;
+        if (upload_bytes <= kElementReuseLimit && upload_data != nullptr) {
+            auto& hot = state.fpe_element_reuse_bytes;
+            auto& pending = state.fpe_element_reuse_pending;
+            if (state.fpe_element_reuse_buffer != 0 && hot.size() == upload_bytes &&
+                std::memcmp(hot.data(), upload_data, upload_bytes) == 0) {
+                sfpewBackendBindElementBuffer(state.fpe_element_reuse_buffer);
+                state.fpe_ibo_bound = false; // fpe_vao's element binding changed
+                draw_indices = (const void*)0;
+                reused = true;
+            } else if (pending.size() == upload_bytes &&
+                       std::memcmp(pending.data(), upload_data, upload_bytes) == 0) {
+                // Second sighting: promote. A miss keeps streaming through
+                // the ring, so one-shot index sets never pay glBufferData.
+                if (state.fpe_element_reuse_buffer == 0) {
+                    g_glFuncs.glGenBuffers(1, &state.fpe_element_reuse_buffer);
+                    sfpewNoteInternalBuffer(state.fpe_element_reuse_buffer);
+                }
+                if (state.fpe_element_reuse_buffer != 0) {
+                    sfpewBackendBindElementBuffer(state.fpe_element_reuse_buffer);
+                    state.fpe_ibo_bound = false;
+                    g_glFuncs.glBufferData(GL_ELEMENT_ARRAY_BUFFER,
+                                           (GLsizeiptr)upload_bytes, upload_data,
+                                           GL_STATIC_DRAW);
+                    hot.assign(static_cast<const uint8_t*>(upload_data),
+                               static_cast<const uint8_t*>(upload_data) + upload_bytes);
+                    pending.clear();
+                    draw_indices = (const void*)0;
+                    reused = true;
+                }
+            } else {
+                pending.assign(static_cast<const uint8_t*>(upload_data),
+                               static_cast<const uint8_t*>(upload_data) + upload_bytes);
+            }
+        }
+
+        if (!reused) {
+            // CPU-side index data streams through the persistent-mapped
+            // element ring. glBufferData here orphaned and reallocated a
+            // buffer on every indexed client-array draw, which measured as
+            // about half that draw's cost (plans/12).
+            if (state.fpe_element_ring == 0) g_glFuncs.glGenBuffers(1, &state.fpe_element_ring); sfpewNoteInternalBuffer(state.fpe_element_ring);
+            sfpewBackendBindElementBuffer(state.fpe_element_ring);
+            state.fpe_ibo_bound = false; // fpe_vao's element binding changed
+            draw_indices = (const void*)(uintptr_t)sfpewUploadElementData(upload_data, upload_bytes);
+        }
     } else {
         // Indices stay in the caller's VBO; bind it inside fpe_vao.
         sfpewBackendBindElementBuffer(static_cast<GLuint>(element_buffer));
@@ -1474,7 +1546,10 @@ void glDrawArrays(GLenum mode, GLint first, GLsizei count) {
 void glDrawElements(GLenum mode, GLsizei count, GLenum type, const GLvoid* indices) {
     if (!sfpewEnsureBackend()) return;
     (void)g_glstate; // entry strict resolve; commit path reads the snapshot
-    sfpewEntryBarrier();
+    // Same contract as glDrawArrays: a fixed-function draw re-establishes
+    // the wrapper's state itself; only user-program draws consume the app's.
+    flushPendingImmediateDraws();
+    if (sfpewLogicalProgram() != 0) sfpewFlushDeferredDrawState();
     // Display-list capture of indexed draws lands with plans/06; while
     // recording, execution matches the previous passthrough behavior.
     drawElementsNow(mode, count, type, indices);
@@ -1491,7 +1566,9 @@ void glDrawRangeElements(GLenum mode, GLuint start, GLuint end, GLsizei count, G
     (void)start;
     (void)end;
     if (!sfpewEnsureBackend()) return;
-    sfpewEntryBarrier();
+    (void)g_glstate; // entry strict resolve, matching glDrawElements
+    flushPendingImmediateDraws();
+    if (sfpewLogicalProgram() != 0) sfpewFlushDeferredDrawState();
     drawElementsNow(mode, count, type, indices);
 }
 

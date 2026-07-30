@@ -297,6 +297,17 @@ struct fixed_function_state_t {
     // QUADS-from-arrays cache and must not be stomped with foreign indices.
     GLuint fpe_element_ibo = 0;
 
+    // Repeat-index cache for FPE-converted glDrawElements: apps redraw the
+    // same client-memory index pattern every frame (GUI widgets, glyph quads,
+    // chunk passes), so the second consecutive draw with byte-identical
+    // indices promotes them into a device-local buffer and later draws pay a
+    // memcmp instead of a ring upload - and the GPU pulls indices from device
+    // memory instead of the coherent ring. `pending` holds the last streamed
+    // bytes; `bytes` holds what `buffer` currently contains.
+    GLuint fpe_element_reuse_buffer = 0;
+    std::vector<uint8_t> fpe_element_reuse_bytes;
+    std::vector<uint8_t> fpe_element_reuse_pending;
+
     std::vector<uint32_t> fpe_ib;
     std::vector<uint16_t> fpe_ib16;
     GLuint fpe_ib_first = 0;

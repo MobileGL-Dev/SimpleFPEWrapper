@@ -1,7 +1,11 @@
 {
  "source": "lookup.cpp",
- "count": 528,
+ "count": 529,
  "entries": {
+  "eglSwapBuffersWithDamageKHR": {
+   "status": "alias",
+   "target": "sfpewEglSwapBuffersWithDamageEXT"
+  },
   "glAccum": {
    "status": "resolvable",
    "target": "glAccum"

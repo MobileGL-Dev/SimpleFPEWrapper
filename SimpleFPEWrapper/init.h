@@ -168,5 +168,9 @@ SFPEW_APIENTRY void glDisableVertexAttribArray(GLuint index);
 EGLContext sfpewCurrentContext();
 void sfpewNoteCurrentContext(EGLContext context);
 EGLBoolean sfpewEglMakeCurrent(EGLDisplay dpy, EGLSurface draw, EGLSurface read, EGLContext ctx);
+EGLBoolean sfpewEglSwapBuffers(EGLDisplay dpy, EGLSurface surface);
+SFPEW_APIENTRY bool sfpewImmediateBatchPendingForTest();
+EGLBoolean sfpewEglSwapBuffersWithDamageEXT(EGLDisplay dpy, EGLSurface surface, EGLint* rects,
+                                            EGLint n_rects);
 SFPEW_APIENTRY EGLBoolean eglMakeCurrent(EGLDisplay dpy, EGLSurface draw, EGLSurface read,
                                         EGLContext ctx);

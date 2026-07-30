@@ -624,6 +624,11 @@ void sfpewFlushDeferredDrawState() {
     g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, held.array_buffer);
 }
 
+// Test-only view of whether immediate geometry is still buffered. A pbuffer
+// cannot show the frame-ordering bug in pixels (there is no real swap), so the
+// regression test asserts on this instead.
+SFPEW_APIENTRY bool sfpewImmediateBatchPendingForTest() { return pendingGlyphBatch.active; }
+
 void flushPendingImmediateDraws() {
     auto& batch = pendingGlyphBatch;
     if (!batch.active) return;

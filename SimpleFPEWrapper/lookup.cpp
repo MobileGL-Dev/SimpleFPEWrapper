@@ -11,6 +11,7 @@
 #include "log.h"
 #include <cstdio>
 #include "fpe/transformation.h"
+#include "fpe/drawing1x.h" // sfpewEntryBarrier: the swap must drain the pending batch
 
 #define GETPROC(name, var)                                                                                             \
     if (std::strcmp(#name, var) == 0) {                                                                                \
@@ -48,6 +49,15 @@ SFPEW_APIENTRY __eglMustCastToProperFunctionPointerType eglGetProcAddress(const 
         // already-loaded libEGL interposes its own definition and the
         // wrapper never sees the call.
         return (__eglMustCastToProperFunctionPointerType)sfpewEglMakeCurrent;
+    }
+    // Same reasoning for the swap: the wrapper has to drain its pending batch
+    // before the frame is presented, or geometry drawn late in the frame is
+    // submitted into the next one and cleared away.
+    if (std::strcmp("eglSwapBuffers", name) == 0)
+        return (__eglMustCastToProperFunctionPointerType)sfpewEglSwapBuffers;
+    if (std::strcmp("eglSwapBuffersWithDamageEXT", name) == 0 ||
+        std::strcmp("eglSwapBuffersWithDamageKHR", name) == 0) {
+        return (__eglMustCastToProperFunctionPointerType)sfpewEglSwapBuffersWithDamageEXT;
     }
 
     GETPROC(glGetError, name)
@@ -800,13 +810,65 @@ SFPEW_APIENTRY void* glXGetProcAddressARB(const char* name) {
 // previously current context in place - which is what EGL guarantees.
 EGLBoolean sfpewEglMakeCurrent(EGLDisplay dpy, EGLSurface draw, EGLSurface read, EGLContext ctx) {
     if (!sfpewEnsureBackend() || g_eglFuncs.eglMakeCurrent == nullptr) return EGL_FALSE;
+    // Anything still batched belongs to the OUTGOING context: submit it while
+    // that context is current. flushPendingImmediateDraws() would otherwise
+    // find the context changed under it and drop the batch (correct, but the
+    // geometry is then simply lost).
+    sfpewEntryBarrier();
     const EGLBoolean ok = g_eglFuncs.eglMakeCurrent(dpy, draw, read, ctx);
     if (ok == EGL_TRUE) sfpewNoteCurrentContext(ctx);
     return ok;
 }
 
-// Exported spelling for loaders that dlsym the wrapper for EGL.
+// A frame must not end with geometry still sitting in the wrapper.
+//
+// Small immediate-mode runs are accumulated so consecutive ones merge into one
+// draw, and the batch is drained by sfpewEntryBarrier() from the next entry
+// point that could observe it. Buffer swap was not such an entry point, so a
+// frame whose last drawing was immediate-mode left its batch pending across the
+// swap. The next frame's first entry point then drained it into the NEW back
+// buffer, where that frame's glClear immediately erased it: geometry drawn late
+// in a frame disappeared, and the depth it wrote landed in the wrong frame.
+// Reported as heavy flickering with the previous frame appearing not to clear,
+// wrong depth, and some components looking wrong.
+//
+// Draining here is also just what GL requires - all commands must be issued
+// before the swap.
+EGLBoolean sfpewEglSwapBuffers(EGLDisplay dpy, EGLSurface surface) {
+    if (!sfpewEnsureBackend() || g_eglFuncs.eglSwapBuffers == nullptr) return EGL_FALSE;
+    sfpewEntryBarrier();
+    return g_eglFuncs.eglSwapBuffers(dpy, surface);
+}
+
+EGLBoolean sfpewEglSwapBuffersWithDamageEXT(EGLDisplay dpy, EGLSurface surface, EGLint* rects,
+                                            EGLint n_rects) {
+    if (!sfpewEnsureBackend()) return EGL_FALSE;
+    sfpewEntryBarrier();
+    if (g_eglFuncs.eglSwapBuffersWithDamageEXT != nullptr)
+        return g_eglFuncs.eglSwapBuffersWithDamageEXT(dpy, surface, rects, n_rects);
+    // The damage rectangles are only a hint; a plain swap is a conforming
+    // fallback and keeps the flush above from being the reason a frame is lost.
+    if (g_eglFuncs.eglSwapBuffers != nullptr) return g_eglFuncs.eglSwapBuffers(dpy, surface);
+    return EGL_FALSE;
+}
+
+// Exported spellings for loaders that dlsym the wrapper for EGL.
 SFPEW_APIENTRY EGLBoolean eglMakeCurrent(EGLDisplay dpy, EGLSurface draw, EGLSurface read,
                                         EGLContext ctx) {
     return sfpewEglMakeCurrent(dpy, draw, read, ctx);
+}
+
+SFPEW_APIENTRY EGLBoolean eglSwapBuffers(EGLDisplay dpy, EGLSurface surface) {
+    return sfpewEglSwapBuffers(dpy, surface);
+}
+
+SFPEW_APIENTRY EGLBoolean eglSwapBuffersWithDamageEXT(EGLDisplay dpy, EGLSurface surface,
+                                                      EGLint* rects, EGLint n_rects) {
+    return sfpewEglSwapBuffersWithDamageEXT(dpy, surface, rects, n_rects);
+}
+
+// KHR and EXT share the signature; both forward to the same flush-then-swap.
+SFPEW_APIENTRY EGLBoolean eglSwapBuffersWithDamageKHR(EGLDisplay dpy, EGLSurface surface,
+                                                      EGLint* rects, EGLint n_rects) {
+    return sfpewEglSwapBuffersWithDamageEXT(dpy, surface, rects, n_rects);
 }

@@ -186,6 +186,13 @@ bool programIsSingleAttribAtLocationZero(GLuint program) {
 
 bool sfpewUserProgramAttribLocations(GLuint program, GLint out_locations[VERTEX_POINTER_COUNT]) {
     if (program == 0 || g_glFuncs.glGetAttribLocation == nullptr) return false;
+    // Defence in depth for the self-adoption guards: a program the wrapper
+    // itself created must never be treated as an app shader to feed - if one
+    // reaches here through any yet-unknown shadow-poisoning window, routing
+    // fixed-function draws onto it drops program binds, uploads and uniforms
+    // wholesale (the on-device flicker). Cached below per program, so this
+    // costs one set lookup on first resolve only.
+    if (g_glstate_c.internal_programs.count(static_cast<int>(program)) != 0) return false;
     std::lock_guard<std::mutex> lock(g_user_program_mutex);
     auto& u = userPrograms()[program];
     if (!u.attrs_resolved) {

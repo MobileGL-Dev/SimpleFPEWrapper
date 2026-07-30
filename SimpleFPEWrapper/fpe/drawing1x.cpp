@@ -99,6 +99,7 @@ static GLintptr sfpewUploadToRing(const stream_ring_t& ring, const void* data, s
         if (ring.map != nullptr && g_glFuncs.glUnmapBuffer != nullptr) {
             g_glFuncs.glUnmapBuffer(ring.target);
         }
+        sfpewForgetInternalBuffer(ring.buffer);
         g_glFuncs.glDeleteBuffers(1, &ring.buffer);
         g_glFuncs.glGenBuffers(1, &ring.buffer);
         sfpewNoteInternalBuffer(ring.buffer);

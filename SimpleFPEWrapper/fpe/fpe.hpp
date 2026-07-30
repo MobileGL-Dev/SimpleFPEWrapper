@@ -102,6 +102,18 @@ inline void sfpewNoteInternalBuffer(GLuint buffer) {
     if (buffer != 0) g_glstate_c.internal_buffers.insert(buffer);
 }
 
+// MUST be called wherever the wrapper deletes one of its own buffers. A
+// deleted name goes back to the GL name pool and the app's next glGenBuffers
+// can hand it out again; a stale entry here would then make the array-buffer
+// shadow treat the APP'S OWN VBO as wrapper-internal and report it as zero -
+// fixed-function draws silently switch their attribute source to the ring
+// and read garbage vertices. Seen in the wild within hours of b3dd356: MC
+// 1.12 with "Use VBOs" recycles chunk VBO names constantly, so random chunks
+// rendered with corrupted vertices.
+inline void sfpewForgetInternalBuffer(GLuint buffer) {
+    if (buffer != 0) g_glstate_c.internal_buffers.erase(buffer);
+}
+
 // Binds the array buffer a fixed-function draw will source attributes from,
 // skipping the call when the backend provably has it already.
 //

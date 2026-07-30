@@ -205,6 +205,7 @@ private:
         mapped = static_cast<uint8_t*>(g_glFuncs.glMapBufferRange(
             GL_ARRAY_BUFFER, 0, static_cast<GLsizeiptr>(kDisplayListArenaCapacity), mapFlags));
         if (mapped == nullptr) {
+            sfpewForgetInternalBuffer(buffer);
             g_glFuncs.glDeleteBuffers(1, &buffer);
             buffer = 0;
             return false;
@@ -354,6 +355,7 @@ public:
                 attribute.pointer_valid = false;
             }
         }
+        sfpewForgetInternalBuffer(vertexBuffer);
         g_glFuncs.glDeleteBuffers(1, &vertexBuffer);
     }
 

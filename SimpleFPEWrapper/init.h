@@ -170,6 +170,9 @@ void sfpewNoteCurrentContext(EGLContext context);
 EGLBoolean sfpewEglMakeCurrent(EGLDisplay dpy, EGLSurface draw, EGLSurface read, EGLContext ctx);
 EGLBoolean sfpewEglSwapBuffers(EGLDisplay dpy, EGLSurface surface);
 SFPEW_APIENTRY bool sfpewImmediateBatchPendingForTest();
+SFPEW_APIENTRY void sfpewMarkBufferInternalForTest(GLuint buffer);
+SFPEW_APIENTRY bool sfpewBufferIsInternalForTest(GLuint buffer);
+SFPEW_APIENTRY GLuint sfpewLogicalArrayBufferBindingForTest(void);
 EGLBoolean sfpewEglSwapBuffersWithDamageEXT(EGLDisplay dpy, EGLSurface surface, EGLint* rects,
                                             EGLint n_rects);
 SFPEW_APIENTRY EGLBoolean eglMakeCurrent(EGLDisplay dpy, EGLSurface draw, EGLSurface read,

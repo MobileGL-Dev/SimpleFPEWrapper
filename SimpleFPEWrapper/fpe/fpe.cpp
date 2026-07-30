@@ -312,10 +312,13 @@ int init_fpe() {
         if (g_glstate_c.fpe_state.fpe_vao != 0)
             g_glFuncs.glDeleteVertexArrays(1, &g_glstate_c.fpe_state.fpe_vao);
         if (g_glstate_c.fpe_state.fpe_vbo != 0)
+            sfpewForgetInternalBuffer(g_glstate_c.fpe_state.fpe_vbo);
             g_glFuncs.glDeleteBuffers(1, &g_glstate_c.fpe_state.fpe_vbo);
         if (g_glstate_c.fpe_state.fpe_immediate_vbo != 0)
+            sfpewForgetInternalBuffer(g_glstate_c.fpe_state.fpe_immediate_vbo);
             g_glFuncs.glDeleteBuffers(1, &g_glstate_c.fpe_state.fpe_immediate_vbo);
         if (g_glstate_c.fpe_state.fpe_ibo != 0)
+            sfpewForgetInternalBuffer(g_glstate_c.fpe_state.fpe_ibo);
             g_glFuncs.glDeleteBuffers(1, &g_glstate_c.fpe_state.fpe_ibo);
         g_glstate_c.fpe_state.fpe_vao = 0;
         g_glstate_c.fpe_state.fpe_vbo = 0;

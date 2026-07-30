@@ -135,6 +135,12 @@ void glDeleteBuffers(GLsizei n, const GLuint* buffers) {
     g_glFuncs.glDeleteBuffers(n, buffers);
     if (n <= 0 || buffers == nullptr) return;
 
+    // A deleted name's "wrapper-internal" identity dies with it, whoever
+    // deleted it - the pool will recycle the name (see
+    // sfpewForgetInternalBuffer). Wrapper-side deletions call the helper at
+    // their own sites; this covers names the app deletes.
+    for (GLsizei i = 0; i < n; ++i) sfpewForgetInternalBuffer(buffers[i]);
+
     auto& state = getLogicalArrayBufferState();
     auto& gs = g_glstate_c;
     for (GLsizei i = 0; i < n; ++i) {
@@ -149,6 +155,21 @@ void glDeleteBuffers(GLsizei n, const GLuint* buffers) {
 }
 
 GLuint sfpewLogicalArrayBufferBinding() { return getLogicalArrayBufferBinding(); }
+
+// Test-only handles on the internal-buffer registry. Driver name-recycling
+// policy is not controllable from a test, so smoke_buffer_name_reuse marks a
+// buffer internal directly to prove the poisoning is real, then deletes it
+// and asserts the identity is shed (the fix for the MC 1.12 "Use VBOs"
+// random vertex corruption).
+SFPEW_APIENTRY void sfpewMarkBufferInternalForTest(GLuint buffer) {
+    g_glstate_c.internal_buffers.insert(buffer);
+}
+SFPEW_APIENTRY bool sfpewBufferIsInternalForTest(GLuint buffer) {
+    return g_glstate_c.internal_buffers.count(buffer) != 0;
+}
+SFPEW_APIENTRY GLuint sfpewLogicalArrayBufferBindingForTest(void) {
+    return getLogicalArrayBufferBinding();
+}
 
 // --- Buffer and vertex-attribute surface (plans/12) ---------------------
 //

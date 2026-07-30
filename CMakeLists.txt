@@ -225,6 +225,14 @@ if(NOT ANDROID)
                         add_test(NAME smoke_attrib_retire COMMAND smoke_attrib_retire)
                         set_tests_properties(smoke_attrib_retire PROPERTIES SKIP_RETURN_CODE 77)
 
+                        add_executable(smoke_buffer_name_reuse tests/smoke_buffer_name_reuse.c)
+                        target_compile_definitions(smoke_buffer_name_reuse PRIVATE
+                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
+                        target_link_libraries(smoke_buffer_name_reuse PRIVATE dl ${SFPEW_TEST_EGL})
+                        add_dependencies(smoke_buffer_name_reuse ${CMAKE_PROJECT_NAME})
+                        add_test(NAME smoke_buffer_name_reuse COMMAND smoke_buffer_name_reuse)
+                        set_tests_properties(smoke_buffer_name_reuse PROPERTIES SKIP_RETURN_CODE 77)
+
                         add_executable(smoke_swap_flushes_batch tests/smoke_swap_flushes_batch.c)
                         target_compile_definitions(smoke_swap_flushes_batch PRIVATE
                                 WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")

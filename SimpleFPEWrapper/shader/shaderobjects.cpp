@@ -372,6 +372,10 @@ void glDetachShader(GLuint program, GLuint shader) {
 void glDeleteProgram(GLuint program) {
     if (!sfpewEnsureBackend() || g_glFuncs.glDeleteProgram == nullptr) return;
     g_glFuncs.glDeleteProgram(program);
+    // Same name-recycling rule as buffers: once deleted, the name may be
+    // handed to the app's next glCreateProgram, and a stale internal_programs
+    // entry would make the program shadow zero out the app's own program.
+    g_glstate_c.internal_programs.erase(static_cast<int>(program));
     sfpewForgetUserProgram(program);
     std::lock_guard<std::mutex> lock(g_shader_mutex);
     programRecords().erase(program);

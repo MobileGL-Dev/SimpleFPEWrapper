@@ -111,6 +111,7 @@ bool ensureDrawer(quad_drawer_t& d) {
         return false;
     }
     const GLuint program = g_glFuncs.glCreateProgram();
+    if (program != 0) g_glstate_c.internal_programs.insert((int)program);
     g_glFuncs.glAttachShader(program, vs);
     g_glFuncs.glAttachShader(program, fs);
     g_glFuncs.glLinkProgram(program);

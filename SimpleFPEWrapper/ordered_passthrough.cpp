@@ -58,6 +58,24 @@ GLint sfpewLogicalProgram() {
             state.program = g_glstate_c.deferred_draw.program;
         } else {
             g_glFuncs.glGetIntegerv(GL_CURRENT_PROGRAM, &state.program);
+            // A backend readback can catch one of the WRAPPER's own programs:
+            // with the deferred restore the FPE program stays bound between
+            // fixed-function draws, and any window where this shadow seeds or
+            // heals against that binding (context-poll jitter resetting the
+            // thread-local state, a heal landing between a flush and its
+            // restore) records the wrapper's program as if the app had bound
+            // it. Every fixed-function draw then takes the user-program path:
+            // no FPE program bind, no uniforms, attributes fed to a shader
+            // whose inputs they do not match - on-device this is the
+            // menu/world flicker with stacked glyphs and stale frames. The
+            // app can never legitimately have one of our internal names
+            // bound (they are created and used only inside wrapper draw
+            // scopes), so a readback that returns one is always leftover
+            // wrapper state, i.e. logically program 0.
+            if (state.program != 0 &&
+                g_glstate_c.internal_programs.count(state.program) != 0) {
+                state.program = 0;
+            }
         }
         state.known = true;
     }
@@ -118,6 +136,10 @@ void glUseProgram(GLuint program) {
     // replacing the per-draw GL_CURRENT_PROGRAM query on the hot path.
     auto& state = getLogicalProgramState();
     g_glFuncs.glGetIntegerv(GL_CURRENT_PROGRAM, &state.program);
+    // Keep the invariant that the logical shadow never holds one of the
+    // wrapper's internal programs (see sfpewLogicalProgram).
+    if (state.program != 0 && g_glstate_c.internal_programs.count(state.program) != 0)
+        state.program = 0;
     state.known = true;
 }
 

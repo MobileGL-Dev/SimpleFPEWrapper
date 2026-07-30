@@ -13,6 +13,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include <memory>
 #include <cstddef>
@@ -581,6 +582,14 @@ struct glstate_t {
     // Keyed by the dual-seeded 128-bit program_key_t (see above); the old
     // "vp as key" TODO is long obsolete - the hash covers all shader state.
     unordered_map<program_key_t, program_t, program_key_hash_t> fpe_programs;
+    // Backend program names created BY THE WRAPPER (FPE-generated programs,
+    // pixel-op helpers). The logical program shadow consults this: a value it
+    // reads back from the backend that is one of ours is a leftover of the
+    // wrapper's own deferred bindings, never the app's program - recording it
+    // would hijack every later fixed-function draw onto the user-program
+    // path, which is exactly the on-device flicker (plans/12, the 1.12 black
+    // screen was the same disease through a different window).
+    std::unordered_set<int> internal_programs;
     unordered_map<program_key_t, GLuint, program_key_hash_t> fpe_vaos;
     program_key_t last_program_key{};
     program_t* last_program = nullptr;

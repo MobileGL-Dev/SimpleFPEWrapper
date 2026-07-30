@@ -467,7 +467,8 @@ program_t& glstate_t::get_or_generate_program(const program_key_t& key) {
         // LOG_D("Generating new shader: 0x%x", key)
         fpe_shader_generator gen(fpe_state);
         program_t program = gen.generate_program();
-        program.get_program();
+        const int generated = program.get_program();
+        if (generated > 0) internal_programs.insert(generated);
         it = fpe_programs.emplace(key, std::move(program)).first;
     } else {
         // LOG_D("Using existing shader: 0x%x", key)

@@ -94,6 +94,14 @@ inline void sfpewInvalidateImmediateDrawState() {
     g_glstate_c.immediate_live_buffer = 0;
 }
 
+// Registers a buffer object the WRAPPER created for its own draw plumbing.
+// The logical array-buffer shadow treats a backend readback that returns one
+// of these as logical zero - it is leftover wrapper state, not the app's
+// binding (mirror of internal_programs; see sfpewLogicalProgram).
+inline void sfpewNoteInternalBuffer(GLuint buffer) {
+    if (buffer != 0) g_glstate_c.internal_buffers.insert(buffer);
+}
+
 // Binds the array buffer a fixed-function draw will source attributes from,
 // skipping the call when the backend provably has it already.
 //

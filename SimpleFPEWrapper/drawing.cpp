@@ -193,6 +193,7 @@ private:
 
         array_buffer_binding_guard_t bindingState;
         g_glFuncs.glGenBuffers(1, &buffer);
+        sfpewNoteInternalBuffer(buffer);
         if (buffer == 0) return false;
         g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, buffer);
 
@@ -502,6 +503,7 @@ private:
                 return false;
             }
             g_glFuncs.glGenBuffers(1, &vertexBuffer);
+            sfpewNoteInternalBuffer(vertexBuffer);
             if (vertexBuffer == 0) return false;
         }
 
@@ -715,6 +717,7 @@ bool passthroughLegacyDrawArrays(GLenum mode, GLint first, GLsizei count) {
     if (st.fpe_ibo == 0) {
         if (g_glFuncs.glGenBuffers == nullptr) return false;
         g_glFuncs.glGenBuffers(1, &st.fpe_ibo);
+        sfpewNoteInternalBuffer(st.fpe_ibo);
         if (st.fpe_ibo == 0) return false;
     }
 
@@ -985,7 +988,7 @@ bool userProgramDrawElements(GLuint program, GLenum mode, GLsizei count, GLenum 
         case 2: expandQuadIndices((const uint16_t*)cpu_indices, quads, expanded); break;
         default: expandQuadIndices((const uint32_t*)cpu_indices, quads, expanded); break;
         }
-        if (st.fpe_element_ring == 0) g_glFuncs.glGenBuffers(1, &st.fpe_element_ring);
+        if (st.fpe_element_ring == 0) g_glFuncs.glGenBuffers(1, &st.fpe_element_ring); sfpewNoteInternalBuffer(st.fpe_element_ring);
         g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, st.fpe_element_ring);
         st.fpe_ibo_bound = false;
         draw_offset = (const void*)(uintptr_t)sfpewUploadElementData(
@@ -996,7 +999,7 @@ bool userProgramDrawElements(GLuint program, GLenum mode, GLsizei count, GLenum 
     } else {
         if (mode == GL_QUAD_STRIP) draw_mode = GL_TRIANGLE_STRIP;
         else if (mode == GL_POLYGON) draw_mode = GL_TRIANGLE_FAN;
-        if (st.fpe_element_ring == 0) g_glFuncs.glGenBuffers(1, &st.fpe_element_ring);
+        if (st.fpe_element_ring == 0) g_glFuncs.glGenBuffers(1, &st.fpe_element_ring); sfpewNoteInternalBuffer(st.fpe_element_ring);
         g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, st.fpe_element_ring);
         st.fpe_ibo_bound = false;
         draw_offset = (const void*)(uintptr_t)sfpewUploadElementData(
@@ -1068,7 +1071,7 @@ bool passthroughLegacyDrawElements(GLenum mode, GLsizei count, GLenum type,
     auto& st = g_glstate_c.fpe_state;
     if (st.fpe_element_ring == 0) {
         if (g_glFuncs.glGenBuffers == nullptr) return false;
-        g_glFuncs.glGenBuffers(1, &st.fpe_element_ring);
+        g_glFuncs.glGenBuffers(1, &st.fpe_element_ring); sfpewNoteInternalBuffer(st.fpe_element_ring);
         if (st.fpe_element_ring == 0) return false;
     }
     g_glFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, st.fpe_element_ring);
@@ -1224,7 +1227,7 @@ void drawElementsNow(GLenum mode, GLsizei count, GLenum type, const GLvoid* indi
         // ring. glBufferData here orphaned and reallocated a buffer on every
         // indexed client-array draw, which measured as about half that draw's
         // cost (plans/12).
-        if (state.fpe_element_ring == 0) g_glFuncs.glGenBuffers(1, &state.fpe_element_ring);
+        if (state.fpe_element_ring == 0) g_glFuncs.glGenBuffers(1, &state.fpe_element_ring); sfpewNoteInternalBuffer(state.fpe_element_ring);
         sfpewBackendBindElementBuffer(state.fpe_element_ring);
         state.fpe_ibo_bound = false; // fpe_vao's element binding changed
         const void* upload_data = rewrite_quads ? (const void*)expanded_indices.data()

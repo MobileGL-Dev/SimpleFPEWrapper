@@ -101,6 +101,7 @@ static GLintptr sfpewUploadToRing(const stream_ring_t& ring, const void* data, s
         }
         g_glFuncs.glDeleteBuffers(1, &ring.buffer);
         g_glFuncs.glGenBuffers(1, &ring.buffer);
+        sfpewNoteInternalBuffer(ring.buffer);
         g_glFuncs.glBindBuffer(ring.target, ring.buffer);
         ring.capacity = 0;
         ring.offset = 0;

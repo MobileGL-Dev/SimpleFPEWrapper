@@ -590,6 +590,13 @@ struct glstate_t {
     // path, which is exactly the on-device flicker (plans/12, the 1.12 black
     // screen was the same disease through a different window).
     std::unordered_set<int> internal_programs;
+    // Same invariant for buffer objects: rings, quad-index buffers, the
+    // display-list arena and captured static VBOs are bound only inside
+    // wrapper draw scopes, so the array-buffer shadow reading one back from
+    // the backend is always leftover wrapper state, never the app's binding.
+    // (On-device forensics caught exactly that: "arraybuffer shadow heal
+    // 0 -> 4" where buffer 4 is the wrapper's own arena.)
+    std::unordered_set<unsigned> internal_buffers;
     unordered_map<program_key_t, GLuint, program_key_hash_t> fpe_vaos;
     program_key_t last_program_key{};
     program_t* last_program = nullptr;

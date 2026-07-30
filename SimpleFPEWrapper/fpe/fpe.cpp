@@ -290,14 +290,17 @@ int init_fpe() {
     g_glFuncs.glGenVertexArrays(1, &g_glstate_c.fpe_state.fpe_vao);
 
     g_glFuncs.glGenBuffers(1, &g_glstate_c.fpe_state.fpe_vbo);
+    sfpewNoteInternalBuffer(g_glstate_c.fpe_state.fpe_vbo);
 
     g_glFuncs.glGenBuffers(1, &g_glstate_c.fpe_state.fpe_immediate_vbo);
+    sfpewNoteInternalBuffer(g_glstate_c.fpe_state.fpe_immediate_vbo);
     g_glstate_c.fpe_state.fpe_immediate_vbo_capacity = 0;
     g_glstate_c.fpe_state.fpe_immediate_vbo_offset = 0;
     g_glstate_c.fpe_state.fpe_immediate_vbo_map = nullptr;
     g_glstate_c.fpe_state.fpe_immediate_vbo_persistent_attempted = false;
 
     g_glFuncs.glGenBuffers(1, &g_glstate_c.fpe_state.fpe_ibo);
+    sfpewNoteInternalBuffer(g_glstate_c.fpe_state.fpe_ibo);
 
     // LOG_D("fpe_vao: %d", g_glstate_c.fpe_state.fpe_vao)
     // LOG_D("fpe_vbo: %d", g_glstate_c.fpe_state.fpe_vbo)
@@ -526,7 +529,10 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint p
         }
         if (!wire.empty()) {
             auto& st = g_glstate_c.fpe_state;
-            if (st.fpe_element_ibo == 0) g_glFuncs.glGenBuffers(1, &st.fpe_element_ibo);
+            if (st.fpe_element_ibo == 0) {
+                g_glFuncs.glGenBuffers(1, &st.fpe_element_ibo);
+                sfpewNoteInternalBuffer(st.fpe_element_ibo);
+            }
             sfpewBackendBindElementBuffer(st.fpe_element_ibo);
             st.fpe_ibo_bound = false; // fpe_vao's element binding changed
             g_glFuncs.glBufferData(GL_ELEMENT_ARRAY_BUFFER,

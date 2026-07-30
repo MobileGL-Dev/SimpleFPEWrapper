@@ -65,6 +65,17 @@ GLuint getLogicalArrayBufferBinding() {
     }
     GLint binding = 0;
     g_glFuncs.glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &binding);
+    // Backend readbacks can catch one of the wrapper's own buffers (rings,
+    // quad-index storage, the display-list arena): with the deferred restore
+    // those legitimately stay bound between fixed-function draws. Adopting
+    // one would make the guard restore the wrapper's buffer as if the app had
+    // bound it, and later draws would source attributes from it (mirror of
+    // the internal_programs rule in sfpewLogicalProgram; on-device forensics
+    // caught "arraybuffer shadow heal 0 -> 4" with 4 being our arena).
+    if (binding != 0 &&
+        g_glstate_c.internal_buffers.count(static_cast<unsigned>(binding)) != 0) {
+        binding = 0;
+    }
     state.binding = static_cast<GLuint>(binding);
     state.known = true;
     return state.binding;

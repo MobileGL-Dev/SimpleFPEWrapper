@@ -284,7 +284,7 @@ void glDisable(GLenum cap) {
 }
 
 void glClientActiveTexture(GLenum texture) {
-    sfpewEntryBarrier();
+    sfpewClientStateBarrier();
     // LOG()
     // LOG_D("glClientActiveTexture(GL_TEXTURE%d)", texture - GL_TEXTURE0)
 

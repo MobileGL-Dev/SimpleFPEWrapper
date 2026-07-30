@@ -424,9 +424,6 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint p
     vpa.generate_compressed_index(g_glstate_c.fpe_state.fpe_draw.current_data.sizes.data);
     // kinda cursed...
     raw_vpa.generate_compressed_index(g_glstate_c.fpe_state.fpe_draw.current_data.sizes.data);
-    //    g_glFuncs.glGenVertexArrays(1, &vpa.fpe_vao);
-    // LOG_D("fpe_vao: %d", g_glstate_c.fpe_state.fpe_vao)
-    sfpewBackendBindVertexArray(g_glstate_c.fpe_state.fpe_vao);
 
     auto key = g_glstate_c.program_hash();
     // LOG_D("%s: key=0x%x", __func__, key)
@@ -439,8 +436,20 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint p
         vpa.reset();
         return -1;
     }
-    sfpewInvalidateImmediateDrawState();
-    g_glFuncs.glUseProgram(prog_id);
+    // The same program/VAO arm the immediate path uses: while the app's draw
+    // state is still held, a preceding FPE draw left exactly this pair bound,
+    // and re-issuing glUseProgram + glBindVertexArray per draw is pure
+    // driver-validation cost. Any other program/VAO bind clears the arm
+    // (sfpewBackendBindVertexArray / sfpewInvalidateImmediateDrawState), so a
+    // valid arm proves the backend still has this exact pair. The ARRAY
+    // binding is NOT armed here: each branch below re-binds its own source.
+    auto& gsc = g_glstate_c;
+    if (gsc.immediate_live_program != prog_id || !gsc.deferred_draw.held) {
+        g_glFuncs.glUseProgram(prog_id);
+        sfpewBackendBindVertexArray(g_glstate_c.fpe_state.fpe_vao); // clears the arm
+        gsc.immediate_live_program = prog_id; // re-arm after the binds
+        gsc.immediate_live_buffer = 0;
+    }
 
     // Client-memory arrays stream through the persistent-coherent immediate
     // ring (no per-draw buffer orphan). The upload must NEVER target the
@@ -478,17 +487,22 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint p
         g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, st.fpe_immediate_vbo);
         const GLintptr ring_offset =
             sfpewUploadImmediateVertexData(draw_start, (size_t)upload_size);
+        // Fresh read: the upload can replace the ring buffer object.
+        gsc.immediate_live_buffer = st.fpe_immediate_vbo;
         g_glstate_c.send_vertex_attributes(vpa, st.fpe_immediate_vbo, ring_offset);
         *first = 0;
     } else {
         // Buffer-based arrays: attributes reference the caller's VBO (or
-        // fpe_vbo when nothing is bound, matching the legacy layout).
-        if (previous_array_buffer == 0) {
-            g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, g_glstate_c.fpe_state.fpe_vbo);
-        }
+        // fpe_vbo when nothing is bound, matching the legacy layout). Bind
+        // unconditionally: with the draw state held across draws, a previous
+        // FPE draw may have left the ring bound over the app's own binding,
+        // so "the app bound it already" is not a backend fact. A same-value
+        // rebind is driver-deduplicated.
         const GLuint attribute_array_buffer = previous_array_buffer == 0
                                                   ? g_glstate_c.fpe_state.fpe_vbo
                                                   : static_cast<GLuint>(previous_array_buffer);
+        g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, attribute_array_buffer);
+        gsc.immediate_live_buffer = attribute_array_buffer;
         g_glstate_c.send_vertex_attributes(vpa, attribute_array_buffer);
     }
     vpa.dirty = false;

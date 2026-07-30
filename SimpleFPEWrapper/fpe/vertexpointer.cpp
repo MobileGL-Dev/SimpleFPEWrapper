@@ -108,13 +108,29 @@ void rememberClientArrayBufferBinding(int index) {
 void glBindBuffer(GLenum target, GLuint buffer) {
     if (!sfpewEnsureBackend() || g_glFuncs.glBindBuffer == nullptr) return;
     (void)g_glstate; // entry strict resolve; the array-buffer shadow reads the snapshot
-    sfpewEntryBarrier();
-    g_glFuncs.glBindBuffer(target, buffer);
     if (target == GL_ARRAY_BUFFER) {
+        // GL_ARRAY_BUFFER is global (not VAO) state, so the bind can land
+        // while a fixed-function draw still holds the app's draw state: the
+        // held snapshot is updated so the eventual restore reproduces THIS
+        // binding, and the immediate arm forgets its buffer so the next FPE
+        // draw re-binds its own source. Handing the whole trio back here made
+        // every bind-pointers-draw sequence (the MC chunk VBO shape) pay a
+        // glUseProgram(0) -> glUseProgram(fpe) round trip per draw.
+        flushPendingImmediateDraws();
+        g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, buffer);
+        auto& gs = g_glstate_c;
+        if (gs.deferred_draw.held) {
+            gs.deferred_draw.array_buffer = static_cast<GLint>(buffer);
+            gs.immediate_live_buffer = 0;
+        }
         auto& state = getLogicalArrayBufferState();
         state.binding = buffer;
         state.known = true;
-    } else if (target == GL_ELEMENT_ARRAY_BUFFER) {
+        return;
+    }
+    sfpewEntryBarrier();
+    g_glFuncs.glBindBuffer(target, buffer);
+    if (target == GL_ELEMENT_ARRAY_BUFFER) {
         // Element bindings are VAO state; app calls run with the app's VAO
         // bound (the draw guard restored it). Track VAO 0's binding for the
         // guard; with an unknown or non-zero backend VAO, force a re-query.
@@ -294,7 +310,7 @@ GLuint getClientArrayBufferBinding(int index) {
 
 void glVertexPointer(GLint size, GLenum type, GLsizei stride, const void* pointer) {
     auto& gs = g_glstate;
-    sfpewEntryBarrier();
+    sfpewClientStateBarrier();
     // LOG_D("glVertexPointer, size = %d, type = %s, stride = %d, pointer = 0x%x", size, glEnumToString(type), stride,
     // pointer)
     auto& attr = gs.fpe_state.vertexpointer_array.attributes[vp2idx(GL_VERTEX_ARRAY)];
@@ -312,7 +328,7 @@ void glVertexPointer(GLint size, GLenum type, GLsizei stride, const void* pointe
 
 void glNormalPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
     auto& gs = g_glstate;
-    sfpewEntryBarrier();
+    sfpewClientStateBarrier();
     // LOG_D("glNormalPointer, type = %s, stride = %d, pointer = 0x%x", glEnumToString(type), stride, pointer)
     gs.fpe_state.vertexpointer_array.attributes[vp2idx(GL_NORMAL_ARRAY)] = {
         .size = 3,
@@ -333,7 +349,7 @@ void glNormalPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
 // (edge flags for PolygonMode).
 void glEdgeFlagPointer(GLsizei stride, const GLvoid* pointer) {
     auto& gs = g_glstate;
-    sfpewEntryBarrier();
+    sfpewClientStateBarrier();
     gs.fpe_state.vertexpointer_array.attributes[vp2idx(GL_EDGE_FLAG_ARRAY)] = {
         .size = 1,
         .usage = GL_EDGE_FLAG_ARRAY,
@@ -352,7 +368,7 @@ void glSecondaryColorPointer(GLint size, GLenum type, GLsizei stride, const GLvo
         gs.set_error(GL_INVALID_VALUE);
         return;
     }
-    sfpewEntryBarrier();
+    sfpewClientStateBarrier();
     gs.fpe_state.vertexpointer_array.attributes[vp2idx(GL_SECONDARY_COLOR_ARRAY)] = {
         .size = size,
         .usage = GL_SECONDARY_COLOR_ARRAY,
@@ -371,7 +387,7 @@ void glFogCoordPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
         gs.set_error(GL_INVALID_ENUM);
         return;
     }
-    sfpewEntryBarrier();
+    sfpewClientStateBarrier();
     gs.fpe_state.vertexpointer_array.attributes[vp2idx(GL_FOG_COORD_ARRAY)] = {
         .size = 1,
         .usage = GL_FOG_COORD_ARRAY,
@@ -386,7 +402,7 @@ void glFogCoordPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
 
 void glColorPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* pointer) {
     auto& gs = g_glstate;
-    sfpewEntryBarrier();
+    sfpewClientStateBarrier();
     // LOG_D("glColorPointer, size = %d, type = %s, stride = %d, pointer = 0x%x", size, glEnumToString(type), stride,
     // pointer)
     gs.fpe_state.vertexpointer_array.attributes[vp2idx(GL_COLOR_ARRAY)] = {
@@ -404,7 +420,7 @@ void glColorPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* point
 
 void glTexCoordPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* pointer) {
     auto& gs = g_glstate;
-    sfpewEntryBarrier();
+    sfpewClientStateBarrier();
     // LOG_D("glTexCoordPointer, size = %d, type = %s, stride = %d, pointer = 0x%x", size, glEnumToString(type), stride,
     // pointer) LOG_D("Active texture: %s", glEnumToString(g_glstate.fpe_state.client_active_texture))
     const int index = vp2idx(GL_TEXTURE_COORD_ARRAY);
@@ -423,7 +439,7 @@ void glTexCoordPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* po
 
 void glIndexPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
     auto& gs = g_glstate;
-    sfpewEntryBarrier();
+    sfpewClientStateBarrier();
     // LOG_D("glIndexPointer, size = %d, type = %s, stride = %d, pointer = 0x%x", glEnumToString(type), stride, pointer)
     gs.fpe_state.vertexpointer_array.attributes[vp2idx(GL_INDEX_ARRAY)] = {
         .size = 1,
@@ -440,7 +456,7 @@ void glIndexPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
 
 void glEnableClientState(GLenum cap) {
     auto& gs = g_glstate;
-    sfpewEntryBarrier();
+    sfpewClientStateBarrier();
     // LOG_D("glEnableClientState, cap = %s", glEnumToString(cap))
 
     auto mask = vp_mask(cap);
@@ -451,7 +467,7 @@ void glEnableClientState(GLenum cap) {
 
 void glDisableClientState(GLenum cap) {
     auto& gs = g_glstate;
-    sfpewEntryBarrier();
+    sfpewClientStateBarrier();
     // LOG_D("glDisableClientState, cap = %s", glEnumToString(cap))
     auto mask = vp_mask(cap);
 

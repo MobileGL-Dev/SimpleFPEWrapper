@@ -100,7 +100,14 @@ void glCallList(GLuint list) {
     // Entry strict resolve: replayed commands (matrix transforms, captured
     // draws) use the relaxed snapshot accessor and rely on this anchor.
     (void)g_glstate;
-    sfpewEntryBarrier();
+    // Flush-only: the specialized replay commands (captured draws, compiled
+    // immediate runs, matrix transforms) establish the wrapper's own draw
+    // state exactly like a live fixed-function draw, and every generic
+    // recorded command replays through its own exported entry point, which
+    // applies that entry's own barrier discipline. Restoring the app's state
+    // here just made each glCallList pay a glUseProgram round trip that the
+    // first replayed draw immediately undid.
+    flushPendingImmediateDraws();
     // LOG()
     // LOG_D("glCallList(%d)", list)
 
@@ -118,9 +125,9 @@ void glCallList(GLuint list) {
 }
 
 void glCallLists(GLsizei n, GLenum type, const GLvoid* lists) {
-    // Entry strict resolve; see glCallList.
+    // Entry strict resolve; see glCallList (flush-only for the same reason).
     (void)g_glstate;
-    sfpewEntryBarrier();
+    flushPendingImmediateDraws();
     // LOG()
     // LOG_D("glCallLists(%i, %s, %p)", n, glEnumToString(type), lists)
 

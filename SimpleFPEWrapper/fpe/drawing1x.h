@@ -50,6 +50,18 @@ inline void sfpewEntryBarrier() {
 // drawing with the wrapper's state.
 inline void sfpewTextureStateBarrier() { flushPendingImmediateDraws(); }
 
+// Same flush-only contract for entries that mutate only the wrapper's own
+// CPU-side state: the matrix-stack family (glMatrixMode, glPush/PopMatrix,
+// glTranslate/Rotate/Scale, glLoad/MultMatrix, glOrtho, glFrustum and their
+// display-list replay commands) and the client-array family (gl*Pointer,
+// glEnable/DisableClientState, glClientActiveTexture). Both meet the bar
+// above: no read or write of the program, VAO or buffer bindings, and no
+// control handed elsewhere. Using the full barrier here made every draw that
+// sits between glPushMatrix/glPopMatrix or a pointer respecification (the
+// Minecraft chunk and entity shapes) pay a glUseProgram(0) ->
+// glUseProgram(fpe) round trip per draw.
+inline void sfpewClientStateBarrier() { flushPendingImmediateDraws(); }
+
 // Stream-upload into the persistent-coherent immediate ring (GL_ARRAY_BUFFER
 // must already be bound to fpe_immediate_vbo). Returns the byte offset of the
 // uploaded range inside the ring (0 on the glBufferData fallback). Shared by

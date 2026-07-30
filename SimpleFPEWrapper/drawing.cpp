@@ -789,6 +789,10 @@ void drawArraysNow(GLenum mode, GLint first, GLsizei count, bool forceFixedFunct
     const uint32_t vertex_array_mask = 1u << vp2idx(GL_VERTEX_ARRAY);
     if ((!forceFixedFunction && current_program != 0) || first < 0 || count < 0 ||
         !(vertex_array.enabled_pointers & vertex_array_mask)) {
+        // These paths draw with the app's own program/VAO/element state; the
+        // glDrawArrays entry no longer restores it for fixed-function draws,
+        // so it must come back here before anything reaches the backend.
+        sfpewFlushDeferredDrawState();
         if (current_program != 0) {
             // GL 2.1: a bound user program still consumes the fixed-function
             // vertex arrays (shader packs draw terrain via glVertexPointer).
@@ -1434,7 +1438,14 @@ bool tryExecuteCapturedDisplayLists(const GLuint* listIds, size_t listCount) {
 void glDrawArrays(GLenum mode, GLint first, GLsizei count) {
     if (!sfpewEnsureBackend()) return;
     (void)g_glstate; // entry strict resolve; commit/capture path reads the snapshot
-    sfpewEntryBarrier();
+    // A fixed-function draw re-establishes the wrapper's program/VAO/buffer
+    // trio itself in commit_fpe_state_on_draw, so handing the app's state
+    // back first would be paid twice per draw. Only a user-program draw
+    // consumes the app's real bindings, and recording captures client arrays
+    // under guards that expect the app's state - both take the full barrier.
+    flushPendingImmediateDraws();
+    if (sfpewLogicalProgram() != 0 || DisplayListManager::shouldRecord())
+        sfpewFlushDeferredDrawState();
     if (!disableRecording && DisplayListManager::shouldRecord()) {
         std::unique_ptr<GLCmd> command;
 

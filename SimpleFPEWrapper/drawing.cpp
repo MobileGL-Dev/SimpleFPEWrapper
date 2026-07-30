@@ -128,7 +128,12 @@ public:
             }
         }
 
-        std::memcpy(mapped + offset, data, size);
+        // Upload through GL_COPY_WRITE_BUFFER: not part of vertex-array state,
+        // so no binding guard is needed and no shadow can observe it.
+        g_glFuncs.glBindBuffer(GL_COPY_WRITE_BUFFER, buffer);
+        g_glFuncs.glBufferSubData(GL_COPY_WRITE_BUFFER, static_cast<GLintptr>(offset),
+                                  static_cast<GLsizeiptr>(size), data);
+        g_glFuncs.glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
         allocation->buffer = buffer;
         allocation->offset = offset;
         allocation->size = size;
@@ -138,7 +143,7 @@ public:
 
     bool isCurrent(const display_list_vertex_allocation_t& allocation) const {
         return allocation.buffer != 0 && allocation.buffer == buffer &&
-               allocation.generation == generation && mapped != nullptr;
+               allocation.generation == generation && storageReady;
     }
 
     void release(display_list_vertex_allocation_t* allocation) {
@@ -159,7 +164,9 @@ public:
             retired.push_back({{old.offset, old.size}, fence});
         }
         // Without sync objects, conservatively leave the region unavailable.
-        // Reusing mapped bytes while an earlier draw is in flight is unsafe.
+        // glBufferSubData into a region an earlier draw still reads would be
+        // implicitly synchronized by the driver, but a stall there is worse
+        // than losing the bytes; the arena is large and lists are long-lived.
     }
 
 private:
@@ -171,7 +178,7 @@ private:
     void resetForContext(EGLContext currentContext) {
         context = currentContext;
         buffer = 0;
-        mapped = nullptr;
+        storageReady = false;
         tail = 0;
         storageAttempted = false;
         freeBlocks.clear();
@@ -179,37 +186,37 @@ private:
         ++generation;
     }
 
+    // Device-local storage, written once per allocation with glBufferSubData.
+    // Display-list geometry is written once and replayed many times, so a
+    // persistent-coherent CPU mapping is the WRONG residency for it: coherent
+    // storage lives in host-visible memory, and every replay made the GPU pull
+    // its vertices across the bus while the driver's per-submit bookkeeping
+    // for the mapped buffer grew the ioctl cost ~4x (measured on NVIDIA:
+    // 36.4 -> 5.1 us/chunk for the MC 1.12 chunk display-list shape just by
+    // leaving the mapping out; same submission count, 185 -> 112 us/ioctl).
     bool ensureStorage() {
-        if (mapped != nullptr) return true;
+        if (storageReady) return true;
         if (storageAttempted) return false;
         storageAttempted = true;
 
-        auto storage = g_glFuncs.glBufferStorage != nullptr ? g_glFuncs.glBufferStorage
-                                                            : g_glFuncs.glBufferStorageEXT;
-        if (storage == nullptr || g_glFuncs.glMapBufferRange == nullptr ||
-            g_glFuncs.glGenBuffers == nullptr || g_glFuncs.glDeleteBuffers == nullptr) {
+        if (g_glFuncs.glGenBuffers == nullptr || g_glFuncs.glDeleteBuffers == nullptr ||
+            g_glFuncs.glBufferData == nullptr || g_glFuncs.glBufferSubData == nullptr ||
+            g_glFuncs.glBindBuffer == nullptr) {
             return false;
         }
 
-        array_buffer_binding_guard_t bindingState;
         g_glFuncs.glGenBuffers(1, &buffer);
         sfpewNoteInternalBuffer(buffer);
         if (buffer == 0) return false;
-        g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, buffer);
-
-        constexpr GLbitfield mapFlags =
-            GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT;
-        constexpr GLbitfield storageFlags = mapFlags | GL_DYNAMIC_STORAGE_BIT;
-        storage(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(kDisplayListArenaCapacity), nullptr,
-                storageFlags);
-        mapped = static_cast<uint8_t*>(g_glFuncs.glMapBufferRange(
-            GL_ARRAY_BUFFER, 0, static_cast<GLsizeiptr>(kDisplayListArenaCapacity), mapFlags));
-        if (mapped == nullptr) {
-            sfpewForgetInternalBuffer(buffer);
-            g_glFuncs.glDeleteBuffers(1, &buffer);
-            buffer = 0;
-            return false;
-        }
+        g_glFuncs.glBindBuffer(GL_COPY_WRITE_BUFFER, buffer);
+        // Some drivers report GL_OUT_OF_MEMORY only via glGetError; a failed
+        // allocation surfaces later as a failed SubData/draw, and the captured
+        // draw's dedicated-buffer fallback covers that.
+        g_glFuncs.glBufferData(GL_COPY_WRITE_BUFFER,
+                               static_cast<GLsizeiptr>(kDisplayListArenaCapacity), nullptr,
+                               GL_STATIC_DRAW);
+        g_glFuncs.glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
+        storageReady = true;
         return true;
     }
 
@@ -290,7 +297,7 @@ private:
 
     EGLContext context = EGL_NO_CONTEXT;
     GLuint buffer = 0;
-    uint8_t* mapped = nullptr;
+    bool storageReady = false;
     size_t tail = 0;
     uint64_t generation = 0;
     bool storageAttempted = false;

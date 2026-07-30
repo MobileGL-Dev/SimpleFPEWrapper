@@ -71,6 +71,12 @@ typedef int GLint, GLsizei;
 #define GL_TEXTURE_MIN_FILTER 0x2801
 #define GL_TEXTURE_MAG_FILTER 0x2800
 #define GL_NEAREST 0x2600
+#define GL_ARRAY_BUFFER 0x8892
+#define GL_STATIC_DRAW 0x88E4
+#define GL_UNSIGNED_BYTE_T 0x1401
+#define GL_SHORT 0x1402
+#define GL_TEXTURE0_C 0x84C0
+#define GL_TEXTURE1_C 0x84C1
 
 static void* lib;
 static void* backend_gles;
@@ -146,6 +152,10 @@ static void (*fDisableClientState)(GLenum);
 static void (*fVertexPointer)(GLint, GLenum, GLsizei, const void*);
 static void (*fColorPointer)(GLint, GLenum, GLsizei, const void*);
 static void (*fTexCoordPointer)(GLint, GLenum, GLsizei, const void*);
+static void (*fClientActiveTexture)(GLenum);
+static void (*fGenBuffers)(GLsizei, GLuint*);
+static void (*fBindBuffer)(GLenum, GLuint);
+static void (*fBufferData)(GLenum, long, const void*, GLenum);
 static void (*fDrawArrays)(GLenum, GLint, GLsizei);
 static void (*fDrawElements)(GLenum, GLsizei, GLenum, const void*);
 static GLuint (*fGenLists)(GLsizei);
@@ -186,6 +196,10 @@ static void load_gl(void) {
     LOAD(fVertexPointer, "glVertexPointer");
     LOAD(fColorPointer, "glColorPointer");
     LOAD(fTexCoordPointer, "glTexCoordPointer");
+    LOAD(fClientActiveTexture, "glClientActiveTexture");
+    LOAD(fGenBuffers, "glGenBuffers");
+    LOAD(fBindBuffer, "glBindBuffer");
+    LOAD(fBufferData, "glBufferData");
     LOAD(fDrawArrays, "glDrawArrays");
     LOAD(fDrawElements, "glDrawElements");
     LOAD(fGenLists, "glGenLists");
@@ -569,6 +583,124 @@ int main(void) {
         fDisableClientState(GL_VERTEX_ARRAY);
         fDisableClientState(GL_COLOR_ARRAY);
         fDisableClientState(GL_TEXTURE_COORD_ARRAY);
+    }
+
+    // --- MC 1.12 chunk pipelines, reconstructed from
+    // RDC/Minecraft/1.12-Optifine/chunk.rdc (VBOs on) and
+    // chunk-without-vbo.rdc (VBOs off). Both captures show ~950 draws/frame,
+    // median 416 vertices per chunk pass, the 28-byte BLOCK vertex (3f pos,
+    // 4ub colour, 2f uv, 2s lightmap) and a per-chunk matrix. The difference
+    // is purely how the vertices reach GL:
+    //   VBOs on : per chunk - bind ITS OWN VBO, respecify all four pointers
+    //             as buffer offsets (lightmap via glClientActiveTexture),
+    //             glDrawArrays(GL_QUADS).
+    //   VBOs off: per chunk - glCallList of a list baked at chunk-build time
+    //             (client-array pointers + the draw live inside the list).
+    if (phase_on("mcchunkvbo") || phase_on("mcchunkdlist")) {
+        enum { CK_VERTS = 416, CK_CHUNKS = 16, CK_STRIDE = 28 };
+        static unsigned char ck[CK_VERTS * CK_STRIDE];
+        for (int v = 0; v < CK_VERTS; ++v) {
+            unsigned char* d = ck + v * CK_STRIDE;
+            float* pos = (float*)d;
+            const int corner = v % 4;
+            const float cell = 0.004f * (float)((v / 4) % 100) - 0.5f;
+            pos[0] = cell + ((corner == 1 || corner == 2) ? 0.004f : 0.0f);
+            pos[1] = cell + ((corner >= 2) ? 0.004f : 0.0f);
+            pos[2] = 0.0f;
+            d[12] = 200; d[13] = 200; d[14] = 200; d[15] = 255;   // colour 4ub
+            float* uv = (float*)(d + 16);
+            uv[0] = (float)(corner & 1); uv[1] = (float)(corner >> 1);
+            short* lm = (short*)(d + 24);
+            lm[0] = 240; lm[1] = 240;
+        }
+        const int ckframes = (int)(120 * scale) > 0 ? (int)(120 * scale) : 1;
+        const double ckdraws = (double)ckframes * CK_CHUNKS;
+
+        if (phase_on("mcchunkvbo") && fGenBuffers && fBindBuffer && fBufferData &&
+            fClientActiveTexture) {
+            GLuint vbos[CK_CHUNKS];
+            fGenBuffers(CK_CHUNKS, vbos);
+            for (int c = 0; c < CK_CHUNKS; ++c) {
+                fBindBuffer(GL_ARRAY_BUFFER, vbos[c]);
+                fBufferData(GL_ARRAY_BUFFER, (long)sizeof ck, ck, GL_STATIC_DRAW);
+            }
+            fEnableClientState(GL_VERTEX_ARRAY);
+            fEnableClientState(GL_COLOR_ARRAY);
+            fEnableClientState(GL_TEXTURE_COORD_ARRAY);
+            fClientActiveTexture(GL_TEXTURE1_C);
+            fEnableClientState(GL_TEXTURE_COORD_ARRAY);
+            fClientActiveTexture(GL_TEXTURE0_C);
+            fFinish();
+            t0 = now_ms();
+            for (int f = 0; f < ckframes; ++f) {
+                for (int c = 0; c < CK_CHUNKS; ++c) {
+                    fPushMatrix();
+                    fTranslatef(0.001f * (GLfloat)c, 0.0f, 0.0f);
+                    fBindBuffer(GL_ARRAY_BUFFER, vbos[c]);
+                    fVertexPointer(3, GL_FLOAT, CK_STRIDE, (const void*)0);
+                    fColorPointer(4, GL_UNSIGNED_BYTE_T, CK_STRIDE, (const void*)12);
+                    fTexCoordPointer(2, GL_FLOAT, CK_STRIDE, (const void*)16);
+                    fClientActiveTexture(GL_TEXTURE1_C);
+                    fTexCoordPointer(2, GL_SHORT, CK_STRIDE, (const void*)24);
+                    fClientActiveTexture(GL_TEXTURE0_C);
+                    fDrawArrays(GL_QUADS, 0, CK_VERTS);
+                    fPopMatrix();
+                }
+            }
+            fFinish();
+            ms = now_ms() - t0;
+            report("mcchunkvbo", ms * 1000.0 / ckdraws, "us/chunk");
+            fBindBuffer(GL_ARRAY_BUFFER, 0);
+            fClientActiveTexture(GL_TEXTURE1_C);
+            fDisableClientState(GL_TEXTURE_COORD_ARRAY);
+            fClientActiveTexture(GL_TEXTURE0_C);
+            fDisableClientState(GL_VERTEX_ARRAY);
+            fDisableClientState(GL_COLOR_ARRAY);
+            fDisableClientState(GL_TEXTURE_COORD_ARRAY);
+        }
+
+        if (phase_on("mcchunkdlist")) {
+            GLuint lists[CK_CHUNKS];
+            for (int c = 0; c < CK_CHUNKS; ++c) {
+                lists[c] = fGenLists(1);
+                fNewList(lists[c], GL_COMPILE);
+                fEnableClientState(GL_VERTEX_ARRAY);
+                fEnableClientState(GL_COLOR_ARRAY);
+                fEnableClientState(GL_TEXTURE_COORD_ARRAY);
+                fVertexPointer(3, GL_FLOAT, CK_STRIDE, ck);
+                fColorPointer(4, GL_UNSIGNED_BYTE_T, CK_STRIDE, ck + 12);
+                fTexCoordPointer(2, GL_FLOAT, CK_STRIDE, ck + 16);
+                if (fClientActiveTexture) {
+                    fClientActiveTexture(GL_TEXTURE1_C);
+                    fEnableClientState(GL_TEXTURE_COORD_ARRAY);
+                    fTexCoordPointer(2, GL_SHORT, CK_STRIDE, ck + 24);
+                    fClientActiveTexture(GL_TEXTURE0_C);
+                }
+                fDrawArrays(GL_QUADS, 0, CK_VERTS);
+                fDisableClientState(GL_VERTEX_ARRAY);
+                fDisableClientState(GL_COLOR_ARRAY);
+                fDisableClientState(GL_TEXTURE_COORD_ARRAY);
+                if (fClientActiveTexture) {
+                    fClientActiveTexture(GL_TEXTURE1_C);
+                    fDisableClientState(GL_TEXTURE_COORD_ARRAY);
+                    fClientActiveTexture(GL_TEXTURE0_C);
+                }
+                fEndList();
+            }
+            fFinish();
+            t0 = now_ms();
+            for (int f = 0; f < ckframes; ++f) {
+                for (int c = 0; c < CK_CHUNKS; ++c) {
+                    fPushMatrix();
+                    fTranslatef(0.001f * (GLfloat)c, 0.0f, 0.0f);
+                    fCallList(lists[c]);
+                    fPopMatrix();
+                }
+            }
+            fFinish();
+            ms = now_ms() - t0;
+            report("mcchunkdlist", ms * 1000.0 / ckdraws, "us/chunk");
+        }
     }
 
     if (phase_on("mcgui")) {

@@ -135,6 +135,19 @@ if(NOT ANDROID)
                         add_test(NAME ${t} COMMAND ${t})
                 endforeach()
 
+                # tools/glbench: standalone CPU-overhead benchmark for ANY
+                # library exporting GL 1.x (this wrapper, gl4es, a system
+                # libGL). Not a ctest - it takes a library path as input, and
+                # comparing implementations means running it more than once.
+                # Built when EGL is present so it is always available next to
+                # the library it measures; drive it with
+                # tools/glbench-compare.sh.
+                find_library(SFPEW_GLBENCH_EGL EGL)
+                if(SFPEW_GLBENCH_EGL)
+                        add_executable(glbench tools/glbench.c)
+                        target_link_libraries(glbench PRIVATE dl ${SFPEW_GLBENCH_EGL})
+                endif()
+
                 # Translation pipeline end-to-end test: needs EGL/GLESv2 to
                 # also compile the output on a real driver (skips otherwise).
                 find_library(SFPEW_TEST_EGL EGL)

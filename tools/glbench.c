@@ -1,4 +1,4 @@
-// SimpleFPEWrapper - tests/bench_cmp_gl4es.c
+// SimpleFPEWrapper - tools/glbench.c
 // Copyright (c) 2026 MobileGL-Dev
 // Licensed under the GNU Lesser General Public License v3.0:
 //   https://www.gnu.org/licenses/gpl-3.0.txt
@@ -6,18 +6,36 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 // End of Source File Header
 
-// Same-machine fixed-function comparison between SimpleFPEWrapper and
-// gl4es (see plans/12-fpe-draw-cost.md). Both libraries export the gl*
-// entry points directly, so the workload resolves everything with dlsym
-// against whichever library is under test and never links a system libGL.
+// Fixed-function CPU-overhead benchmark for ANY library that exports the
+// GL 1.x entry points: SimpleFPEWrapper, gl4es, a system libGL, Mesa, a
+// vendor driver. Nothing here is specific to this project - the workload
+// resolves every entry point with dlsym against the library under test and
+// never links a system libGL, so the same binary measures all of them and
+// the numbers are directly comparable.
 //
-// Not a ctest: it needs a second GL implementation on disk. Build it by
-// hand and point it at each library in turn.
+// Deliberately standalone rather than a ctest: it takes a library path, and
+// comparing two implementations means running it twice. tools/glbench-compare.sh
+// drives that and prints the ratio table.
 //
-//   CMPBENCH_LIB=<path to .so>   library under test
+//   CMPBENCH_LIB=<path to .so>   library under test (required)
 //   CMPBENCH_CTX=egl|glx         how to obtain the backing context
 //   CMPBENCH_SCALE=<float>       iteration scale (default 1.0)
 //   CMPBENCH_ONLY=<substring>    run only matching phases
+//   CMPBENCH_VIEWPORT=<n>        square viewport; 1 (default) removes
+//                                fragment cost so only CPU overhead shows
+//   CMPBENCH_TSV=1               emit "phase<TAB>value<TAB>unit" for scripts
+//
+// Phases fall in two groups. The first nine isolate one mechanism each
+// (immediate, dlist, clientarrays, drawelements, tinybatch, progtoggle,
+// matrixops, getter, texswitch). The mc* ones reproduce the GL 1.x call
+// sequences Minecraft issues, so a library can be judged on the shape of
+// work a real app produces rather than on microbenchmarks alone; see
+// plans/12-fpe-draw-cost.md for what each reconstructs.
+//
+// Every phase uses only GL 1.x calls that any of these libraries implements,
+// so a phase that prints nothing means an entry point was missing, not that
+// the library was excused from the work.
+
 #define _GNU_SOURCE
 #include <dlfcn.h>
 #include <stdio.h>
@@ -87,6 +105,16 @@ static void* sym(const char* n) {
 static int missing = 0;
 static const char* only = NULL;
 static int phase_on(const char* name) { return only == NULL || strstr(name, only) != NULL; }
+
+// One result line. Human form by default; CMPBENCH_TSV=1 switches to
+// "phase<TAB>value<TAB>unit" so a driver script can diff two runs without
+// parsing column widths.
+static int tsv_mode = 0;
+static void report(const char* phase, double value, const char* unit) {
+    if (tsv_mode) printf("%s\t%.4f\t%s\n", phase, value, unit);
+    else printf("%-14s %10.2f %s\n", phase, value, unit);
+    fflush(stdout);
+}
 
 static double now_ms(void) {
     struct timespec ts;
@@ -221,7 +249,7 @@ static int make_context_egl(void) {
     const char* routed = "library";
     if (!makeCurrent) { makeCurrent = makeCurrentReal; routed = "libEGL directly"; }
     if (!makeCurrent(d, s, s, x)) return 0;
-    printf("# context: EGL pbuffer 256x256, eglMakeCurrent via %s\n", routed);
+    if (!tsv_mode) printf("# context: EGL pbuffer 256x256, eglMakeCurrent via %s\n", routed);
     return 1;
 }
 
@@ -254,7 +282,7 @@ static int make_context_glx(void) {
         fprintf(stderr, "glXMakeCurrent failed\n");
         return 0;
     }
-    printf("# context: GLX on root window, via the library's own GLX\n");
+    if (!tsv_mode) printf("# context: GLX on root window, via the library's own GLX\n");
     return 1;
 }
 
@@ -283,6 +311,7 @@ int main(void) {
     const char* path = getenv("CMPBENCH_LIB");
     if (!path) { fprintf(stderr, "set CMPBENCH_LIB\n"); return 2; }
     only = getenv("CMPBENCH_ONLY");
+    tsv_mode = getenv("CMPBENCH_TSV") != NULL;
     double scale = 1.0;
     if (getenv("CMPBENCH_SCALE")) scale = atof(getenv("CMPBENCH_SCALE"));
     if (scale <= 0.0) scale = 1.0;
@@ -299,7 +328,7 @@ int main(void) {
     load_gl();
     if (missing) { fprintf(stderr, "SKIP: %d entry points missing\n", missing); return 77; }
     const GLubyte* ver = fGetString ? fGetString(0x1F02) : NULL;
-    printf("# GL_VERSION: %s\n", ver ? (const char*)ver : "(null)");
+    if (!tsv_mode) printf("# GL_VERSION: %s\n", ver ? (const char*)ver : "(null)");
 
     // A wrapper comparison is about CPU overhead per GL call, so the
     // default viewport is 1x1: rasterization then costs ~nothing and the
@@ -308,8 +337,8 @@ int main(void) {
     int vp = 1;
     if (getenv("CMPBENCH_VIEWPORT")) vp = atoi(getenv("CMPBENCH_VIEWPORT"));
     if (vp <= 0) vp = 1;
-    printf("# GL_RENDERER: %s\n", fGetString ? (const char*)fGetString(0x1F01) : "(null)");
-    printf("# viewport: %dx%d\n", vp, vp);
+    if (!tsv_mode) printf("# GL_RENDERER: %s\n", fGetString ? (const char*)fGetString(0x1F01) : "(null)");
+    if (!tsv_mode) printf("# viewport: %dx%d\n", vp, vp);
     fViewport(0, 0, vp, vp);
     fClearColor(0.1f, 0.1f, 0.1f, 1.0f);
     fClear(GL_COLOR_BUFFER_BIT);
@@ -329,7 +358,7 @@ int main(void) {
         for (int f = 0; f < frames; ++f) draw_quads_immediate(1000);
         fFinish();
         ms = now_ms() - t0;
-        printf("immediate    %10.1f ns/vert\n", ms * 1.0e6 / ((double)frames * 4000.0));
+        report("immediate", ms * 1.0e6 / ((double)frames * 4000.0), "ns/vert");
     }
 
     /* display list replay */
@@ -345,7 +374,7 @@ int main(void) {
         for (int f = 0; f < frames; ++f) fCallList(list);
         fFinish();
         ms = now_ms() - t0;
-        printf("dlist        %10.1f ns/vert\n", ms * 1.0e6 / ((double)frames * 4000.0));
+        report("dlist", ms * 1.0e6 / ((double)frames * 4000.0), "ns/vert");
     }
 
     /* client arrays */
@@ -380,7 +409,7 @@ int main(void) {
             for (int f = 0; f < frames; ++f) fDrawArrays(GL_QUADS, 0, CA_VERTS);
             fFinish();
             ms = now_ms() - t0;
-            printf("clientarrays %10.1f ns/vert\n", ms * 1.0e6 / ((double)frames * CA_VERTS));
+            report("clientarrays", ms * 1.0e6 / ((double)frames * CA_VERTS), "ns/vert");
         }
         if (phase_on("drawelements")) {
             fDrawElements(GL_TRIANGLES, CA_QUADS * 6, GL_UNSIGNED_SHORT, indices);
@@ -390,7 +419,7 @@ int main(void) {
                 fDrawElements(GL_TRIANGLES, CA_QUADS * 6, GL_UNSIGNED_SHORT, indices);
             fFinish();
             ms = now_ms() - t0;
-            printf("drawelements %10.1f ns/idx\n", ms * 1.0e6 / ((double)frames * CA_QUADS * 6));
+            report("drawelements", ms * 1.0e6 / ((double)frames * CA_QUADS * 6), "ns/idx");
         }
         fDisableClientState(GL_VERTEX_ARRAY);
         fDisableClientState(GL_COLOR_ARRAY);
@@ -406,7 +435,7 @@ int main(void) {
         for (int i = 0; i < batches; ++i) draw_quads_immediate(1);
         fFinish();
         ms = now_ms() - t0;
-        printf("tinybatch    %10.2f us/batch\n", ms * 1000.0 / batches);
+        report("tinybatch", ms * 1000.0 / batches, "us/batch");
     }
 
     /* state toggling: shader/program cache pressure */
@@ -420,7 +449,7 @@ int main(void) {
         fFinish();
         ms = now_ms() - t0;
         fDisable(GL_LIGHTING);
-        printf("progtoggle   %10.2f us/draw\n", ms * 1000.0 / draws);
+        report("progtoggle", ms * 1000.0 / draws, "us/draw");
     }
 
     /* pure CPU: matrix stack */
@@ -434,7 +463,7 @@ int main(void) {
             fPopMatrix();
         }
         ms = now_ms() - t0;
-        printf("matrixops    %10.1f ns/group\n", ms * 1.0e6 / ops);
+        report("matrixops", ms * 1.0e6 / ops, "ns/group");
     }
 
     /* pure CPU: getter */
@@ -444,7 +473,7 @@ int main(void) {
         t0 = now_ms();
         for (int i = 0; i < gets; ++i) fGetFloatv(GL_MODELVIEW_MATRIX, m);
         ms = now_ms() - t0;
-        printf("getter       %10.1f ns/call\n", ms * 1.0e6 / gets);
+        report("getter", ms * 1.0e6 / gets, "ns/call");
     }
 
     /* texture switching */
@@ -469,7 +498,174 @@ int main(void) {
         fFinish();
         ms = now_ms() - t0;
         fDisable(GL_TEXTURE_2D);
-        printf("texswitch    %10.2f us/draw\n", ms * 1000.0 / draws);
+        report("texswitch", ms * 1000.0 / draws, "us/draw");
+    }
+
+    // --- Minecraft-shaped phases ------------------------------------------
+    // Reconstructed GL 1.x call sequences from the 1.12/1.16 RenderDoc
+    // captures plus the known vanilla vertex formats; see
+    // plans/12-fpe-draw-cost.md. Only GL 1.x calls, so any library here runs
+    // exactly the same workload.
+    if (phase_on("mcchunk") || phase_on("mcchunkmulti")) {
+        // DefaultVertexFormats.BLOCK: 3f position, colour, 2f uv, lightmap.
+        // Declared all-float so one array serves every library; the 28-byte
+        // stride is what per-draw cost turns on.
+        enum { MC_STRIDE_F = 7, MC_CHUNK_V = 400, MC_CHUNKS = 16 };
+        static GLfloat mc[MC_CHUNK_V * MC_CHUNKS * MC_STRIDE_F];
+        for (int v = 0; v < MC_CHUNK_V * MC_CHUNKS; ++v) {
+            const int corner = v % 4;
+            const GLfloat cell = 0.01f * (GLfloat)((v / 4) % 100) - 0.5f;
+            GLfloat* d = &mc[v * MC_STRIDE_F];
+            d[0] = cell + ((corner == 1 || corner == 2) ? 0.01f : 0.0f);
+            d[1] = cell + ((corner >= 2) ? 0.01f : 0.0f);
+            d[2] = 0.0f;
+            d[3] = 0.8f;
+            d[4] = (GLfloat)(corner & 1);
+            d[5] = (GLfloat)(corner >> 1);
+            d[6] = 0.5f;
+        }
+        const GLsizei mcstride = MC_STRIDE_F * (GLsizei)sizeof(GLfloat);
+        fEnableClientState(GL_VERTEX_ARRAY);
+        fEnableClientState(GL_COLOR_ARRAY);
+        fEnableClientState(GL_TEXTURE_COORD_ARRAY);
+        fVertexPointer(3, GL_FLOAT, mcstride, mc);
+        fColorPointer(3, GL_FLOAT, mcstride, mc + 3);
+        fTexCoordPointer(2, GL_FLOAT, mcstride, mc + 4);
+        const int mcframes = (int)(120 * scale) > 0 ? (int)(120 * scale) : 1;
+        const double mcverts = (double)mcframes * (MC_CHUNK_V * MC_CHUNKS);
+
+        if (phase_on("mcchunk") && !phase_on("mcchunkmulti")) {
+            fDrawArrays(GL_QUADS, 0, MC_CHUNK_V * MC_CHUNKS);
+            fFinish();
+            t0 = now_ms();
+            for (int f = 0; f < mcframes; ++f) {
+                fPushMatrix();
+                fTranslatef(0.001f * (GLfloat)f, 0.0f, 0.0f);
+                fDrawArrays(GL_QUADS, 0, MC_CHUNK_V * MC_CHUNKS);
+                fPopMatrix();
+            }
+            fFinish();
+            ms = now_ms() - t0;
+            report("mcchunk", ms * 1.0e6 / mcverts, "ns/vert");
+        }
+        if (phase_on("mcchunkmulti")) {
+            // The real frame shape: many small chunk draws, each with its own
+            // matrix, so per-draw fixed cost dominates over vertex rate.
+            fDrawArrays(GL_QUADS, 0, MC_CHUNK_V);
+            fFinish();
+            t0 = now_ms();
+            for (int f = 0; f < mcframes; ++f) {
+                for (int c = 0; c < MC_CHUNKS; ++c) {
+                    fPushMatrix();
+                    fTranslatef(0.001f * (GLfloat)c, 0.0f, 0.0f);
+                    fDrawArrays(GL_QUADS, c * MC_CHUNK_V, MC_CHUNK_V);
+                    fPopMatrix();
+                }
+            }
+            fFinish();
+            ms = now_ms() - t0;
+            report("mcchunkmulti", ms * 1000.0 / ((double)mcframes * MC_CHUNKS), "us/chunk");
+        }
+        fDisableClientState(GL_VERTEX_ARRAY);
+        fDisableClientState(GL_COLOR_ARRAY);
+        fDisableClientState(GL_TEXTURE_COORD_ARRAY);
+    }
+
+    if (phase_on("mcgui")) {
+        // Gui/GuiIngame: one immediate quad per widget, bracketed by the
+        // texture bind and alpha-test toggle the vanilla helpers push and pop.
+        GLuint guitex[2] = {0, 0};
+        fGenTextures(2, guitex);
+        static unsigned char px[16 * 16 * 4];
+        for (int i = 0; i < 16 * 16 * 4; ++i) px[i] = (unsigned char)(i * 7);
+        for (int i = 0; i < 2; ++i) {
+            fBindTexture(GL_TEXTURE_2D, guitex[i]);
+            fTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 16, 16, 0, GL_RGBA, GL_UNSIGNED_BYTE, px);
+            fTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+            fTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        }
+        fEnable(GL_TEXTURE_2D);
+        const int widgets = (int)(4000 * scale) > 0 ? (int)(4000 * scale) : 1;
+        fFinish();
+        t0 = now_ms();
+        for (int w = 0; w < widgets; ++w) {
+            fBindTexture(GL_TEXTURE_2D, guitex[w & 1]);
+            fDisable(GL_ALPHA_TEST);
+            fBegin(GL_QUADS);
+            fColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+            fTexCoord2f(0.0f, 0.0f); fVertex3f(-0.5f, -0.5f, 0.0f);
+            fTexCoord2f(1.0f, 0.0f); fVertex3f(-0.4f, -0.5f, 0.0f);
+            fTexCoord2f(1.0f, 1.0f); fVertex3f(-0.4f, -0.4f, 0.0f);
+            fTexCoord2f(0.0f, 1.0f); fVertex3f(-0.5f, -0.4f, 0.0f);
+            fEnd();
+            fEnable(GL_ALPHA_TEST);
+        }
+        fFinish();
+        ms = now_ms() - t0;
+        fDisable(GL_ALPHA_TEST);
+        fDisable(GL_TEXTURE_2D);
+        report("mcgui", ms * 1000.0 / widgets, "us/widget");
+    }
+
+    if (phase_on("mcfont")) {
+        // FontRenderer: one quad per glyph with a per-glyph colour, all inside
+        // a single Begin/End for the string.
+        const int strings = (int)(2000 * scale) > 0 ? (int)(2000 * scale) : 1;
+        enum { GLYPHS = 24 };
+        fFinish();
+        t0 = now_ms();
+        for (int st2 = 0; st2 < strings; ++st2) {
+            fBegin(GL_QUADS);
+            for (int g = 0; g < GLYPHS; ++g) {
+                const GLfloat x = -0.5f + 0.01f * (GLfloat)g;
+                fColor4f(1.0f, 1.0f, 1.0f, 0.25f + 0.03f * (GLfloat)(g & 7));
+                fTexCoord2f(0.0f, 0.0f); fVertex3f(x, 0.0f, 0.0f);
+                fTexCoord2f(1.0f, 0.0f); fVertex3f(x + 0.008f, 0.0f, 0.0f);
+                fTexCoord2f(1.0f, 1.0f); fVertex3f(x + 0.008f, 0.01f, 0.0f);
+                fTexCoord2f(0.0f, 1.0f); fVertex3f(x, 0.01f, 0.0f);
+            }
+            fEnd();
+        }
+        fFinish();
+        ms = now_ms() - t0;
+        report("mcfont", ms * 1000.0 / strings, "us/string");
+    }
+
+    if (phase_on("mcentity")) {
+        // ModelRenderer: each box is a compiled display list replayed under
+        // its own push/rotate/pop.
+        enum { BOXES = 12 };
+        GLuint lists[BOXES];
+        for (int b = 0; b < BOXES; ++b) {
+            lists[b] = fGenLists(1);
+            fNewList(lists[b], GL_COMPILE);
+            fBegin(GL_QUADS);
+            for (int q = 0; q < 6; ++q) {
+                const GLfloat c = 0.01f * (GLfloat)q - 0.2f;
+                fColor4f(0.5f, 0.6f, 0.7f, 1.0f);
+                fTexCoord2f(0.0f, 0.0f); fVertex3f(c, c, 0.0f);
+                fTexCoord2f(1.0f, 0.0f); fVertex3f(c + 0.01f, c, 0.0f);
+                fTexCoord2f(1.0f, 1.0f); fVertex3f(c + 0.01f, c + 0.01f, 0.0f);
+                fTexCoord2f(0.0f, 1.0f); fVertex3f(c, c + 0.01f, 0.0f);
+            }
+            fEnd();
+            fEndList();
+        }
+        const int models = (int)(2000 * scale) > 0 ? (int)(2000 * scale) : 1;
+        fFinish();
+        t0 = now_ms();
+        for (int m = 0; m < models; ++m) {
+            for (int b = 0; b < BOXES; ++b) {
+                fPushMatrix();
+                fTranslatef(0.0f, 0.01f * (GLfloat)b, 0.0f);
+                fRotatef(1.0f * (GLfloat)b, 0.0f, 1.0f, 0.0f);
+                fCallList(lists[b]);
+                fPopMatrix();
+            }
+        }
+        fFinish();
+        ms = now_ms() - t0;
+        report("mcentity", ms * 1000.0 / models, "us/model");
     }
 
     return 0;

@@ -212,6 +212,14 @@ if(NOT ANDROID)
                         add_test(NAME smoke_attrib_retire COMMAND smoke_attrib_retire)
                         set_tests_properties(smoke_attrib_retire PROPERTIES SKIP_RETURN_CODE 77)
 
+                        add_executable(smoke_arraybuffer_heal tests/smoke_arraybuffer_heal.c)
+                        target_compile_definitions(smoke_arraybuffer_heal PRIVATE
+                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
+                        target_link_libraries(smoke_arraybuffer_heal PRIVATE dl ${SFPEW_TEST_EGL})
+                        add_dependencies(smoke_arraybuffer_heal ${CMAKE_PROJECT_NAME})
+                        add_test(NAME smoke_arraybuffer_heal COMMAND smoke_arraybuffer_heal)
+                        set_tests_properties(smoke_arraybuffer_heal PROPERTIES SKIP_RETURN_CODE 77)
+
                         add_executable(smoke_element_binding_survives tests/smoke_element_binding_survives.c)
                         target_compile_definitions(smoke_element_binding_survives PRIVATE
                                 WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")

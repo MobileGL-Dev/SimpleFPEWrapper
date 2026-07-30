@@ -36,18 +36,33 @@ logical_array_buffer_state_t& getLogicalArrayBufferState() {
 
 GLuint getLogicalArrayBufferBinding() {
     auto& state = getLogicalArrayBufferState();
-    if (state.known) return state.binding;
 
-    // Seeding from the backend while a fixed-function draw holds the app's
-    // state would capture the wrapper's own ring buffer as if the app had
-    // bound it (plans/12). The save carries the app's value.
-    if (g_glstate_c.deferred_draw.held) {
+    // Callers that bypass the glBindBuffer wrapper (JNI direct dispatch, a
+    // layered wrapper) would otherwise desynchronize this shadow for the rest
+    // of the process: unlike the program and VAO shadows it had no heal at all,
+    // and once seeded it answered from itself forever. Re-read the truth every
+    // 256 queries, the same self-healing reconciliation those two use
+    // (sfpewLogicalProgram, plans/07) - one glGetIntegerv per ~256 queries.
+    thread_local unsigned reconcile_counter = 0;
+    const bool reconcile = (++reconcile_counter & 0xFFu) == 0u;
+
+    // While a fixed-function draw holds the app's state the backend has the
+    // WRAPPER's buffer bound, so asking it would poison the shadow with the
+    // ring buffer as if the app had bound it (plans/12). The save on the
+    // context is the app's truth here; the reconcile waits for the next
+    // unheld query.
+    const bool held = g_glstate_c.deferred_draw.held;
+    if (state.known && !(reconcile && !held)) return state.binding;
+
+    if (held) {
         state.binding = static_cast<GLuint>(g_glstate_c.deferred_draw.array_buffer);
         state.known = true;
         return state.binding;
     }
 
-    if (!sfpewEnsureBackend() || g_glFuncs.glGetIntegerv == nullptr) return 0;
+    if (!sfpewEnsureBackend() || g_glFuncs.glGetIntegerv == nullptr) {
+        return state.known ? state.binding : 0;
+    }
     GLint binding = 0;
     g_glFuncs.glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &binding);
     state.binding = static_cast<GLuint>(binding);

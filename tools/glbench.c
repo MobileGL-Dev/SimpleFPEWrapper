@@ -77,6 +77,11 @@ typedef int GLint, GLsizei;
 #define GL_SHORT 0x1402
 #define GL_TEXTURE0_C 0x84C0
 #define GL_TEXTURE1_C 0x84C1
+#define GL_FOG_MODE 0x0B65
+#define GL_FOG_COLOR 0x0B66
+#define GL_FOG_START 0x0B63
+#define GL_FOG_END 0x0B64
+#define GL_LINEAR_F 0x2601
 
 static void* lib;
 static void* backend_gles;
@@ -153,6 +158,9 @@ static void (*fVertexPointer)(GLint, GLenum, GLsizei, const void*);
 static void (*fColorPointer)(GLint, GLenum, GLsizei, const void*);
 static void (*fTexCoordPointer)(GLint, GLenum, GLsizei, const void*);
 static void (*fClientActiveTexture)(GLenum);
+static void (*fMultMatrixf)(const GLfloat*);
+static void (*fFogf)(GLenum, GLfloat);
+static void (*fFogfv)(GLenum, const GLfloat*);
 static void (*fGenBuffers)(GLsizei, GLuint*);
 static void (*fBindBuffer)(GLenum, GLuint);
 static void (*fBufferData)(GLenum, long, const void*, GLenum);
@@ -197,6 +205,9 @@ static void load_gl(void) {
     LOAD(fColorPointer, "glColorPointer");
     LOAD(fTexCoordPointer, "glTexCoordPointer");
     LOAD(fClientActiveTexture, "glClientActiveTexture");
+    LOAD(fMultMatrixf, "glMultMatrixf");
+    LOAD(fFogf, "glFogf");
+    LOAD(fFogfv, "glFogfv");
     LOAD(fGenBuffers, "glGenBuffers");
     LOAD(fBindBuffer, "glBindBuffer");
     LOAD(fBufferData, "glBufferData");
@@ -701,6 +712,100 @@ int main(void) {
             ms = now_ms() - t0;
             report("mcchunkdlist", ms * 1000.0 / ckdraws, "us/chunk");
         }
+    }
+
+    // --- MC 1.16 chunk pipeline, reconstructed from
+    // RDC/Minecraft/1.16-Optifine/2-12chunks.rdc: 583 draws/frame at render
+    // distance 12, median 608 vertices per chunk pass, the same 28-byte
+    // BLOCK vertex as 1.12 - but 1.16's VertexBuffer.draw() replaces the
+    // 1.12 glTranslatef with a FULL matrix reload per chunk:
+    //   bind chunk VBO, setupBufferState (4 pointers, lightmap on unit 1),
+    //   glPushMatrix + glLoadIdentity + glMultMatrixf(chunk pose),
+    //   glDrawArrays(GL_QUADS), glPopMatrix.
+    // The reload invalidates every matrix-derived uniform each draw, which
+    // is what separates this shape from mcchunkvbo.
+    if (phase_on("mcchunk116") && fGenBuffers && fBindBuffer && fBufferData &&
+        fClientActiveTexture && fMultMatrixf) {
+        enum { CK116_VERTS = 608, CK116_CHUNKS = 16, CK116_STRIDE = 28 };
+        static unsigned char ck[CK116_VERTS * CK116_STRIDE];
+        for (int v = 0; v < CK116_VERTS; ++v) {
+            unsigned char* d = ck + v * CK116_STRIDE;
+            float* pos = (float*)d;
+            const int corner = v % 4;
+            const float cell = 0.004f * (float)((v / 4) % 100) - 0.5f;
+            pos[0] = cell + ((corner == 1 || corner == 2) ? 0.004f : 0.0f);
+            pos[1] = cell + ((corner >= 2) ? 0.004f : 0.0f);
+            pos[2] = 0.0f;
+            d[12] = 200; d[13] = 200; d[14] = 200; d[15] = 255;
+            float* uv = (float*)(d + 16);
+            uv[0] = (float)(corner & 1); uv[1] = (float)(corner >> 1);
+            short* lm = (short*)(d + 24);
+            lm[0] = 240; lm[1] = 240;
+        }
+        GLuint vbos[CK116_CHUNKS];
+        fGenBuffers(CK116_CHUNKS, vbos);
+        for (int c = 0; c < CK116_CHUNKS; ++c) {
+            fBindBuffer(GL_ARRAY_BUFFER, vbos[c]);
+            fBufferData(GL_ARRAY_BUFFER, (long)sizeof ck, ck, GL_STATIC_DRAW);
+        }
+        fEnableClientState(GL_VERTEX_ARRAY);
+        fEnableClientState(GL_COLOR_ARRAY);
+        fEnableClientState(GL_TEXTURE_COORD_ARRAY);
+        fClientActiveTexture(GL_TEXTURE1_C);
+        fEnableClientState(GL_TEXTURE_COORD_ARRAY);
+        fClientActiveTexture(GL_TEXTURE0_C);
+
+        // Fog on, exactly like the capture: MC's world passes render with
+        // linear fog enabled, which is what makes the generated shader carry
+        // ModelViewMat as well as ModelViewProjMat - so every per-chunk
+        // matrix reload uploads TWO mat4s, not one. A fogless variant of
+        // this phase would miss half the per-draw uniform traffic.
+        if (fFogf && fFogfv) {
+            static const GLfloat fog_color[4] = {0.7f, 0.8f, 0.9f, 1.0f};
+            fFogf(GL_FOG_MODE, (GLfloat)GL_LINEAR_F);
+            fFogf(GL_FOG_START, 64.0f);
+            fFogf(GL_FOG_END, 192.0f);
+            fFogfv(GL_FOG_COLOR, fog_color);
+            fEnable(GL_FOG);
+        }
+
+        // Per-chunk pose: identity with a small translation, like the
+        // camera-relative chunk origin MC bakes into the matrix.
+        GLfloat pose[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+
+        const int ckframes = (int)(120 * scale) > 0 ? (int)(120 * scale) : 1;
+        const double ckdraws = (double)ckframes * CK116_CHUNKS;
+        fFinish();
+        t0 = now_ms();
+        for (int f = 0; f < ckframes; ++f) {
+            for (int c = 0; c < CK116_CHUNKS; ++c) {
+                fBindBuffer(GL_ARRAY_BUFFER, vbos[c]);
+                fVertexPointer(3, GL_FLOAT, CK116_STRIDE, (const void*)0);
+                fColorPointer(4, GL_UNSIGNED_BYTE_T, CK116_STRIDE, (const void*)12);
+                fTexCoordPointer(2, GL_FLOAT, CK116_STRIDE, (const void*)16);
+                fClientActiveTexture(GL_TEXTURE1_C);
+                fTexCoordPointer(2, GL_SHORT, CK116_STRIDE, (const void*)24);
+                fClientActiveTexture(GL_TEXTURE0_C);
+                fPushMatrix();
+                fLoadIdentity();
+                pose[12] = 0.001f * (GLfloat)c;
+                pose[13] = 0.0005f * (GLfloat)(f & 7);
+                fMultMatrixf(pose);
+                fDrawArrays(GL_QUADS, 0, CK116_VERTS);
+                fPopMatrix();
+            }
+        }
+        fFinish();
+        ms = now_ms() - t0;
+        report("mcchunk116", ms * 1000.0 / ckdraws, "us/chunk");
+        if (fFogf && fFogfv) fDisable(GL_FOG);
+        fBindBuffer(GL_ARRAY_BUFFER, 0);
+        fClientActiveTexture(GL_TEXTURE1_C);
+        fDisableClientState(GL_TEXTURE_COORD_ARRAY);
+        fClientActiveTexture(GL_TEXTURE0_C);
+        fDisableClientState(GL_VERTEX_ARRAY);
+        fDisableClientState(GL_COLOR_ARRAY);
+        fDisableClientState(GL_TEXTURE_COORD_ARRAY);
     }
 
     if (phase_on("mcgui")) {

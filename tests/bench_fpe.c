@@ -25,6 +25,35 @@
 //   bench.getter       - glGetFloatv(GL_MODELVIEW_MATRIX) shadow reads
 //   bench.progcompile  - cold program-cache misses (16 enable combos)
 //
+// Minecraft-shaped composites. The phases above isolate one mechanism each;
+// these reproduce the GL 1.x call sequence the game actually issues, so a
+// change that trades one mechanism against another still shows up. The call
+// sequences are reconstructed from the 1.12/1.16 RenderDoc captures in
+// plans/12 plus the known vanilla vertex formats - they are representative,
+// not captured verbatim.
+//
+//   bench.mcchunk      - terrain chunk: DefaultVertexFormats.BLOCK, the
+//                        28-byte interleaved position/color/uv/lightmap
+//                        record, from a VBO, two texture units, GL_QUADS,
+//                        one matrix push/translate/pop per chunk
+//   bench.mcchunkmulti - the same but many small chunks per frame, which is
+//                        where per-draw fixed cost dominates over vertex count
+//   bench.mcgui        - GUI/HUD: one immediate-mode quad per widget with a
+//                        texture bind and alpha-test toggle around it
+//   bench.mcfont       - text: per-glyph colour changes inside one Begin/End,
+//                        the shape the glyph batcher was written for
+//   bench.mcentity     - entity models: display-list replay with a matrix
+//                        push/rotate/pop per box
+//
+// Which Minecraft configuration each phase stands for:
+//   - the five mc* phases draw with program 0, i.e. vanilla with no shader
+//     pack, where the wrapper generates the whole pipeline itself.
+//   - bench.userprog / bench.userprogelements are the OptiFine/Sodium case,
+//     where the app binds its own program and the wrapper feeds the legacy
+//     arrays and uniform block into it.
+// They exercise disjoint code, so a change usually moves one group and not
+// the other; check both before calling something a win.
+//
 // SFPEW_BENCH_SCALE scales every iteration count (default 1.0; use
 // small values on slow/software devices). Exit 0 always, 77 = no device.
 
@@ -61,6 +90,11 @@ typedef unsigned int GLbitfield;
 #define GL_COLOR_ARRAY 0x8076
 #define GL_TEXTURE_COORD_ARRAY 0x8078
 #define GL_NEAREST 0x2600
+#define GL_TEXTURE0 0x84C0
+#define GL_TEXTURE1 0x84C1
+#define GL_SRC_ALPHA 0x0302
+#define GL_ONE_MINUS_SRC_ALPHA 0x0303
+#define GL_BLEND 0x0BE2
 
 static void (*fClearColor)(GLfloat, GLfloat, GLfloat, GLfloat);
 static void (*fClear)(GLbitfield);
@@ -97,6 +131,15 @@ static void (*fTexSubImage2D)(GLenum, GLint, GLint, GLint, GLsizei, GLsizei, GLe
 static void (*fTexParameteri)(GLenum, GLenum, GLint);
 static void (*fReadPixels)(GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, void*);
 static void (*fGetFloatv)(GLenum, GLfloat*);
+static void (*fColor4f)(GLfloat, GLfloat, GLfloat, GLfloat);
+static void (*fVertex3f)(GLfloat, GLfloat, GLfloat);
+static void (*fActiveTexture)(GLenum);
+static void (*fClientActiveTexture)(GLenum);
+static void (*fDepthMask)(unsigned char);
+static void (*fBlendFunc)(GLenum, GLenum);
+static void (*fGenBuffers)(GLsizei, GLuint*);
+static void (*fBindBuffer)(GLenum, GLuint);
+static void (*fBufferData)(GLenum, long, const void*, GLenum);
 typedef int (*translate_fn)(unsigned int, const char*, char*, int);
 
 // A single check at the end can only say "something raised an error", which is
@@ -228,6 +271,15 @@ int main(void) {
     R(fTexParameteri, "glTexParameteri");
     R(fReadPixels, "glReadPixels");
     R(fGetFloatv, "glGetFloatv");
+    R(fColor4f, "glColor4f");
+    R(fVertex3f, "glVertex3f");
+    R(fActiveTexture, "glActiveTexture");
+    R(fClientActiveTexture, "glClientActiveTexture");
+    R(fDepthMask, "glDepthMask");
+    R(fBlendFunc, "glBlendFunc");
+    R(fGenBuffers, "glGenBuffers");
+    R(fBindBuffer, "glBindBuffer");
+    R(fBufferData, "glBufferData");
 
     double scale = 1.0;
     const char* scale_env = getenv("SFPEW_BENCH_SCALE");
@@ -464,12 +516,6 @@ int main(void) {
         void (*fLinkProgramF)(unsigned int) = NULL;
         void (*fGetProgramivF)(unsigned int, unsigned int, int*) = NULL;
         void (*fUseProgramF)(unsigned int) = NULL;
-        void (*fGenBuffers)(int, unsigned int*) = NULL;
-        void (*fBindBuffer)(unsigned int, unsigned int) = NULL;
-        void (*fBufferData)(unsigned int, long, const void*, unsigned int) = NULL;
-        *(void**)(&fGenBuffers) = resolve("glGenBuffers");
-        *(void**)(&fBindBuffer) = resolve("glBindBuffer");
-        *(void**)(&fBufferData) = resolve("glBufferData");
         (void)fCreateShaderP;
         *(void**)(&fCreateShaderF) = resolve("glCreateShader");
         *(void**)(&fShaderSourceF) = resolve("glShaderSource");
@@ -481,8 +527,7 @@ int main(void) {
         *(void**)(&fUseProgramF) = resolve("glUseProgram");
 
         if (fCreateShaderF && fShaderSourceF && fCompileShaderF && fCreateProgramF &&
-            fAttachShaderF && fLinkProgramF && fGetProgramivF && fUseProgramF && fGenBuffers &&
-            fBindBuffer && fBufferData) {
+            fAttachShaderF && fLinkProgramF && fGetProgramivF && fUseProgramF) {
             // Declares the fpe_* inputs and a slice of the fixed-function
             // uniform block, so the wrapper resolves and feeds both.
             static const char* upVS =
@@ -675,6 +720,179 @@ int main(void) {
     printf("bench.getter:    %7.1f ns/glGetFloatv(GL_MODELVIEW_MATRIX) (x%d)\n",
            get_ms * 1.0e6 / gets, gets);
     bench_check_error("getter");
+
+    // --- Minecraft-shaped composites ----------------------------------------
+    //
+    // Vanilla's terrain vertex is DefaultVertexFormats.BLOCK: 3 floats
+    // position, 4 unsigned bytes colour, 2 floats UV, 2 shorts lightmap =
+    // 28 bytes. The lightmap rides texture unit 1, which is why each chunk
+    // costs two glClientActiveTexture switches on top of the pointer set.
+    // Colour and lightmap are declared as GL_FLOAT here so one array serves
+    // every phase; the stride is what the per-draw cost turns on, and keeping
+    // a single format keeps these phases comparable to clientarrays above.
+    enum { MC_STRIDE = 28, MC_CHUNK_VERTS = 400, MC_CHUNKS = 16 };
+    static float mc_chunk[MC_CHUNK_VERTS * MC_CHUNKS * 7];
+    for (int v = 0; v < MC_CHUNK_VERTS * MC_CHUNKS; ++v) {
+        const int corner = v % 4;
+        const float cell = 0.01f * (float)((v / 4) % 100) - 0.5f;
+        float* d = &mc_chunk[v * 7];
+        d[0] = cell + ((corner == 1 || corner == 2) ? 0.01f : 0.0f);
+        d[1] = cell + ((corner >= 2) ? 0.01f : 0.0f);
+        d[2] = 0.0f;
+        d[3] = 0.8f;                              // colour (packed byte in vanilla)
+        d[4] = (float)(corner & 1);               // u
+        d[5] = (float)(corner >> 1);              // v
+        d[6] = 0.5f;                              // lightmap s
+    }
+    unsigned int mc_vbo = 0;
+    fGenBuffers(1, &mc_vbo);
+    fBindBuffer(GL_ARRAY_BUFFER, mc_vbo);
+    fBufferData(GL_ARRAY_BUFFER, (long)sizeof mc_chunk, mc_chunk, GL_STATIC_DRAW);
+
+    // Sets up the two-unit chunk format exactly once, the way RenderGlobal
+    // does before walking its chunk list.
+    const int mc_frames = (int)(120 * scale) > 0 ? (int)(120 * scale) : 1;
+    fBindTexture(GL_TEXTURE_2D, textures[0]);
+    fEnableClientState(GL_VERTEX_ARRAY);
+    fEnableClientState(GL_COLOR_ARRAY);
+    fEnableClientState(GL_TEXTURE_COORD_ARRAY);
+    fVertexPointer(3, GL_FLOAT, MC_STRIDE, (const void*)0);
+    fColorPointer(3, GL_FLOAT, MC_STRIDE, (const void*)(3 * sizeof(float)));
+    fTexCoordPointer(2, GL_FLOAT, MC_STRIDE, (const void*)(4 * sizeof(float)));
+    fEnable(GL_TEXTURE_2D);
+
+    // bench.mcchunk - one large chunk draw per frame. Vertex-throughput bound.
+    const double mc_big_verts = (double)mc_frames * (MC_CHUNK_VERTS * MC_CHUNKS);
+    fDrawArrays(GL_QUADS, 0, MC_CHUNK_VERTS * MC_CHUNKS);
+    fFinish();
+    t0 = now_ms();
+    if (PHASE("mcchunk")) {
+        for (int frm = 0; frm < mc_frames; ++frm) {
+            fPushMatrix();
+            fTranslatef(0.001f * (float)frm, 0.0f, 0.0f);
+            fDrawArrays(GL_QUADS, 0, MC_CHUNK_VERTS * MC_CHUNKS);
+            fPopMatrix();
+        }
+    }
+    fFinish();
+    const double mcc_ms = now_ms() - t0;
+    printf("bench.mcchunk:     %7.2f Mvert/s  (%6.1f ns/vert, BLOCK fmt %d B, 1 draw/frame)\n",
+           mc_big_verts / mcc_ms / 1000.0, mcc_ms * 1.0e6 / mc_big_verts, MC_STRIDE);
+    bench_check_error("mcchunk");
+
+    // bench.mcchunkmulti - the same vertices split across 16 chunk draws, each
+    // with its own matrix and lightmap-unit switch. This is the real frame
+    // shape: a render distance of 8 submits hundreds of these, so per-draw
+    // fixed cost, not vertex rate, sets the frame time.
+    t0 = now_ms();
+    if (PHASE("mcchunkmulti")) {
+        for (int frm = 0; frm < mc_frames; ++frm) {
+            for (int ch = 0; ch < MC_CHUNKS; ++ch) {
+                fPushMatrix();
+                fTranslatef(0.001f * (float)ch, 0.0f, 0.0f);
+                fClientActiveTexture(GL_TEXTURE1);
+                fClientActiveTexture(GL_TEXTURE0);
+                fDrawArrays(GL_QUADS, ch * MC_CHUNK_VERTS, MC_CHUNK_VERTS);
+                fPopMatrix();
+            }
+        }
+    }
+    fFinish();
+    const double mcm_ms = now_ms() - t0;
+    const double mcm_draws = (double)mc_frames * MC_CHUNKS;
+    printf("bench.mcchunkmulti: %6.2f Mvert/s  (%6.2f us/chunk draw, %d chunks/frame)\n",
+           mc_big_verts / mcm_ms / 1000.0, mcm_ms * 1000.0 / mcm_draws, MC_CHUNKS);
+    bench_check_error("mcchunkmulti");
+
+    fDisableClientState(GL_VERTEX_ARRAY);
+    fDisableClientState(GL_COLOR_ARRAY);
+    fDisableClientState(GL_TEXTURE_COORD_ARRAY);
+    fBindBuffer(GL_ARRAY_BUFFER, 0);
+
+    // bench.mcgui - Gui/GuiIngame: every widget is its own immediate-mode quad
+    // bracketed by a texture bind and the alpha-test/blend toggles the vanilla
+    // helpers push and pop. One quad per Begin/End with state changes between,
+    // which is what defeats naive batching.
+    const int gui_widgets = (int)(4000 * scale) > 0 ? (int)(4000 * scale) : 1;
+    fFinish();
+    t0 = now_ms();
+    if (PHASE("mcgui")) {
+        for (int w = 0; w < gui_widgets; ++w) {
+            fBindTexture(GL_TEXTURE_2D, textures[w & 1]);
+            fEnable(GL_BLEND);
+            fBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            fDisable(GL_ALPHA_TEST);
+            draw_quads(1);
+            fEnable(GL_ALPHA_TEST);
+            fDisable(GL_BLEND);
+        }
+    }
+    fFinish();
+    const double gui_ms = now_ms() - t0;
+    printf("bench.mcgui:       %7.2f us/widget (1 quad + bind + blend/alpha toggle, %d widgets)\n",
+           gui_ms * 1000.0 / (double)gui_widgets, gui_widgets);
+    bench_check_error("mcgui");
+
+    // bench.mcfont - FontRenderer: one quad per glyph, colour set per glyph,
+    // all inside a single Begin/End for the string. The per-vertex colour is
+    // why the glyph path cannot simply hoist state out of the batch.
+    const int font_strings = (int)(2000 * scale) > 0 ? (int)(2000 * scale) : 1;
+    enum { FONT_GLYPHS = 24 };
+    fBindTexture(GL_TEXTURE_2D, textures[0]);
+    fFinish();
+    t0 = now_ms();
+    if (PHASE("mcfont")) {
+        for (int s = 0; s < font_strings; ++s) {
+            fBegin(GL_QUADS);
+            for (int g = 0; g < FONT_GLYPHS; ++g) {
+                const float x = -0.5f + 0.01f * (float)g;
+                fColor4f(1.0f, 1.0f, 1.0f, 0.25f + 0.03f * (float)(g & 7));
+                fTexCoord2f(0.0f, 0.0f); fVertex3f(x, 0.0f, 0.0f);
+                fTexCoord2f(1.0f, 0.0f); fVertex3f(x + 0.008f, 0.0f, 0.0f);
+                fTexCoord2f(1.0f, 1.0f); fVertex3f(x + 0.008f, 0.01f, 0.0f);
+                fTexCoord2f(0.0f, 1.0f); fVertex3f(x, 0.01f, 0.0f);
+            }
+            fEnd();
+        }
+    }
+    fFinish();
+    const double font_ms = now_ms() - t0;
+    printf("bench.mcfont:      %7.2f us/string (%d glyphs, per-glyph colour, one Begin/End)\n",
+           font_ms * 1000.0 / (double)font_strings, FONT_GLYPHS);
+    bench_check_error("mcfont");
+
+    // bench.mcentity - ModelRenderer: each box is a compiled display list
+    // replayed under its own push/rotate/pop. Mobs and armour layers make this
+    // a few hundred list replays a frame.
+    enum { ENT_BOXES = 12 };
+    GLuint ent_lists[ENT_BOXES];
+    for (int b = 0; b < ENT_BOXES; ++b) {
+        ent_lists[b] = fGenLists(1);
+        fNewList(ent_lists[b], GL_COMPILE);
+        draw_quads(6); // a box: 6 faces
+        fEndList();
+    }
+    const int ent_models = (int)(2000 * scale) > 0 ? (int)(2000 * scale) : 1;
+    fFinish();
+    t0 = now_ms();
+    if (PHASE("mcentity")) {
+        for (int m = 0; m < ent_models; ++m) {
+            for (int b = 0; b < ENT_BOXES; ++b) {
+                fPushMatrix();
+                fTranslatef(0.0f, 0.01f * (float)b, 0.0f);
+                fRotatef(1.0f * (float)b, 0.0f, 1.0f, 0.0f);
+                fCallList(ent_lists[b]);
+                fPopMatrix();
+            }
+        }
+    }
+    fFinish();
+    const double ent_ms = now_ms() - t0;
+    printf("bench.mcentity:    %7.2f us/model  (%d boxes, list replay + matrix each)\n",
+           ent_ms * 1000.0 / (double)ent_models, ENT_BOXES);
+    bench_check_error("mcentity");
+
+    fDisable(GL_TEXTURE_2D);
 
     // --- bench.progcompile --------------------------------------------------------------
     // First-touch program generation across 16 enable combinations. Runs

@@ -378,16 +378,29 @@ program_key_t glstate_t::program_hash() {
     }
 
     hash.add(&fpe_state.client_active_texture, sizeof(fpe_state.client_active_texture));
-    hash.add(&fpe_state.alpha_func, sizeof(fpe_state.alpha_func));
-    hash.add(&fpe_state.fog_mode, sizeof(fpe_state.fog_mode));
-    hash.add(&fpe_state.fog_index, sizeof(fpe_state.fog_index));
-    hash.add(&fpe_state.fog_coord_src, sizeof(fpe_state.fog_coord_src));
+    // Canonicalize: only hash state the generator reads under current enables.
+    // An app calling glAlphaFunc() while alpha test is disabled, or glFogi()
+    // with fog off, would mint a distinct key that compiles a byte-identical
+    // shader and forces a spurious program switch. Minecraft 1.12/1.16 both
+    // set alpha_func/fog_mode/lighting model constantly with the features off.
+    if (bools.alpha_test_enable) {
+        hash.add(&fpe_state.alpha_func, sizeof(fpe_state.alpha_func));
+    }
+    if (bools.fog_enable) {
+        hash.add(&fpe_state.fog_mode, sizeof(fpe_state.fog_mode));
+        hash.add(&fpe_state.fog_index, sizeof(fpe_state.fog_index));
+        hash.add(&fpe_state.fog_coord_src, sizeof(fpe_state.fog_coord_src));
+    }
     hash.add(&fpe_state.shade_model, sizeof(fpe_state.shade_model));
-    hash.add(&fpe_state.light_model_color_ctrl, sizeof(fpe_state.light_model_color_ctrl));
-    hash.add(&fpe_state.light_model_local_viewer, sizeof(fpe_state.light_model_local_viewer));
-    hash.add(&fpe_state.light_model_two_side, sizeof(fpe_state.light_model_two_side));
-    hash.add(&fpe_state.color_material_face, sizeof(fpe_state.color_material_face));
-    hash.add(&fpe_state.color_material_mode, sizeof(fpe_state.color_material_mode));
+    if (bools.lighting_enable) {
+        hash.add(&fpe_state.light_model_color_ctrl, sizeof(fpe_state.light_model_color_ctrl));
+        hash.add(&fpe_state.light_model_local_viewer, sizeof(fpe_state.light_model_local_viewer));
+        hash.add(&fpe_state.light_model_two_side, sizeof(fpe_state.light_model_two_side));
+    }
+    if (bools.color_material_enable) {
+        hash.add(&fpe_state.color_material_face, sizeof(fpe_state.color_material_face));
+        hash.add(&fpe_state.color_material_mode, sizeof(fpe_state.color_material_mode));
+    }
 
     hash.add(&fpe_state.fpe_bools, sizeof(fpe_state.fpe_bools));
     hash.add(&fpe_state.texture_env_mode, sizeof(fpe_state.texture_env_mode));
@@ -417,14 +430,14 @@ program_key_t glstate_t::program_hash() {
         cache.vertices[i].normalized = va.attributes[i].normalized;
     }
     cache.client_active_texture = fpe_state.client_active_texture;
-    cache.alpha_func = fpe_state.alpha_func;
-    cache.fog_mode = fpe_state.fog_mode;
-    cache.fog_index = fpe_state.fog_index;
-    cache.fog_coord_src = fpe_state.fog_coord_src;
+    cache.alpha_func = bools.alpha_test_enable ? fpe_state.alpha_func : 0;
+    cache.fog_mode = bools.fog_enable ? fpe_state.fog_mode : 0;
+    cache.fog_index = bools.fog_enable ? fpe_state.fog_index : 0;
+    cache.fog_coord_src = bools.fog_enable ? fpe_state.fog_coord_src : 0;
     cache.shade_model = fpe_state.shade_model;
-    cache.light_model_color_ctrl = fpe_state.light_model_color_ctrl;
-    cache.light_model_local_viewer = fpe_state.light_model_local_viewer;
-    cache.light_model_two_side = fpe_state.light_model_two_side;
+    cache.light_model_color_ctrl = bools.lighting_enable ? fpe_state.light_model_color_ctrl : 0;
+    cache.light_model_local_viewer = bools.lighting_enable ? fpe_state.light_model_local_viewer : 0;
+    cache.light_model_two_side = bools.lighting_enable ? fpe_state.light_model_two_side : 0;
     cache.color_material_face = fpe_state.color_material_face;
     cache.color_material_mode = fpe_state.color_material_mode;
     cache.bools = fpe_state.fpe_bools;

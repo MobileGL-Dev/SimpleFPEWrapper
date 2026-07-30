@@ -260,7 +260,8 @@ thread_local pending_immediate_batch_t pendingGlyphBatch;
 void drawImmediateVertices(GLenum primitive, const GLfloat* vertices, size_t floatCount,
                            size_t vertexCount, const fixed_function_draw_size_t& sizes,
                            const fixed_function_draw_size_t* constant_sizes = nullptr,
-                           GLuint static_source = 0) {
+                           GLuint static_source = 0,
+                           const std::vector<uint8_t>* edge_flags = nullptr) {
     if (vertices == nullptr || floatCount == 0 || vertexCount == 0 ||
         vertexCount > static_cast<size_t>(std::numeric_limits<GLsizei>::max())) {
         return;
@@ -409,13 +410,22 @@ void drawImmediateVertices(GLenum primitive, const GLfloat* vertices, size_t flo
             return;
         }
         thread_local std::vector<uint32_t> wire;
-        sfpewBuildWireframeIndices(primitive, 0u, (uint32_t)vertexCount, wire);
-        if (!wire.empty() && sfpewUploadWireframeIndices(wire)) {
+        const uint8_t* flags = edge_flags != nullptr && !edge_flags->empty()
+                                   ? edge_flags->data()
+                                   : nullptr;
+        const size_t flagCount = flags != nullptr ? edge_flags->size() : 0u;
+        sfpewBuildWireframeIndices(primitive, 0u, (uint32_t)vertexCount, wire, flags, flagCount);
+        // An EMPTY list is a real result, not a failure: every edge of this
+        // primitive was marked interior by glEdgeFlag, so the outline is
+        // nothing. Falling through to the filled draw here would make
+        // suppressing all edges paint a solid shape instead of none.
+        if (wire.empty()) return;
+        if (sfpewUploadWireframeIndices(wire)) {
             g_glFuncs.glDrawElements(GL_LINES, (GLsizei)wire.size(), GL_UNSIGNED_INT, (void*)0);
             return;
         }
-        // Falling through draws filled, which is what this path did before
-        // wireframe existed - a failed index upload should not drop the draw.
+        // Only an upload FAILURE falls through, drawing filled the way this
+        // path did before wireframe existed, rather than dropping the draw.
     }
 
     if (primitive == GL_QUADS) {
@@ -1136,7 +1146,7 @@ void glEnd() {
 
     flushPendingImmediateDraws();
     drawImmediateVertices(s.primitive, s.vb.data(), s.vb.size(), s.vertex_count,
-                          s.current_data.sizes);
+                          s.current_data.sizes, nullptr, 0, &s.edge_flags);
     s.reset();
 }
 

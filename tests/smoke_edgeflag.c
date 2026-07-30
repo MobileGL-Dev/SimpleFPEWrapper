@@ -17,23 +17,19 @@
 // quad lists, so they must be split before submission), and a constant
 // glEdgeFlag set OUTSIDE Begin/End applying to a whole primitive.
 //
-// EXPECTED TO FAIL on this wrapper, and now for exactly one reason: nothing
-// consumes the edge flag. GL_LINE polygon mode itself works on both draw
-// paths (tests/smoke_polygon_mode.c pins it), so every edge of these
-// rectangles IS drawn - the failures below are all "an edge that should have
-// been suppressed was drawn", never a missing outline.
+// How the wrapper honours these: advance() collects per-vertex edge flags
+// into a lazily-populated array parallel to the interleaved vertex stream
+// (empty = "all boundary", the GL default, so runs that never clear the
+// flag pay one compare per vertex and no allocation), and the shared
+// wireframe expansion (sfpewBuildWireframeIndices) drops every edge whose
+// LEADING vertex has the flag cleared - GL's rule: the flag current when a
+// vertex is specified controls the edge that begins at it. A primitive
+// whose edges are ALL suppressed draws nothing, which the callers
+// distinguish from an index-upload failure (that falls back to filled).
 //
-// What is missing is per-vertex edge-flag plumbing. glEdgeFlag/glEdgeFlagv
-// track the current value in fixed_function_draw_data_t, but the wireframe
-// index builder (sfpewBuildWireframeIndices) works purely from the primitive
-// mode and vertex count; to honour edge flags it would need the per-vertex
-// flags on the CPU at draw time, which means collecting them into a parallel
-// array alongside the interleaved vertex stream in advance() and threading
-// that through to both draw paths.
-//
-// Kept as a real, non-weakened pixel-probe test (CMake marks it WILL_FAIL)
-// so implementing that later is verified by removing WILL_FAIL here rather
-// than by writing a new test.
+// This test began life as the port's xfail (WILL_FAIL) documenting the gap;
+// the GL_LINE emulation and the edge-flag plumbing landed in that order,
+// un-xfailing it exactly as the original file header demanded.
 
 #include <dlfcn.h>
 #include <stdio.h>

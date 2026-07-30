@@ -179,9 +179,15 @@ GLsizei type_size(GLenum type) {
 }
 
 void sfpewBuildWireframeIndices(GLenum mode, uint32_t base, uint32_t n,
-                                std::vector<uint32_t>& out) {
+                                std::vector<uint32_t>& out, const uint8_t* edge_flags,
+                                size_t flag_count) {
     out.clear();
     const auto edge = [&](uint32_t a, uint32_t b) {
+        // The edge belongs to the vertex it leaves; a cleared flag there
+        // makes it interior and it is not drawn. Vertices past the end of
+        // the flag array keep the default, so a short array cannot drop
+        // geometry.
+        if (edge_flags != nullptr && a < flag_count && edge_flags[a] == 0) return;
         out.push_back(base + a);
         out.push_back(base + b);
     };
@@ -500,6 +506,10 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint p
     // Need to generate_compressed_index first (shadergen will use that)
     auto& raw_vpa = g_glstate_c.fpe_state.vertexpointer_array;
     auto& vpa = g_glstate_c.fpe_state.normalized_vpa;
+    // The caller's original first, before the gather folds it into the
+    // upload. The edge-flag array below is read through the RAW pointers,
+    // which the gather does not touch, so it must be indexed with this.
+    const GLint raw_first = *first;
     if (gather_client_arrays(raw_vpa, *first, *count, &vpa)) {
         *first = 0; // the gather already applied the base offset
     } else {
@@ -605,8 +615,39 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint p
     }
     if (filled_primitive && polygon_mode == GL_LINE) {
         thread_local std::vector<uint32_t> wire;
-        sfpewBuildWireframeIndices(*mode, (uint32_t)*first, (uint32_t)*count, wire);
-        if (!wire.empty() && sfpewUploadWireframeIndices(wire)) {
+        const auto& edge_array = raw_vpa.attributes[vp2idx(GL_EDGE_FLAG_ARRAY)];
+        const bool edge_array_live =
+            ((raw_vpa.enabled_pointers >> vp2idx(GL_EDGE_FLAG_ARRAY)) & 1u) != 0 &&
+            edge_array.pointer != nullptr &&
+            getClientArrayBufferBinding(vp2idx(GL_EDGE_FLAG_ARRAY)) == 0;
+        // Client-memory edge flags can be read where they lie; a VBO-backed
+        // array would have to be mapped, which is not worth a stall on a
+        // path this cold - those keep every edge, the pre-existing behaviour.
+        thread_local std::vector<uint8_t> client_flags;
+        const uint8_t* flags = nullptr;
+        size_t flag_count = 0;
+        if (edge_array_live && *count > 0) {
+            const size_t stride = edge_array.stride != 0 ? (size_t)edge_array.stride
+                                                         : sizeof(GLboolean);
+            const auto* bytes = static_cast<const uint8_t*>(edge_array.pointer);
+            client_flags.resize((size_t)*count);
+            // raw_first, not *first: the gather zeroes *first after folding
+            // it into the vertex upload, but this array is read through the
+            // raw client pointer where the caller's base still applies.
+            for (size_t i = 0; i < (size_t)*count; ++i)
+                client_flags[i] = bytes[((size_t)raw_first + i) * stride] != 0 ? 1u : 0u;
+            flags = client_flags.data();
+            flag_count = client_flags.size();
+        }
+        sfpewBuildWireframeIndices(*mode, (uint32_t)*first, (uint32_t)*count, wire, flags,
+                                   flag_count);
+        // Empty means every edge was suppressed - draw nothing rather than
+        // falling through to the filled path (see drawImmediateVertices).
+        if (wire.empty()) {
+            vpa.reset();
+            return -1;
+        }
+        if (sfpewUploadWireframeIndices(wire)) {
             *mode = GL_LINES;
             *count = (GLsizei)wire.size();
             g_glstate_c.send_uniforms(prog);

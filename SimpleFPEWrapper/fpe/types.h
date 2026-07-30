@@ -200,6 +200,18 @@ struct fixed_function_draw_state_t {
     // and copying its full string again at glEnd.
     std::vector<GLfloat> vb;
 
+    // Per-vertex edge flags, for GL_LINE polygon mode. Kept OUT of vb: they
+    // never reach a shader, only the CPU-side wireframe expansion, and
+    // widening every vertex by a byte to carry state almost no application
+    // sets would be a poor trade.
+    //
+    // Empty means "every edge is a boundary", which is both the GL default
+    // and what essentially every application leaves it at. advance() starts
+    // filling this lazily, the first time a vertex arrives with the flag
+    // cleared, so the common path pays one predictable compare per vertex
+    // and never allocates.
+    std::vector<uint8_t> edge_flags;
+
     size_t vertex_count = 0;
 
     // advance() fast path: compact copy plan derived from sizes. Rebuilt

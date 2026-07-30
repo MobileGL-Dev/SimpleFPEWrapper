@@ -15,6 +15,7 @@ void fixed_function_draw_state_t::reset() {
     primitive = kNoPrimitive;
     vertex_count = 0;
     vb.clear();
+    edge_flags.clear();
     repacked = false;
 }
 
@@ -118,6 +119,18 @@ void fixed_function_draw_state_t::rebuild_packed_layout() {
 
 void fixed_function_draw_state_t::advance() {
     ++vertex_count;
+
+    // Edge flags, collected only once they can change the picture. While
+    // every vertex so far has had the default GL_TRUE the vector stays
+    // empty, which the wireframe expansion reads as "all boundary"; the
+    // first cleared flag backfills the run's history and switches tracking
+    // on. Cost until then is this one compare against a hot byte.
+    if (!edge_flags.empty()) {
+        edge_flags.push_back(current_data.edge_flag);
+    } else if (current_data.edge_flag == GL_FALSE) {
+        edge_flags.assign(vertex_count - 1u, 1u);
+        edge_flags.push_back(0u);
+    }
 
     // One 92-byte compare replaces the old per-vertex 23-slot rescan and
     // 16-unit texcoord walk; it also revalidates after wholesale sizes

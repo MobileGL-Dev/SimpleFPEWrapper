@@ -112,8 +112,17 @@ inline GLenum sfpewUniformPolygonMode() {
 // edges are emitted twice, which is visually identical to a wireframe.
 // Shared by the client-array commit and the immediate-mode draw so the two
 // cannot disagree about what an outline is.
+//
+// `edge_flags`, when non-null, holds `flag_count` per-vertex edge flags
+// indexed the same way as the primitive's vertices (NOT offset by `base`).
+// An edge is emitted only when the flag of the vertex it LEAVES is set,
+// which is how GL defines glEdgeFlag: the flag current when a vertex is
+// specified controls the edge beginning at it. Null means every edge is a
+// boundary edge, the GL default.
 void sfpewBuildWireframeIndices(GLenum mode, uint32_t base, uint32_t count,
-                                std::vector<uint32_t>& out);
+                                std::vector<uint32_t>& out,
+                                const uint8_t* edge_flags = nullptr,
+                                size_t flag_count = 0);
 
 // Uploads wireframe indices into the dedicated element buffer and binds it.
 // Returns false when no backend buffer could be created.

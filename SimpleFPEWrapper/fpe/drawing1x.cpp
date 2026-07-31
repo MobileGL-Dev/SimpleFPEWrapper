@@ -251,7 +251,7 @@ struct pending_immediate_batch_t {
     // that the layout still matches, which is an integer compare instead of
     // one over the whole block (see fixed_function_draw_data_t::sizes_epoch).
     uint64_t sizesEpoch = 0;
-    std::vector<GLfloat> vertices;
+    sfpew_vertex_buffer_t vertices;
     size_t vertexCount = 0;
     size_t runCount = 0;
     GLenum activeTexture = GL_TEXTURE0;
@@ -537,7 +537,7 @@ GLenum mergeTargetPrimitive(GLenum primitive, size_t vertexCount) {
 // the merge target. Strips/fans/loops lose their implicit connectivity here,
 // which is exactly what makes concatenation legal.
 void appendMergedRun(GLenum primitive, const GLfloat* src, size_t count, size_t stride,
-                     std::vector<GLfloat>& out, size_t* appendedVertices) {
+                     sfpew_vertex_buffer_t& out, size_t* appendedVertices) {
     size_t appended = 0;
     const auto emit = [&](size_t index) {
         const size_t offset = out.size();
@@ -673,7 +673,7 @@ bool queueImmediateRun(const fixed_function_draw_state_t& draw) {
     if (batch.unexpanded) {
         // A second run joined, so the held one has to become independent
         // primitives before this one can be concatenated onto it.
-        thread_local std::vector<GLfloat> expandScratch;
+        thread_local sfpew_vertex_buffer_t expandScratch;
         expandScratch.swap(batch.vertices);
         batch.vertices.clear();
         batch.vertices.reserve(kImmediateMergeRunLimit * stride * 6u);
@@ -833,7 +833,7 @@ GLuint recycleImmediateRunBuffer(const void* context) {
 class compiled_immediate_run_cmd_t final : public GLCmd {
 public:
     compiled_immediate_run_cmd_t(GLenum primitive, const fixed_function_draw_size_t& sizes,
-                                 std::vector<GLfloat>&& data, size_t vertexCount, bool hasColor,
+                                 sfpew_vertex_buffer_t&& data, size_t vertexCount, bool hasColor,
                                  const fixed_function_draw_data_t& finalData,
                                  std::vector<std::unique_ptr<GLCmd>>&& originals)
         : primitive(primitive), sizes(sizes), data(std::move(data)), vertexCount(vertexCount),
@@ -873,7 +873,7 @@ public:
     }
 
     bool appendRun(GLenum otherPrimitive, const fixed_function_draw_size_t& otherSizes,
-                   const std::vector<GLfloat>& otherData, size_t otherVertexCount,
+                   const sfpew_vertex_buffer_t& otherData, size_t otherVertexCount,
                    bool otherHasColor, const fixed_function_draw_data_t& otherFinalData,
                    DisplayList::iterator originalsBegin, DisplayList::iterator originalsEnd) {
         if (otherPrimitive != primitive ||
@@ -976,7 +976,7 @@ public:
 private:
     GLenum primitive;
     fixed_function_draw_size_t sizes;
-    std::vector<GLfloat> data;
+    sfpew_vertex_buffer_t data;
     // Lazily uploaded copy of `data`, and the context that owns it.
     mutable GLuint resident = 0;
     mutable const void* resident_context = nullptr;
@@ -1063,7 +1063,7 @@ void sfpewCompileImmediateRuns(DisplayList& commands) {
         for (size_t k = i + 1; k < end_index; ++k) commands[k]->execute();
 
         GLenum baked_mode = draw.primitive;
-        std::vector<GLfloat> baked = std::move(draw.vb);
+        sfpew_vertex_buffer_t baked = std::move(draw.vb);
         size_t baked_vertices = draw.vertex_count;
         fixed_function_draw_size_t baked_sizes = draw.current_data.sizes;
         const bool has_color = baked_sizes.color_size > 0;
@@ -1094,7 +1094,7 @@ void sfpewCompileImmediateRuns(DisplayList& commands) {
         // adjacent glyph runs merge into one draw, mirroring the live path.
         if (baked_mode == GL_TRIANGLE_STRIP && baked_vertices == 4 && baked.size() % 4u == 0) {
             const size_t stride = baked.size() / 4u;
-            std::vector<GLfloat> expanded;
+            sfpew_vertex_buffer_t expanded;
             expanded.reserve(stride * 6u);
             for (const size_t v : {(size_t)0, (size_t)1, (size_t)2, (size_t)2, (size_t)1, (size_t)3})
                 expanded.insert(expanded.end(), baked.begin() + v * stride,

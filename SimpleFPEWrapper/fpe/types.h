@@ -17,6 +17,7 @@
 #include <vector>
 #include <memory>
 #include <cstddef>
+#include <type_traits>
 #include "fpe_shadergen.h"
 #include "vertexpointer_utils.h"
 #include <xxhash64.h>
@@ -44,6 +45,25 @@ extern bool g_sfpew_relaxed_context;
 // Reconciles against libEGL and resets the counter. Out of line: it is the
 // 1-in-256 path.
 void* sfpewReconcileContext();
+
+// std::vector value-initializes what resize() adds, and the immediate-mode
+// vertex buffer overwrites every one of those floats on the very next line -
+// a memset per vertex, measured at 5% of a small Begin/End batch. This
+// allocator leaves default-constructed elements alone; everything else is
+// std::allocator. Only for trivially-copyable arithmetic types, where "not
+// initialized" is exactly what the caller is about to fix.
+template <class T>
+struct sfpew_no_init_allocator : std::allocator<T> {
+    static_assert(std::is_trivially_default_constructible_v<T>);
+    using std::allocator<T>::allocator;
+    template <class U> struct rebind { using other = sfpew_no_init_allocator<U>; };
+    template <class U, class... Args> void construct(U* p, Args&&... args) {
+        ::new (static_cast<void*>(p)) U(std::forward<Args>(args)...);
+    }
+    template <class U> void construct(U*) noexcept {} // leave it to the writer
+};
+// The interleaved vertex stream a Begin/End batch collects.
+using sfpew_vertex_buffer_t = std::vector<GLfloat, sfpew_no_init_allocator<GLfloat>>;
 
 GLsizei type_size(GLenum type);
 
@@ -237,7 +257,7 @@ struct fixed_function_draw_state_t {
     // this buffer. Keep the storage alive across glBegin/glEnd pairs so small
     // legacy draws can reuse their allocation instead of constructing a stream
     // and copying its full string again at glEnd.
-    std::vector<GLfloat> vb;
+    sfpew_vertex_buffer_t vb;
 
     // Per-vertex edge flags, for GL_LINE polygon mode. Kept OUT of vb: they
     // never reach a shader, only the CPU-side wireframe expansion, and

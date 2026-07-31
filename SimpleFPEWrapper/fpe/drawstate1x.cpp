@@ -71,7 +71,7 @@ void fixed_function_draw_state_t::set_attribute_size(int slot, GLint requested) 
     static constexpr GLfloat kComponentDefaults[4] = {0.0f, 0.0f, 0.0f, 1.0f};
 
     repacked = true;
-    std::vector<GLfloat> repacked_vb;
+    sfpew_vertex_buffer_t repacked_vb;
     repacked_vb.reserve((old_stride + (size_t)(requested - stored)) * vertex_count);
     for (size_t v = 0; v < vertex_count; ++v) {
         const GLfloat* src = vb.data() + v * old_stride;

@@ -214,11 +214,16 @@ struct immediate_client_state_guard_t {
 
 struct immediate_draw_sizes_guard_t {
     fixed_function_draw_size_t sizes = g_glstate_c.fpe_state.fpe_draw.current_data.sizes;
+    // Restoring the stamp along with the sizes it belongs to is what makes
+    // this free: putting a size block back exactly as it was leaves any
+    // layout built for it valid, so there is nothing for a new stamp to
+    // invalidate. Taking one here instead cost an atomic per draw.
+    uint64_t epoch = g_glstate_c.fpe_state.fpe_draw.current_data.sizes_epoch;
 
     ~immediate_draw_sizes_guard_t() {
         auto& data = g_glstate_c.fpe_state.fpe_draw.current_data;
         data.sizes = sizes;
-        data.sizes_epoch = sfpewNextSizesEpoch();
+        data.sizes_epoch = epoch;
     }
 
     immediate_draw_sizes_guard_t() = default;
@@ -310,8 +315,13 @@ void drawImmediateVertices(GLenum primitive, const GLfloat* vertices, size_t flo
 
     auto& state = gs.fpe_state;
     const fixed_function_draw_size_t& shader_sizes = constant_sizes ? *constant_sizes : sizes;
-    state.fpe_draw.current_data.sizes = shader_sizes;
-    state.fpe_draw.current_data.sizes_epoch = sfpewNextSizesEpoch();
+    // Only a real change earns a stamp: the same draw shape repeated (a GUI
+    // pass, a text pass) would otherwise take an atomic per draw for a size
+    // block that never moved.
+    if (std::memcmp(&state.fpe_draw.current_data.sizes, &shader_sizes, sizeof(shader_sizes)) != 0) {
+        state.fpe_draw.current_data.sizes = shader_sizes;
+        state.fpe_draw.current_data.sizes_epoch = sfpewNextSizesEpoch();
+    }
 
     // Deriving the layout means compiling a pointer array, normalizing it and
     // assigning compressed attribute indices - and the input used to be a
@@ -328,9 +338,10 @@ void drawImmediateVertices(GLenum primitive, const GLfloat* vertices, size_t flo
         state.vertexpointer_array = layoutCache.compiled;
         va = layoutCache.normalized;
     } else {
+        // A scratch holder for compile_vertexattrib, which reads the sizes
+        // and nothing else - no stamp needed, nothing packs through it.
         fixed_function_draw_state_t layoutState;
         layoutState.current_data.sizes = sizes;
-        layoutState.current_data.sizes_epoch = sfpewNextSizesEpoch();
         layoutState.compile_vertexattrib(state.vertexpointer_array);
 
         va = state.vertexpointer_array.normalize();

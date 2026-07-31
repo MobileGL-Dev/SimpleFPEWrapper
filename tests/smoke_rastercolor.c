@@ -7,9 +7,9 @@
 // End of Source File Header
 
 // Ported from piglit's tests/spec/gl-1.0/rastercolor.c (MIT-style license;
-// see piglit's COPYING). glRasterPos SNAPSHOTS the current colour along with
+// see piglit's COPYING). glRasterPos SNAPSHOTS the current color along with
 // the transformed position: a later glColor changes what primitives draw
-// with, but every glBitmap issued from that raster position keeps the colour
+// with, but every glBitmap issued from that raster position keeps the color
 // that was current when glRasterPos ran.
 //
 // The sequence is: raster position set while green is current, then blue
@@ -116,11 +116,11 @@ int main(void) {
     fLoadIdentity();
     (void)fGetError();
 
-    // Raster colour becomes green; the raster position snapshots it.
+    // Raster color becomes green; the raster position snapshots it.
     fColor3fv(green);
     fRasterPos2i(8, 8);
 
-    // Primitive colour becomes blue - must NOT affect the snapshot.
+    // Primitive color becomes blue - must NOT affect the snapshot.
     fColor3fv(blue);
 
     // Bitmap 1 at the raster position, advancing x by 32 for bitmap 2.
@@ -151,6 +151,6 @@ int main(void) {
         fprintf(stderr, "FAIL: %d probe(s) mismatched\n", fails);
         return 1;
     }
-    printf("PASS: glRasterPos snapshots the current colour for glBitmap\n");
+    printf("PASS: glRasterPos snapshots the current color for glBitmap\n");
     return 0;
 }

@@ -186,7 +186,7 @@ bool programIsSingleAttribAtLocationZero(GLuint program) {
 
 bool sfpewUserProgramAttribLocations(GLuint program, GLint out_locations[VERTEX_POINTER_COUNT]) {
     if (program == 0 || g_glFuncs.glGetAttribLocation == nullptr) return false;
-    // Defence in depth for the self-adoption guards: a program the wrapper
+    // Defense in depth for the self-adoption guards: a program the wrapper
     // itself created must never be treated as an app shader to feed - if one
     // reaches here through any yet-unknown shadow-poisoning window, routing
     // fixed-function draws onto it drops program binds, uploads and uniforms

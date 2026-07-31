@@ -7,7 +7,7 @@
 // End of Source File Header
 
 // Ported from piglit's tests/general/draw-batch.c (MIT-style license; see
-// piglit's COPYING). It draws the SAME four coloured triangles four times
+// piglit's COPYING). It draws the SAME four colored triangles four times
 // over, once through each of the draw paths an OpenGL 1.x application has -
 // glDrawElements, glDrawArrays, glBegin/glEnd and glCallList - putting each
 // pass on its own row via glTranslatef, then probes all sixteen cells. Every
@@ -24,11 +24,11 @@
 //
 // Interleaved between the passes are the state changes upstream uses to
 // provoke exactly that: a modelview translate, a client-array
-// enable/disable, and colour changes.
+// enable/disable, and color changes.
 //
 // NOT ported: upstream also enables GL_COLOR_SUM and feeds a secondary
-// colour through glSecondaryColorPointer/glSecondaryColor3fv, expecting it
-// summed into the fragment colour. This wrapper tracks secondary colour but
+// color through glSecondaryColorPointer/glSecondaryColor3fv, expecting it
+// summed into the fragment color. This wrapper tracks secondary color but
 // never sums it (no GL_COLOR_SUM support in the generated shaders at all),
 // so that part is omitted rather than xfailed - dropping it keeps the
 // four-path equivalence check, which is the part that exercises this
@@ -102,7 +102,7 @@ static GLfloat array[] = {
 };
 static const GLushort indices[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11};
 
-// Expected colour of each column, as 0/1 per channel.
+// Expected color of each column, as 0/1 per channel.
 static const int expect[4][3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}, {1, 0, 1}};
 
 static void probe_row(int rowIndex, int y, const char* what) {

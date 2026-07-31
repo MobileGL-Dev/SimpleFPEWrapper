@@ -171,7 +171,7 @@ int main(void) {
 
     // Without the aliasing fallback this was raw glDrawArrays(GL_QUADS) on the
     // ES backend with nothing bound to Position: all four vertices read
-    // (0,0,0,1) and the quad collapsed to one point (centre pixel stayed blue).
+    // (0,0,0,1) and the quad collapsed to one point (center pixel stayed blue).
     check(32, 32, 1, 0, 0, "user program with 'in vec4 Position' receives vertex array data");
 
     const GLenum err = fGetError();

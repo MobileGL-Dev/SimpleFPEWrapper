@@ -202,7 +202,7 @@ int main(void) {
     fUseProgram(prog);
 
     // A: both quads. Raw GL_QUADS to a GLES backend is GL_INVALID_ENUM and the
-    // draw vanishes, leaving the clear colour.
+    // draw vanishes, leaving the clear color.
     fClearColor(0.0f, 0.0f, 1.0f, 1.0f);
     fClear(GL_COLOR_BUFFER_BIT);
     fDrawArrays(GL_QUADS, 0, 8);
@@ -221,7 +221,7 @@ int main(void) {
     }
 
     // C: non-zero first, the form Sodium uses for sub-ranges. Only the second
-    // quad is drawn, so the left half must stay at the clear colour.
+    // quad is drawn, so the left half must stay at the clear color.
     fClearColor(0.0f, 0.0f, 1.0f, 1.0f);
     fClear(GL_COLOR_BUFFER_BIT);
     fDrawArrays(GL_QUADS, 4, 4);

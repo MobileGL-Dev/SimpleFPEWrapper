@@ -188,7 +188,7 @@ int main(void) {
     fClear(GL_COLOR_BUFFER_BIT);
     fDrawArrays(GL_TRIANGLES, 0, 6);
     fFinish();
-    expect(32, 32, 0, 1, 0, "draw 1: VBO-backed FFP arrays -> green (centre)");
+    expect(32, 32, 0, 1, 0, "draw 1: VBO-backed FFP arrays -> green (center)");
     expect(6, 6, 0, 1, 0, "draw 1: VBO-backed FFP arrays -> green (corner)");
 
     // Draw 2 is the one whose attribute-buffer bind is elided: the app's
@@ -213,7 +213,7 @@ int main(void) {
     expect(6, 6, 0, 1, 0, "draw 3: VBO-backed arrays + client indices -> green (corner)");
 
     // Indices that reference only the first triangle must light exactly it:
-    // proves the draw honours the index data rather than the vertex range a
+    // proves the draw honors the index data rather than the vertex range a
     // skipped scan would otherwise have implied.
     static const GLubyte idxHalf[] = {0, 1, 2};
     fClear(GL_COLOR_BUFFER_BIT);

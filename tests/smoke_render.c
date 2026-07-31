@@ -121,7 +121,7 @@ int main(void) {
     fEnable(0x0B50 /* GL_LIGHTING */);
     fEnable(0x4000); /* GL_LIGHT0 */
     static const GLfloat white[4] = {1, 1, 1, 1};
-    static const GLfloat dir[4] = {0, 0, 1, 0}; // directional, towards viewer
+    static const GLfloat dir[4] = {0, 0, 1, 0}; // directional, toward viewer
     fLightfv(0x4000, 0x1201 /* GL_DIFFUSE */, white);
     fLightfv(0x4000, 0x1203 /* GL_POSITION */, dir);
     fEnable(0x0B57 /* GL_COLOR_MATERIAL */);

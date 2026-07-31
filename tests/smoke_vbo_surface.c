@@ -103,7 +103,7 @@ static void (*fBindTexture)(GLenum, GLuint);
 static void (*fActiveTexture)(GLenum);
 
 // Draws whatever is in the bound array buffer, tinted by a uniform-free
-// constant so the colour identifies which path produced the pixel.
+// constant so the color identifies which path produced the pixel.
 static const char* kVS = "attribute vec2 aPos;\n"
                          "attribute vec3 aColor;\n"
                          "varying vec3 vColor;\n"
@@ -163,7 +163,7 @@ static int checkCenter(const char* tag, int r, int g, int b) {
     return 1;
 }
 
-// A green full-screen triangle pair, interleaved position+colour.
+// A green full-screen triangle pair, interleaved position+color.
 static const GLfloat kQuad[] = {
     -1.0f, -1.0f, 0.0f, 1.0f, 0.0f, 1.0f,  -1.0f, 0.0f, 1.0f, 0.0f,
     1.0f,  1.0f,  0.0f, 1.0f, 0.0f, -1.0f, -1.0f, 0.0f, 1.0f, 0.0f,
@@ -335,7 +335,7 @@ static int run(void) {
     }
     fBindBuffer(GL_ARRAY_BUFFER, vbo);
     fBufferSubData(GL_ARRAY_BUFFER, 0, (GLsizeiptr)sizeof blue, blue);
-    if (!drawVbo(prog, vbo, locPos, locColor, "D: glBufferSubData recoloured the app's buffer", 0, 0,
+    if (!drawVbo(prog, vbo, locPos, locColor, "D: glBufferSubData recolored the app's buffer", 0, 0,
                  255))
         return 1;
 

@@ -261,16 +261,16 @@ bool prepare_quad_indices(GLsizei n, GLuint first) {
                                   ? GL_UNSIGNED_SHORT
                                   : GL_UNSIGNED_INT;
     // Which diagonal splits each quad. Flat shading takes a primitive's
-    // colour from its LAST vertex, and desktop GL_QUADS defines that to be
+    // color from its LAST vertex, and desktop GL_QUADS defines that to be
     // the quad's 4th vertex - but the usual 0-2 diagonal produces triangles
     // (0,1,2) and (2,3,0), neither of which even CONTAINS vertex 3, so a
-    // flat-shaded quad came out in the wrong colour entirely. The 1-3
+    // flat-shaded quad came out in the wrong color entirely. The 1-3
     // diagonal gives (0,1,3) and (1,2,3): both end on vertex 3, which is
     // exactly the desktop rule.
     //
     // Only used when GL_FLAT is actually current. Both diagonals cover the
     // same area for the convex planar quads GL_QUADS requires, but they
-    // interpolate a smooth-shaded quad's per-vertex colours differently, and
+    // interpolate a smooth-shaded quad's per-vertex colors differently, and
     // Minecraft's terrain is exactly that - so the smooth path keeps the
     // triangulation it has always used and its rendering is untouched.
     // Found by the piglit dlist-shademodel port.
@@ -645,7 +645,7 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint p
             getClientArrayBufferBinding(vp2idx(GL_EDGE_FLAG_ARRAY)) == 0;
         // Client-memory edge flags can be read where they lie; a VBO-backed
         // array would have to be mapped, which is not worth a stall on a
-        // path this cold - those keep every edge, the pre-existing behaviour.
+        // path this cold - those keep every edge, the pre-existing behavior.
         thread_local std::vector<uint8_t> client_flags;
         const uint8_t* flags = nullptr;
         size_t flag_count = 0;

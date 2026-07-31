@@ -2041,7 +2041,7 @@ typedef void (APIENTRYP PFNGLMULTITEXCOORD4SVARBPROC) (GLenum target, const GLsh
 
 
 /*
- * Define this token if you want "old-style" header file behaviour (extensions
+ * Define this token if you want "old-style" header file behavior (extensions
  * defined in gl.h).  Otherwise, extensions will be included from glext.h.
  */
 #if defined(GL_GLEXT_LEGACY)

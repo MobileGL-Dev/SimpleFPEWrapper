@@ -15,14 +15,14 @@
 //
 // The failure mode a send-on-change cache introduces is a stale uniform: FFP
 // state changes but the shader keeps the old value, so this drives real state
-// changes through a declared uniform and reads the result back as colour.
+// changes through a declared uniform and reads the result back as color.
 //
 // fpe_Fog.color is used as the probe because it is a plain vec4 the fragment
 // shader can output directly. The sequence matters more than any single draw:
 //
-//   draw 1  fog colour green  -> green   (first send, cache empty)
+//   draw 1  fog color green  -> green   (first send, cache empty)
 //   draw 2  unchanged         -> green   (this is the send that gets skipped)
-//   draw 3  fog colour red    -> red     (cache must notice the change)
+//   draw 3  fog color red    -> red     (cache must notice the change)
 //   draw 4  back to green     -> green   (and notice it changing back)
 //
 // Skips (77) when the machine has no EGL device.
@@ -130,7 +130,7 @@ int main(void) {
 #undef R
 
     // Declares the fixed-function fog struct the wrapper feeds, and outputs its
-    // colour, so the pixel IS the uniform's value.
+    // color, so the pixel IS the uniform's value.
     static const char* vsSrc =
         "#version 300 es\n"
         "in vec4 fpe_Vertex;\n"
@@ -170,7 +170,7 @@ int main(void) {
     fClear(GL_COLOR_BUFFER_BIT);
     fDrawArrays(GL_TRIANGLES, 0, 6);
     fFinish();
-    expect(0, 1, 0, "draw 1: fog colour reaches the shader");
+    expect(0, 1, 0, "draw 1: fog color reaches the shader");
 
     // Unchanged: this is the send the cache elides.
     fClear(GL_COLOR_BUFFER_BIT);

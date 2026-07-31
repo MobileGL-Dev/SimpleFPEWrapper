@@ -218,7 +218,7 @@ int main(void) {
     checkPixel(32, 32, 0, 1, 0, "A: native multidraw, band 1 green");
     checkPixel(54, 32, 0, 0, 1, "A: native multidraw, band 2 blue");
 
-    // A2: a subset, to pin that first[]/count[] are honoured rather than the
+    // A2: a subset, to pin that first[]/count[] are honored rather than the
     // whole buffer being drawn. Only band 2 is named; bands 0 and 1 stay clear.
     static const GLint firstsOne[1] = {12};
     static const GLsizei countsOne[1] = {6};

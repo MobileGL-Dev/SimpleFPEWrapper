@@ -1570,7 +1570,7 @@ void glDrawElements(GLenum mode, GLsizei count, GLenum type, const GLvoid* indic
 }
 
 // GL 1.2 core. start/end are a promise about the index range, not state, so
-// the wrapper can honour it by simply forwarding to the glDrawElements
+// the wrapper can honor it by simply forwarding to the glDrawElements
 // logic: legacy modes get converted, fixed-function arrays get wired and
 // the emulated alpha test uniforms get fed. Passing this through raw (the
 // previous behavior) meant GL_QUADS died on GLES and cutout foliage drawn

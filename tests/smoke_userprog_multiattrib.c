@@ -146,7 +146,7 @@ int main(void) {
 #undef R
 
     // Multi-attribute program, OptiFine-world-shader shaped: position at
-    // location 0 plus a colour input. It owns its vertex state entirely.
+    // location 0 plus a color input. It owns its vertex state entirely.
     static const char* vsSrc =
         "#version 300 es\n"
         "in vec2 aPos;\n"
@@ -196,7 +196,7 @@ int main(void) {
 
     // Fixed-function client arrays are ALSO enabled and point at unrelated
     // geometry. This is the trap: the wrapper must not treat them as this
-    // program's vertex source. Colour is deliberately red so a hijack is
+    // program's vertex source. Color is deliberately red so a hijack is
     // visible as red-or-black instead of green.
     static const GLfloat ffPos[] = { -0.2f,-0.2f, 0.2f,-0.2f, 0.0f,0.2f };
     static const GLfloat ffCol[] = { 1,0,0,1,  1,0,0,1,  1,0,0,1 };
@@ -212,9 +212,9 @@ int main(void) {
     fFinish();
 
     // The program's own green quad must cover the framebuffer. A hijack wires
-    // only position from ffPos and drops the colour input, which reads as
-    // black (or leaves the clear colour where the small triangle misses).
-    check(32, 32, 0, 1, 0, "multi-attribute program draws from its own VAO (centre)");
+    // only position from ffPos and drops the color input, which reads as
+    // black (or leaves the clear color where the small triangle misses).
+    check(32, 32, 0, 1, 0, "multi-attribute program draws from its own VAO (center)");
     check(6, 6, 0, 1, 0, "multi-attribute program draws from its own VAO (corner)");
 
     const GLenum err = fGetError();

@@ -532,7 +532,7 @@ int main(void) {
     // plans/12-fpe-draw-cost.md. Only GL 1.x calls, so any library here runs
     // exactly the same workload.
     if (phase_on("mcchunk") || phase_on("mcchunkmulti")) {
-        // DefaultVertexFormats.BLOCK: 3f position, colour, 2f uv, lightmap.
+        // DefaultVertexFormats.BLOCK: 3f position, color, 2f uv, lightmap.
         // Declared all-float so one array serves every library; the 28-byte
         // stride is what per-draw cost turns on.
         enum { MC_STRIDE_F = 7, MC_CHUNK_V = 400, MC_CHUNKS = 16 };
@@ -600,7 +600,7 @@ int main(void) {
     // RDC/Minecraft/1.12-Optifine/chunk.rdc (VBOs on) and
     // chunk-without-vbo.rdc (VBOs off). Both captures show ~950 draws/frame,
     // median 416 vertices per chunk pass, the 28-byte BLOCK vertex (3f pos,
-    // 4ub colour, 2f uv, 2s lightmap) and a per-chunk matrix. The difference
+    // 4ub color, 2f uv, 2s lightmap) and a per-chunk matrix. The difference
     // is purely how the vertices reach GL:
     //   VBOs on : per chunk - bind ITS OWN VBO, respecify all four pointers
     //             as buffer offsets (lightmap via glClientActiveTexture),
@@ -618,7 +618,7 @@ int main(void) {
             pos[0] = cell + ((corner == 1 || corner == 2) ? 0.004f : 0.0f);
             pos[1] = cell + ((corner >= 2) ? 0.004f : 0.0f);
             pos[2] = 0.0f;
-            d[12] = 200; d[13] = 200; d[14] = 200; d[15] = 255;   // colour 4ub
+            d[12] = 200; d[13] = 200; d[14] = 200; d[15] = 255;   // color 4ub
             float* uv = (float*)(d + 16);
             uv[0] = (float)(corner & 1); uv[1] = (float)(corner >> 1);
             short* lm = (short*)(d + 24);
@@ -845,7 +845,7 @@ int main(void) {
     }
 
     if (phase_on("mcfont")) {
-        // FontRenderer: one quad per glyph with a per-glyph colour, all inside
+        // FontRenderer: one quad per glyph with a per-glyph color, all inside
         // a single Begin/End for the string.
         const int strings = (int)(2000 * scale) > 0 ? (int)(2000 * scale) : 1;
         enum { GLYPHS = 24 };

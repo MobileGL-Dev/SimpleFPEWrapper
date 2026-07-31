@@ -16,8 +16,8 @@ else()
         # FCL's `fordebug` variant intentionally keeps symbols and Java-side
         # debugging enabled, but AGP otherwise compiles this native library at
         # Clang's default -O0.  The fixed-function wrapper runs on every draw,
-        # so an unoptimised C++ build dominates frame time on Android.  Keep
-        # debug information while compiling the native hot path as optimised
+        # so an unoptimized C++ build dominates frame time on Android.  Keep
+        # debug information while compiling the native hot path as optimized
         # production code.
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fvisibility=hidden -fno-semantic-interposition -funwind-tables -g -O3 -fno-math-errno -DNDEBUG -D_THREAD_SAFE -fPIC")
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -std=gnu99 -funwind-tables -O3 -fvisibility=hidden")

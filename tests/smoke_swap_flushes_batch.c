@@ -122,7 +122,7 @@ int main(void) {
         // shape there is nothing for the swap to drain. Say so rather than
         // reporting a pass that proved nothing.
         printf("SKIP: this shape is no longer batched, so the swap has nothing "
-               "to drain - the test can no longer observe the behaviour\n");
+               "to drain - the test can no longer observe the behavior\n");
         return 77;
     }
     printf("OK: geometry is buffered in the wrapper at end of frame\n");

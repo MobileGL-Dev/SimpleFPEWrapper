@@ -151,8 +151,8 @@ int main(void) {
     // Physical index 2 is now claimed by no slot. Left enabled it keeps
     // relativeoffset 12 from draw A and reads past every 12-byte vertex, which
     // corrupts the shader's texcoord input; the wrapper must retire it.
-    // The colour comes from the sticky current value so the pixel test is
-    // independent of the colour array.
+    // The color comes from the sticky current value so the pixel test is
+    // independent of the color array.
     static const GLfloat narrow[] = {
         -1, -1, 0,
          1, -1, 0,

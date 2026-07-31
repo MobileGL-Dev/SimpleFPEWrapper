@@ -17,7 +17,7 @@
 // quad lists, so they must be split before submission), and a constant
 // glEdgeFlag set OUTSIDE Begin/End applying to a whole primitive.
 //
-// How the wrapper honours these: advance() collects per-vertex edge flags
+// How the wrapper honors these: advance() collects per-vertex edge flags
 // into a lazily-populated array parallel to the interleaved vertex stream
 // (empty = "all boundary", the GL default, so runs that never clear the
 // flag pay one compare per vertex and no allocation), and the shared

@@ -40,7 +40,7 @@
 //                        where per-draw fixed cost dominates over vertex count
 //   bench.mcgui        - GUI/HUD: one immediate-mode quad per widget with a
 //                        texture bind and alpha-test toggle around it
-//   bench.mcfont       - text: per-glyph colour changes inside one Begin/End,
+//   bench.mcfont       - text: per-glyph color changes inside one Begin/End,
 //                        the shape the glyph batcher was written for
 //   bench.mcentity     - entity models: display-list replay with a matrix
 //                        push/rotate/pop per box
@@ -724,10 +724,10 @@ int main(void) {
     // --- Minecraft-shaped composites ----------------------------------------
     //
     // Vanilla's terrain vertex is DefaultVertexFormats.BLOCK: 3 floats
-    // position, 4 unsigned bytes colour, 2 floats UV, 2 shorts lightmap =
+    // position, 4 unsigned bytes color, 2 floats UV, 2 shorts lightmap =
     // 28 bytes. The lightmap rides texture unit 1, which is why each chunk
     // costs two glClientActiveTexture switches on top of the pointer set.
-    // Colour and lightmap are declared as GL_FLOAT here so one array serves
+    // Color and lightmap are declared as GL_FLOAT here so one array serves
     // every phase; the stride is what the per-draw cost turns on, and keeping
     // a single format keeps these phases comparable to clientarrays above.
     enum { MC_STRIDE = 28, MC_CHUNK_VERTS = 400, MC_CHUNKS = 16 };
@@ -739,7 +739,7 @@ int main(void) {
         d[0] = cell + ((corner == 1 || corner == 2) ? 0.01f : 0.0f);
         d[1] = cell + ((corner >= 2) ? 0.01f : 0.0f);
         d[2] = 0.0f;
-        d[3] = 0.8f;                              // colour (packed byte in vanilla)
+        d[3] = 0.8f;                              // color (packed byte in vanilla)
         d[4] = (float)(corner & 1);               // u
         d[5] = (float)(corner >> 1);              // v
         d[6] = 0.5f;                              // lightmap s
@@ -833,8 +833,8 @@ int main(void) {
            gui_ms * 1000.0 / (double)gui_widgets, gui_widgets);
     bench_check_error("mcgui");
 
-    // bench.mcfont - FontRenderer: one quad per glyph, colour set per glyph,
-    // all inside a single Begin/End for the string. The per-vertex colour is
+    // bench.mcfont - FontRenderer: one quad per glyph, color set per glyph,
+    // all inside a single Begin/End for the string. The per-vertex color is
     // why the glyph path cannot simply hoist state out of the batch.
     const int font_strings = (int)(2000 * scale) > 0 ? (int)(2000 * scale) : 1;
     enum { FONT_GLYPHS = 24 };
@@ -857,12 +857,12 @@ int main(void) {
     }
     fFinish();
     const double font_ms = now_ms() - t0;
-    printf("bench.mcfont:      %7.2f us/string (%d glyphs, per-glyph colour, one Begin/End)\n",
+    printf("bench.mcfont:      %7.2f us/string (%d glyphs, per-glyph color, one Begin/End)\n",
            font_ms * 1000.0 / (double)font_strings, FONT_GLYPHS);
     bench_check_error("mcfont");
 
     // bench.mcentity - ModelRenderer: each box is a compiled display list
-    // replayed under its own push/rotate/pop. Mobs and armour layers make this
+    // replayed under its own push/rotate/pop. Mobs and armor layers make this
     // a few hundred list replays a frame.
     enum { ENT_BOXES = 12 };
     GLuint ent_lists[ENT_BOXES];

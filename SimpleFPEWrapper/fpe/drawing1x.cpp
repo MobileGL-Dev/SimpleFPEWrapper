@@ -143,7 +143,7 @@ static GLintptr sfpewUploadToRing(const stream_ring_t& ring, const void* data, s
 
     if (ring.map == nullptr) {
         // The backend lacks coherent persistent storage. Keep the previous
-        // orphaning behaviour, which is faster than synchronous SubData on
+        // orphaning behavior, which is faster than synchronous SubData on
         // mobile drivers and preserves compatibility with other backends.
         g_glFuncs.glBufferData(ring.target, static_cast<GLsizeiptr>(size), data, GL_STREAM_DRAW);
         return 0;
@@ -544,7 +544,7 @@ void appendMergedRun(GLenum primitive, const GLfloat* src, size_t count, size_t 
         // Matches the index order the non-merged quad path uses, including
         // its flat-shading diagonal swap (see prepare_quad_indices): under
         // GL_FLAT both triangles must end on the quad's 4th vertex, which is
-        // where desktop GL_QUADS takes a flat primitive's colour from.
+        // where desktop GL_QUADS takes a flat primitive's color from.
         if (g_glstate_c.fpe_state.shade_model == GL_FLAT) {
             for (size_t q = 0; q + 3 < count; q += 4) {
                 emitTriangle(q, q + 1, q + 3);

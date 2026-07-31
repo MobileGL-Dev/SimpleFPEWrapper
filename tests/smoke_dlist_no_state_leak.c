@@ -153,7 +153,7 @@ int main(void) {
     // A display list holding an immediate-mode run. Replaying it is what makes
     // the wrapper materialise its own resident vertex buffer. Deliberately a
     // small RED quad away from the sample point, so if its geometry ever bled
-    // into the app's draw the centre pixel would stop being green.
+    // into the app's draw the center pixel would stop being green.
     const GLuint list = fGenLists(1);
     fNewList(list, GL_COMPILE);
     fBegin(GL_QUADS);

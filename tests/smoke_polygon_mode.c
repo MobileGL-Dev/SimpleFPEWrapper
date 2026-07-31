@@ -107,7 +107,7 @@ static int lit(int x, int y) {
 // The triangle modes decompose the rectangle into two triangles and each
 // triangle is its own primitive, so their shared edge - a diagonal across
 // the rectangle - is a real part of the wireframe and is drawn. Probing the
-// centre would therefore be testing the diagonal, not the fill.
+// center would therefore be testing the diagonal, not the fill.
 static void check_outline(const char* what) {
     const int mx = (X0 + X1) / 2, my = (Y0 + Y1) / 2;
     const int ix = X0 + 4, iy = Y0 + 6; // off y == x and off x + y == X1 + Y0

@@ -100,5 +100,5 @@ python3 tools/check_backend_profile.py . --write docs/backend-profile.json
 The suite runs against an ES 3 context (`eglBindAPI(EGL_OPENGL_ES_API)`,
 `EGL_OPENGL_ES3_BIT`, `EGL_CONTEXT_CLIENT_VERSION 3`), so **ES is what CI
 exercises**. Desktop-backend support rests on the audit above plus manual
-testing, not on automated behavioural coverage — the profile check is static.
+testing, not on automated behavioral coverage — the profile check is static.
 A desktop-context variant of the smoke tests would close that gap.

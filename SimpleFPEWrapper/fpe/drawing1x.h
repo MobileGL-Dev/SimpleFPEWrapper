@@ -26,7 +26,7 @@ void sfpewFlushDeferredDrawState();
 // families use the bare flushPendingImmediateDraws(), because keeping the
 // wrapper's bindings across those is the entire point.
 //
-// Erring towards calling this is safe: an unnecessary call costs the restore
+// Erring toward calling this is safe: an unnecessary call costs the restore
 // it was going to pay anyway. Omitting one where the app can observe those
 // bindings is what corrupts state, so new entry points should use this unless
 // they are demonstrably part of the vertex family.

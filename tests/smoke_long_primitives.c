@@ -156,7 +156,7 @@ int main(void) {
         for (int pi = 0; pi < 10; ++pi) {
             const GLenum prim = prims[pi];
             fClear(GL_COLOR_BUFFER_BIT);
-            // A wide per-vertex layout (position + colour + normal +
+            // A wide per-vertex layout (position + color + normal +
             // texcoord) so the collected stream is big enough to force the
             // ring to grow at the largest length.
             fBegin(prim);

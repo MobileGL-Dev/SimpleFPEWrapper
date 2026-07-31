@@ -18,10 +18,10 @@
 // the case to pin is shrink-then-regrow:
 //
 //   draw 1  fpe_Vertex + fpe_Color   -> both enabled, mask = {0,2}
-//   draw 2  fpe_Vertex only          -> colour disabled, mask = {0}
-//   draw 3  fpe_Vertex + fpe_Color   -> colour MUST be enabled again
+//   draw 2  fpe_Vertex only          -> color disabled, mask = {0}
+//   draw 3  fpe_Vertex + fpe_Color   -> color MUST be enabled again
 //
-// If the skip consulted a stale mask, draw 3 would read colour from the
+// If the skip consulted a stale mask, draw 3 would read color from the
 // constant current-value instead of the array and come out wrong.
 //
 // Skips (77) when the machine has no EGL device.
@@ -161,7 +161,7 @@ int main(void) {
     if (!ok) { char log[512]; fGetProgramInfoLog(prog, sizeof log, NULL, log);
         fprintf(stderr, "FAIL: link: %s\n", log); return 1; }
 
-    // Two full-screen triangles; the colour array is green everywhere.
+    // Two full-screen triangles; the color array is green everywhere.
     static const GLfloat pos[] = {
         -1,-1,  1,-1,  1,1,   -1,-1,  1,1,  -1,1,
     };
@@ -180,7 +180,7 @@ int main(void) {
     fClear(GL_COLOR_BUFFER_BIT);
     fDrawArrays(GL_TRIANGLES, 0, 6);
     fFinish();
-    expect(0, 1, 0, "draw 1: vertex+colour arrays -> green");
+    expect(0, 1, 0, "draw 1: vertex+color arrays -> green");
 
     // Draw 2: same layout repeated. This is the draw whose enables the mask
     // lets us skip; it must still render identically.
@@ -189,23 +189,23 @@ int main(void) {
     fFinish();
     expect(0, 1, 0, "draw 2: repeated layout still green (enable skipped)");
 
-    // Draw 3: layout SHRINKS - colour array off, constant red current value.
+    // Draw 3: layout SHRINKS - color array off, constant red current value.
     // The wrapper must disable that location and feed the constant.
     fDisableClientState(GL_COLOR_ARRAY);
     fColor4f(1.0f, 0.0f, 0.0f, 1.0f);
     fClear(GL_COLOR_BUFFER_BIT);
     fDrawArrays(GL_TRIANGLES, 0, 6);
     fFinish();
-    expect(1, 0, 0, "draw 3: colour array off -> constant red");
+    expect(1, 0, 0, "draw 3: color array off -> constant red");
 
-    // Draw 4: layout REGROWS. The colour location was disabled by draw 3, so
+    // Draw 4: layout REGROWS. The color location was disabled by draw 3, so
     // its mask bit is clear and the enable must be re-issued. A stale mask
     // would leave it disabled and keep feeding the red constant.
     fEnableClientState(GL_COLOR_ARRAY);
     fClear(GL_COLOR_BUFFER_BIT);
     fDrawArrays(GL_TRIANGLES, 0, 6);
     fFinish();
-    expect(0, 1, 0, "draw 4: colour array back on -> green again (enable re-issued)");
+    expect(0, 1, 0, "draw 4: color array back on -> green again (enable re-issued)");
 
     const GLenum err = fGetError();
     if (err != GL_NO_ERROR) {

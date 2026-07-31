@@ -52,7 +52,7 @@ static GLenum (*fGetError)(void);
 
 static int failures = 0;
 
-// A two-colour shape: enough vertices and attributes that a mistake in the
+// A two-color shape: enough vertices and attributes that a mistake in the
 // interleaving or the vertex count shows up as wrong pixels.
 static void draw_shape(void) {
     fBegin(GL_QUADS);
@@ -81,7 +81,7 @@ static void capture(GLubyte* out) {
     fReadPixels(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE, out);
 }
 
-// A pixel is "lit" if it is not the clear colour; comparing lit coverage and
+// A pixel is "lit" if it is not the clear color; comparing lit coverage and
 // exact bytes catches both a missing draw and a corrupted one.
 static int lit_count(const GLubyte* p) {
     int n = 0;

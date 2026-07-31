@@ -12,7 +12,7 @@
 //
 // Under an orthographic projection an application can address individual
 // pixels, and OpenGL 1.x apps rely on that heavily for 2D drawing. The test
-// tiles a square region one primitive per pixel, alternating two colours,
+// tiles a square region one primitive per pixel, alternating two colors,
 // with blending on. Reading it back then distinguishes three distinct
 // failure modes at once:
 //
@@ -94,7 +94,7 @@ static enum pixel_kind classify(int x, int y) {
     const int r = p[0], g = p[1], b = p[2];
     if (r < 40 && g < 40 && b < 40) return PX_BACKGROUND;
     if (b >= 40) return PX_OTHER;
-    if (r >= 40 && g >= 40) return PX_OTHER;      // both channels: two colours mixed
+    if (r >= 40 && g >= 40) return PX_OTHER;      // both channels: two colors mixed
     const int v = r >= 40 ? r : g;
     if (v > 160) return PX_OVERDRAWN;             // blended more than once
     if (v < 90) return PX_OTHER;                  // too dark for a full draw

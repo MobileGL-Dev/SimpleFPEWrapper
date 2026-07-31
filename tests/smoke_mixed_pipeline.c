@@ -339,7 +339,7 @@ int main(void) {
     if (!checkCenter("E5: alpha 0.75 LESS 0.5 -> discarded (green survives)", 0, 255, 0)) return 1;
     fDisable(0x0BC0);
 
-    // --- F: glDrawRangeElements / glMultiDraw* honour the same plumbing ---
+    // --- F: glDrawRangeElements / glMultiDraw* honor the same plumbing ---
     // These GL 1.2/1.4 core entry points used to pass straight through, so
     // GL_QUADS died on GLES and the emulated alpha test never applied.
     void (*fDrawRangeElements)(GLenum, GLuint, GLuint, GLsizei, GLenum, const void*);

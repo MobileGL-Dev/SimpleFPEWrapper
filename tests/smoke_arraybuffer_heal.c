@@ -36,7 +36,7 @@
 // Two buffers hold different geometry, so "which buffer is bound" is directly
 // visible as pixels:
 //   green buffer: a full-screen quad
-//   red buffer:   a small off-centre triangle that misses the sample point
+//   red buffer:   a small off-center triangle that misses the sample point
 //
 // Skips (77) when the machine has no EGL device, or when the backend's
 // glBindBuffer cannot be resolved separately from the wrapper's.
@@ -199,14 +199,14 @@ int main(void) {
     // Re-point through the wrapper so the layout is unambiguous, then draw.
     // Whatever the wrapper believes must now match the driver: binding bufRed
     // through the wrapper and drawing must produce the red sliver, which misses
-    // the centre and leaves the clear colour there.
+    // the center and leaves the clear color there.
     fBindBuffer(GL_ARRAY_BUFFER, bufRed);
     fVertexPointer(2, GL_FLOAT, stride, (const void*)0);
     fColorPointer(4, GL_FLOAT, stride, (const void*)(2 * sizeof(GLfloat)));
     fClear(GL_COLOR_BUFFER_BIT);
     fDrawArrays(GL_TRIANGLES, 0, 6);
     fFinish();
-    expect(0, 0, 1, "post-bypass: the red buffer's sliver misses the centre");
+    expect(0, 0, 1, "post-bypass: the red buffer's sliver misses the center");
 
     // And back to green, to show the shadow tracks both directions.
     fBindBuffer(GL_ARRAY_BUFFER, bufGreen);

@@ -10,7 +10,7 @@
 // license; see piglit's COPYING). A display list sets GL_FLAT, draws a quad,
 // redundantly sets GL_FLAT again, and draws a second quad; the list is then
 // replayed while GL_SMOOTH is the live state. Both quads must come out flat
-// shaded in their provoking vertex's colour.
+// shaded in their provoking vertex's color.
 //
 // Two things about this wrapper make it worth pinning:
 //
@@ -21,11 +21,11 @@
 //     exactly the arrangement upstream wrote it for.
 //
 //   - GL_QUADS has no GLES equivalent, so the wrapper rewrites each quad
-//     into two triangles. Flat shading takes its colour from the LAST vertex
+//     into two triangles. Flat shading takes its color from the LAST vertex
 //     of each primitive, so the rewrite has to preserve which vertex that
 //     is: desktop GL_QUADS takes vertex 3 (the fourth), while the naive
 //     triangle split (0,1,2)+(2,3,0) ends at vertex 2 and then vertex 0.
-//     Getting that wrong shades both halves with the wrong colour and no
+//     Getting that wrong shades both halves with the wrong color and no
 //     other test in the suite would notice.
 
 #include <dlfcn.h>
@@ -130,7 +130,7 @@ int main(void) {
     // would otherwise merge into one draw.
     fShadeModel(GL_FLAT);
 
-    // Right half, same colour pattern.
+    // Right half, same color pattern.
     fBegin(GL_QUADS);
     fColor3fv(red);   fVertex2f(0, -1);
     fColor3fv(green); fVertex2f(1, -1);

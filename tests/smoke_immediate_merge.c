@@ -61,8 +61,8 @@ static void (*fTranslatef)(GLfloat, GLfloat, GLfloat);
 
 static int failures;
 
-// One 0.8x0.8 NDC box centred at (cx, 0), expressed in whichever primitive is
-// asked for. Every form covers the box's centre pixel, so a correct expansion
+// One 0.8x0.8 NDC box centered at (cx, 0), expressed in whichever primitive is
+// asked for. Every form covers the box's center pixel, so a correct expansion
 // is observable no matter which rewrite path the merger took.
 static void box(GLenum primitive, GLfloat cx, GLfloat r, GLfloat g, GLfloat b) {
     const GLfloat l = cx - 0.4f, rt = cx + 0.4f, bt = -0.4f, tp = 0.4f;

@@ -1,9 +1,6 @@
 [submodule "3rdparty/glm"]
 	path = 3rdparty/glm
 	url = https://github.com/g-truc/glm.git
-[submodule "3rdparty/xxhash"]
-	path = 3rdparty/xxhash
-	url = https://github.com/stbrumme/xxhash.git
 [submodule "3rdparty/glslang"]
 	path = 3rdparty/glslang
 	url = https://github.com/KhronosGroup/glslang.git

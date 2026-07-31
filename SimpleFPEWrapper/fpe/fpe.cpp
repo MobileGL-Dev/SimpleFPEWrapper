@@ -132,18 +132,7 @@ glstate_t& glstate_t::current() {
     return get_instance();
 }
 
-glstate_t& glstate_t::current_vertex_data() {
-    // Pin only to a real context: a Begin issued with no current context
-    // lands on no_context_state, and vertices arriving after the app then
-    // makes a context current must resolve strictly (and be dropped by the
-    // primitive==kNoPrimitive guard) exactly like the pre-snapshot behavior.
-    glstate_t* state = tls_snapshot_state;
-    if (state != nullptr && state->fpe_state.fpe_draw.primitive != kNoPrimitive &&
-        tls_snapshot_context != EGL_NO_CONTEXT) {
-        return *state;
-    }
-    return get_instance();
-}
+glstate_t& glstate_t::current_vertex_data() { return sfpewVertexDataState(); }
 
 void* glstate_t::cached_context() {
     if (tls_snapshot_state == nullptr) get_instance();

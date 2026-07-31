@@ -904,6 +904,12 @@ inline void* sfpewCurrentContextInline() {
     return sfpewReconcileContext();
 }
 
+// The vertex-data pin: while a Begin/End batch is collecting, every
+// glVertex/glColor/glNormal/glTexCoord stays on the state the glBegin
+// resolved, so they cost a thread-local read instead of a resolve. Three of
+// them run per immediate-mode vertex, which is why this is inline.
+inline glstate_t& sfpewVertexDataState();
+
 inline glstate_t& sfpewResolveState() {
     if (g_sfpew_relaxed_context && tls_snapshot_state != nullptr &&
         tls_snapshot_context != nullptr) {
@@ -912,4 +918,18 @@ inline glstate_t& sfpewResolveState() {
     if (sfpewCurrentContextInline() == tls_snapshot_context && tls_snapshot_state != nullptr)
         return *tls_snapshot_state;
     return glstate_t::get_instance(); // switch, or first resolve on this thread
+}
+
+inline glstate_t& sfpewVertexDataState() {
+    // Pin only to a real context: a Begin issued with no current context
+    // lands on the no-context state, and vertices arriving after the app then
+    // makes one current must resolve strictly (and be dropped by the
+    // primitive == kNoPrimitive guard) exactly like the pre-snapshot
+    // behaviour.
+    glstate_t* const state = tls_snapshot_state;
+    if (state != nullptr && state->fpe_state.fpe_draw.primitive != kNoPrimitive &&
+        tls_snapshot_context != nullptr) {
+        return *state;
+    }
+    return glstate_t::get_instance();
 }

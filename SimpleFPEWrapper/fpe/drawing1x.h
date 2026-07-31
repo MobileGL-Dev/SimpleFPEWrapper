@@ -93,7 +93,7 @@ inline glm::vec4 mglDefaultedVec4(const std::array<Type, N>& v) {
 // while a batch is collecting, one strict resolve otherwise (types.h).
 template <typename Type, GLint N>
 void mglNormal(std::array<Type, N> normal) {
-    auto& state = glstate_t::current_vertex_data().fpe_state.fpe_draw;
+    auto& state = sfpewVertexDataState().fpe_state.fpe_draw;
     state.set_attribute_size(1, N); // before overwriting the current value
     auto& cur = state.current_data.normal;
     // let's hope this vectorizes well...
@@ -113,14 +113,14 @@ void mglFogCoord(Type coord) {
 
 template <typename Type, GLint N>
 void mglTexCoord(std::array<Type, N> uv, GLint texid) {
-    auto& state = glstate_t::current_vertex_data().fpe_state.fpe_draw;
+    auto& state = sfpewVertexDataState().fpe_state.fpe_draw;
     state.set_attribute_size(7 + texid, N);
     state.current_data.texcoord[texid] = mglDefaultedVec4<N>(uv);
 }
 
 template <typename Type, GLint N>
 void mglColor(std::array<Type, N> color) {
-    auto& gs = glstate_t::current_vertex_data();
+    auto& gs = sfpewVertexDataState();
     auto& state = gs.fpe_state.fpe_draw;
     state.set_attribute_size(2, N);
     // Desktop GL defines alpha=1 for every glColor3* entry point.
@@ -165,7 +165,7 @@ void mglColor(std::array<Type, N> color) {
 
 template <typename Type, GLint N>
 void mglVertex(std::array<Type, N> vertex) {
-    auto& state = glstate_t::current_vertex_data().fpe_state.fpe_draw;
+    auto& state = sfpewVertexDataState().fpe_state.fpe_draw;
     // Release builds define NDEBUG, so this must be a real check: a glVertex*
     // outside glBegin/glEnd would otherwise append stray data that leaks into
     // the next primitive's vertex stream.

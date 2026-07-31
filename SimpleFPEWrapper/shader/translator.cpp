@@ -27,6 +27,7 @@
 #include <mutex>
 #include <map>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include <cstdlib>
 #include <cstring>
@@ -558,21 +559,34 @@ struct fpe_MaterialParameters {
     vec4 emission; vec4 ambient; vec4 diffuse; vec4 specular; float shininess;
 };
 struct fpe_FogParameters { vec4 color; float density; float start; float end; float scale; };
-uniform mat4 fpe_ModelViewMatrix;
-uniform mat4 fpe_ProjectionMatrix;
-uniform mat4 fpe_ModelViewProjectionMatrix;
-uniform mat3 fpe_NormalMatrix;
-uniform mat4 fpe_ModelViewMatrixInverse;
-uniform mat4 fpe_ProjectionMatrixInverse;
-uniform mat4 fpe_TextureMatrix[8];
-uniform fpe_LightSourceParameters fpe_LightSource[8];
-uniform fpe_LightModelParameters fpe_LightModel;
-uniform fpe_MaterialParameters fpe_FrontMaterial;
-uniform fpe_MaterialParameters fpe_BackMaterial;
-uniform fpe_FogParameters fpe_Fog;
-uniform vec4 fpe_ClipPlane[6];
-uniform float fpe_NormalScale;
 )";
+
+// Compatibility state UNIFORMS, emitted only when a body references them.
+// Unreferenced ones would be inactive anyway (location -1, nothing fed),
+// but their mere declaration still takes part in cross-stage consistency
+// checks at link: a shader declaring its own trimmed `fpe_Fog` in one
+// stage must not collide with an unused full-size prelude declaration in
+// the other (Mesa rejects that; NVIDIA happens to be lenient).
+struct compat_uniform_t {
+    const char* declaration;
+    const char* name;
+};
+constexpr compat_uniform_t kSharedUniforms[] = {
+    {"uniform mat4 fpe_ModelViewMatrix;\n", "fpe_ModelViewMatrix"},
+    {"uniform mat4 fpe_ProjectionMatrix;\n", "fpe_ProjectionMatrix"},
+    {"uniform mat4 fpe_ModelViewProjectionMatrix;\n", "fpe_ModelViewProjectionMatrix"},
+    {"uniform mat3 fpe_NormalMatrix;\n", "fpe_NormalMatrix"},
+    {"uniform mat4 fpe_ModelViewMatrixInverse;\n", "fpe_ModelViewMatrixInverse"},
+    {"uniform mat4 fpe_ProjectionMatrixInverse;\n", "fpe_ProjectionMatrixInverse"},
+    {"uniform mat4 fpe_TextureMatrix[8];\n", "fpe_TextureMatrix"},
+    {"uniform fpe_LightSourceParameters fpe_LightSource[8];\n", "fpe_LightSource"},
+    {"uniform fpe_LightModelParameters fpe_LightModel;\n", "fpe_LightModel"},
+    {"uniform fpe_MaterialParameters fpe_FrontMaterial;\n", "fpe_FrontMaterial"},
+    {"uniform fpe_MaterialParameters fpe_BackMaterial;\n", "fpe_BackMaterial"},
+    {"uniform fpe_FogParameters fpe_Fog;\n", "fpe_Fog"},
+    {"uniform vec4 fpe_ClipPlane[6];\n", "fpe_ClipPlane"},
+    {"uniform float fpe_NormalScale;\n", "fpe_NormalScale"},
+};
 
 // Compatibility vertex ATTRIBUTES. Each one consumes a real attribute
 // slot, so they are emitted only when the shader actually references them:
@@ -785,28 +799,73 @@ bool referencesIdentifier(const std::string& body, const char* name) {
     return false;
 }
 
+// Drop the prelude's own single-line `uniform`/`in`/`out` declaration of
+// each suppressed name: the shader body declares that symbol itself (see
+// the redefinition retry in translate()), and two declarations of one
+// global in a single TU are an error.
+std::string dropSuppressedDeclarations(const std::string& text,
+                                       const std::unordered_set<std::string>& names) {
+    std::string result;
+    result.reserve(text.size());
+    size_t start = 0;
+    while (start < text.size()) {
+        size_t end = text.find('\n', start);
+        if (end == std::string::npos) end = text.size();
+        const std::string line = text.substr(start, end - start);
+        bool drop = false;
+        if (line.rfind("uniform ", 0) == 0 || line.rfind("in ", 0) == 0 ||
+            line.rfind("out ", 0) == 0) {
+            for (const auto& name : names) {
+                if (referencesIdentifier(line, name.c_str())) {
+                    drop = true;
+                    break;
+                }
+            }
+        }
+        if (!drop) {
+            result += line;
+            result += '\n';
+        }
+        start = end + 1;
+    }
+    return result;
+}
+
 std::string buildPrelude(bool vertex, bool uses_fragdata, bool with_bodies,
-                         unsigned max_draw_buffers, const std::string& all_bodies) {
+                         unsigned max_draw_buffers, const std::string& all_bodies,
+                         const std::unordered_set<std::string>* suppressed = nullptr) {
+    // ftransform() reads fpe_Vertex, so its use counts as a reference; its
+    // helper (and the matrix it reads) can only exist when the fpe_Vertex
+    // declaration itself is emitted rather than left to the shader body.
+    const bool uses_ftransform = vertex && referencesIdentifier(all_bodies, "ftransform");
+    const bool emit_vertex_attr =
+        vertex && !(suppressed != nullptr && suppressed->count("fpe_Vertex") != 0) &&
+        (referencesIdentifier(all_bodies, "fpe_Vertex") || uses_ftransform);
+
     std::string result = "#version 450\n"; // SPIR-V rejects compatibility
     result += kSharedPrelude;
+    for (const auto& uniform : kSharedUniforms) {
+        // The shader body declares this symbol itself; injecting it again
+        // would be the very redefinition being suppressed.
+        if (suppressed != nullptr && suppressed->count(uniform.name) != 0) continue;
+        const bool forced_by_ftransform =
+            emit_vertex_attr && std::strcmp(uniform.name, "fpe_ModelViewProjectionMatrix") == 0;
+        if (!referencesIdentifier(all_bodies, uniform.name) && !forced_by_ftransform) continue;
+        result += uniform.declaration;
+    }
     result += with_bodies ? kSharedPreludeFuncs : kSharedPreludeProtos;
     result += vertex ? kVertexPrelude : kFragmentPrelude;
     if (vertex) {
-        // ftransform() reads fpe_Vertex, so its use counts as a reference.
-        const bool uses_ftransform = referencesIdentifier(all_bodies, "ftransform");
-        bool has_vertex_attribute = false;
         for (const auto& attribute : kVertexAttributes) {
+            if (suppressed != nullptr && suppressed->count(attribute.name) != 0) continue;
             const bool is_vertex = std::strcmp(attribute.name, "fpe_Vertex") == 0;
-            if (!referencesIdentifier(all_bodies, attribute.name) &&
-                !(uses_ftransform && is_vertex)) {
+            if (is_vertex ? !emit_vertex_attr : !referencesIdentifier(all_bodies, attribute.name))
                 continue;
-            }
             result += attribute.declaration;
-            has_vertex_attribute = has_vertex_attribute || is_vertex;
         }
         // ftransform()'s body reads fpe_Vertex; without that attribute the
         // helper cannot be declared at all (a modern shader never calls it).
-        if (has_vertex_attribute) result += with_bodies ? kVertexPreludeFuncs : kVertexPreludeProtos;
+        if (emit_vertex_attr) result += with_bodies ? kVertexPreludeFuncs : kVertexPreludeProtos;
     } else if (uses_fragdata) {
         // FragColor and FragData[0] would collide on one location; declare
         // only what the shader writes (GL forbids mixing them).
@@ -821,6 +880,8 @@ std::string buildPrelude(bool vertex, bool uses_fragdata, bool with_bodies,
     // put two outputs on draw buffer 0 and the user's writes would land
     // nowhere; the alpha test is likewise a compatibility-only feature, so
     // both the declaration and the test wrapper are skipped.
+    if (suppressed != nullptr && !suppressed->empty())
+        result = dropSuppressedDeclarations(result, *suppressed);
     return result;
 }
 
@@ -885,7 +946,8 @@ std::string preprocess(GLenum stage, const std::string& source) {
 // exactly like a desktop GLSL linker.
 std::vector<std::string> preprocessUnits(GLenum stage, const std::vector<std::string>& sources,
                                          int rename_level = 0,
-                                         unsigned max_draw_buffers = 4) {
+                                         unsigned max_draw_buffers = 4,
+                                         const std::unordered_set<std::string>* suppressed = nullptr) {
     const bool vertex = stage == GL_VERTEX_SHADER;
     std::vector<std::string> bodies;
     bodies.reserve(sources.size());
@@ -922,7 +984,8 @@ std::vector<std::string> preprocessUnits(GLenum stage, const std::vector<std::st
     std::vector<std::string> units;
     units.reserve(bodies.size());
     for (size_t i = 0; i < bodies.size(); ++i) {
-        std::string unit = buildPrelude(vertex, uses_fragdata, i == 0, max_draw_buffers, all_bodies);
+        std::string unit =
+            buildPrelude(vertex, uses_fragdata, i == 0, max_draw_buffers, all_bodies, suppressed);
         unit += "#line 1\n"; // keep glslang diagnostics on user line numbers
         unit += bodies[i];
         if (unit.back() != '\n') unit += '\n';
@@ -948,6 +1011,21 @@ translation_result_t translate(GLenum stage, const std::string& source,
 namespace {
 translation_result_t translateUnits(GLenum stage, const std::vector<std::string>& units,
                                     const target_language_t& target, bool explicit_input_locations);
+
+// Scrape "'fpe_Xyz' : redefinition" out of a glslang parse log. Only fpe_
+// names qualify: those are the prelude's own declarations, so a collision
+// means the shader body declared the symbol itself.
+void collectRedefinedFpeSymbols(const std::string& log, std::unordered_set<std::string>& names) {
+    constexpr char kMarker[] = "' : redefinition";
+    for (size_t pos = 0; (pos = log.find(kMarker, pos)) != std::string::npos;
+         pos += sizeof(kMarker) - 1) {
+        if (pos == 0) continue;
+        const size_t open = log.rfind('\'', pos - 1);
+        if (open == std::string::npos) continue;
+        const std::string name = log.substr(open + 1, pos - open - 1);
+        if (name.rfind("fpe_", 0) == 0) names.insert(name);
+    }
+}
 } // namespace
 
 translation_result_t translate(GLenum stage, const std::vector<std::string>& sources,
@@ -992,19 +1070,44 @@ translation_result_t translate(GLenum stage, const std::vector<std::string>& sou
         if (hit != cache.end()) return hit->second;
     }
 
-    auto result = translateUnits(stage, preprocessUnits(stage, sources, 0, target.max_draw_buffers),
-                                 target, explicit_input_locations);
+    auto attempt = [&](int level, const std::unordered_set<std::string>* suppressed) {
+        return translateUnits(
+            stage, preprocessUnits(stage, sources, level, target.max_draw_buffers, suppressed),
+            target, explicit_input_locations);
+    };
+
+    auto result = attempt(0, nullptr);
     // Escalating rename retries, keeping the PLAIN attempt's diagnostics
     // when everything fails: level 1 un-shadows sampler names (`uniform
     // sampler2D texture;` exists in packs of every #version), level 2 also
     // renames identifiers that were plain in <= 1.20 (mat2x3, lowp, ...).
     for (int level = 1; level <= 2 && !result.ok && !result.parse_ok; ++level) {
-        auto retry =
-            translateUnits(stage, preprocessUnits(stage, sources, level, target.max_draw_buffers),
-                           target, explicit_input_locations);
+        auto retry = attempt(level, nullptr);
         if (retry.ok) {
             result = std::move(retry);
             break;
+        }
+    }
+    // A modern-style shader may declare the wrapper's fpe_* interface
+    // itself (`in vec4 fpe_Vertex;`, `uniform ... fpe_Fog;`) to reach the
+    // fixed-function feeds from a user program; the injected prelude then
+    // collides with it as a redefinition. Yield those prelude declarations
+    // and retry. Iterated because glslang reports errors TU by TU, so one
+    // pass may surface only part of the set; the plain attempt's
+    // diagnostics are kept if suppression never reaches a clean parse.
+    if (!result.ok) {
+        std::unordered_set<std::string> suppressed;
+        std::string log = result.log;
+        for (int round = 0; round < 8 && !result.ok; ++round) {
+            const size_t known = suppressed.size();
+            collectRedefinedFpeSymbols(log, suppressed);
+            if (suppressed.size() == known) break;
+            auto retry = attempt(0, &suppressed);
+            if (retry.ok) {
+                result = std::move(retry);
+                break;
+            }
+            log = std::move(retry.log);
         }
     }
 

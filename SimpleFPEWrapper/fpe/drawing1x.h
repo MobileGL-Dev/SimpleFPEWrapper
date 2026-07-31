@@ -73,6 +73,22 @@ GLintptr sfpewUploadImmediateVertexData(const void* data, size_t size);
 // fpe_element_ring. Returns the byte offset to pass to glDrawElements.
 GLintptr sfpewUploadElementData(const void* data, size_t size);
 
+// Missing components take their GL defaults (0, 0, 0, 1) in the SAME store as
+// the supplied ones. Writing the default vector first and then overwriting it
+// costs a second 16-byte store per attribute on the hottest path there is -
+// three of these run for every immediate-mode vertex.
+template <GLint N, typename Type>
+inline glm::vec4 mglDefaultedVec4(const std::array<Type, N>& v) {
+    if constexpr (N >= 4)
+        return glm::vec4((GLfloat)v[0], (GLfloat)v[1], (GLfloat)v[2], (GLfloat)v[3]);
+    else if constexpr (N == 3)
+        return glm::vec4((GLfloat)v[0], (GLfloat)v[1], (GLfloat)v[2], 1.0f);
+    else if constexpr (N == 2)
+        return glm::vec4((GLfloat)v[0], (GLfloat)v[1], 0.0f, 1.0f);
+    else
+        return glm::vec4((GLfloat)v[0], 0.0f, 0.0f, 1.0f);
+}
+
 // Vertex-data entries ride the Begin/End context pin: zero strict resolves
 // while a batch is collecting, one strict resolve otherwise (types.h).
 template <typename Type, GLint N>
@@ -99,12 +115,7 @@ template <typename Type, GLint N>
 void mglTexCoord(std::array<Type, N> uv, GLint texid) {
     auto& state = glstate_t::current_vertex_data().fpe_state.fpe_draw;
     state.set_attribute_size(7 + texid, N);
-    auto& cur = state.current_data.texcoord[texid];
-    cur = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
-    // let's hope this vectorizes well...
-    for (auto i = 0; i < N; ++i) {
-        glm::value_ptr(cur)[i] = (GLfloat)uv[i];
-    }
+    state.current_data.texcoord[texid] = mglDefaultedVec4<N>(uv);
 }
 
 template <typename Type, GLint N>
@@ -112,13 +123,9 @@ void mglColor(std::array<Type, N> color) {
     auto& gs = glstate_t::current_vertex_data();
     auto& state = gs.fpe_state.fpe_draw;
     state.set_attribute_size(2, N);
-    auto& cur = state.current_data.color;
     // Desktop GL defines alpha=1 for every glColor3* entry point.
-    cur = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
-    // let's hope this vectorizes well...
-    for (auto i = 0; i < N; ++i) {
-        glm::value_ptr(cur)[i] = (GLfloat)color[i];
-    }
+    auto& cur = state.current_data.color;
+    cur = mglDefaultedVec4<N>(color);
 
     if (gs.fpe_state.fpe_bools.color_material_enable) {
         // Vertex colors are copied into the pending batch, so ordinary color
@@ -167,11 +174,7 @@ void mglVertex(std::array<Type, N> vertex) {
     auto& cur = state.current_data.vertex;
     // Missing components are (0, 0, 0, 1), rather than values left over
     // from the previous immediate-mode vertex.
-    cur = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
-    // let's hope this vectorizes well...
-    for (auto i = 0; i < N; ++i) {
-        glm::value_ptr(cur)[i] = (GLfloat)vertex[i];
-    }
+    cur = mglDefaultedVec4<N>(vertex);
     // let's collect one vertex here!
     state.advance();
 }

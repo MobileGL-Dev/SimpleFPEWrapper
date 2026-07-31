@@ -39,6 +39,13 @@ struct LogicalTextureBindings {
     GLenum activeTexture = GL_TEXTURE0;
     bool activeTextureKnown = false;
     std::unordered_map<uint64_t, GLuint> bindings;
+    // Bumped by every real change to the active unit or to a binding. The
+    // immediate-mode merge key rides on this instead of re-reading the
+    // active unit and its 2D binding for every Begin/End batch: those two
+    // reads (a map lookup each) cost more than everything else the merge
+    // decision does. Both mutators below already return early when nothing
+    // changes, so an unchanged state never bumps and never forces a flush.
+    uint64_t generation = 1;
 };
 
 thread_local LogicalTextureBindings logicalTextureBindings;
@@ -279,6 +286,8 @@ GLenum sfpewLogicalActiveTexture() {
     auto& state = getLogicalTextureBindings();
     return getLogicalActiveTexture(state);
 }
+
+uint64_t sfpewTextureStateGeneration() { return getLogicalTextureBindings().generation; }
 
 GLuint sfpewLogicalTextureBinding(GLenum target) {
     auto& state = getLogicalTextureBindings();
@@ -1036,6 +1045,7 @@ void glActiveTexture(GLenum texture) {
     g_glFuncs.glActiveTexture(texture);
     state.activeTexture = texture;
     state.activeTextureKnown = true;
+    ++state.generation;
 }
 
 void glBindTexture(GLenum target, GLuint texture) {
@@ -1054,7 +1064,10 @@ void glBindTexture(GLenum target, GLuint texture) {
 
     sfpewTextureStateBarrier();
     g_glFuncs.glBindTexture(target, texture);
-    if (query != GL_NONE) state.bindings[key] = texture;
+    if (query != GL_NONE) {
+        state.bindings[key] = texture;
+        ++state.generation;
+    }
 }
 
 void glDeleteTextures(GLsizei n, const GLuint* textures) {
@@ -1064,11 +1077,12 @@ void glDeleteTextures(GLsizei n, const GLuint* textures) {
     g_glFuncs.glDeleteTextures(n, textures);
     if (n <= 0 || textures == nullptr) return;
 
-    auto& bindings = getLogicalTextureBindings().bindings;
-    for (auto& [key, binding] : bindings) {
+    auto& state = getLogicalTextureBindings();
+    for (auto& [key, binding] : state.bindings) {
         for (GLsizei i = 0; i < n; ++i) {
             if (binding == textures[i]) {
                 binding = 0;
+                ++state.generation;
                 break;
             }
         }

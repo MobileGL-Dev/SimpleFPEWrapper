@@ -23,6 +23,8 @@ bool sfpewEnsureBackend() noexcept;
 
 GLenum sfpewLogicalActiveTexture();
 GLuint sfpewLogicalTextureBinding(GLenum target);
+// Changes whenever the active texture unit or any texture binding does.
+uint64_t sfpewTextureStateGeneration();
 GLint sfpewLogicalProgram();
 GLuint sfpewLogicalArrayBufferBinding();
 GLuint sfpewLogicalVertexArrayBinding();

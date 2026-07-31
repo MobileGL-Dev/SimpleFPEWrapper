@@ -177,7 +177,22 @@ struct fixed_function_draw_data_t {
     glm::vec4 texcoord[MAX_TEX];
 
     fixed_function_draw_size_t sizes;
+    // Stamped from a process-wide counter on every change to `sizes`, so the
+    // per-vertex packing path can revalidate its layout with one integer
+    // compare instead of re-comparing the whole size block. It lives here
+    // rather than inside `sizes` on purpose: `sizes` is compared field-wise
+    // and memcmp'd elsewhere to decide whether two runs share a layout, and
+    // an epoch inside it would make every such comparison fail. Copying or
+    // swapping this struct carries the stamp with the sizes it describes,
+    // which is what keeps save/restore paths correct; only a write THROUGH
+    // `sizes` needs a new stamp (see sfpewNextSizesEpoch).
+    uint64_t sizes_epoch = 0;
 };
+
+// Next value for fixed_function_draw_data_t::sizes_epoch. Values are unique
+// process-wide, so a layout built for one size block can never be mistaken
+// for a different block that happens to be restored into the same slot.
+uint64_t sfpewNextSizesEpoch();
 
 // Sentinel for "no Begin/End block is open". GL_NONE is 0 - the SAME value as
 // GL_POINTS, the first legal glBegin() mode - so using GL_NONE here made every
@@ -226,6 +241,9 @@ struct fixed_function_draw_state_t {
     int packed_span_count = -1; // -1: never built
     size_t packed_floats = 0;
     fixed_function_draw_size_t packed_layout_sizes;
+    // The current_data.sizes_epoch the spans above were built for. 0 never
+    // matches a real stamp, so a default-constructed state always rebuilds.
+    uint64_t packed_layout_epoch = 0;
 
     // Set when set_attribute_size had to repack already-collected vertices
     // (an attribute introduced mid-primitive). The display-list compiler

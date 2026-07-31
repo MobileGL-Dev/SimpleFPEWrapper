@@ -215,7 +215,11 @@ struct immediate_client_state_guard_t {
 struct immediate_draw_sizes_guard_t {
     fixed_function_draw_size_t sizes = g_glstate_c.fpe_state.fpe_draw.current_data.sizes;
 
-    ~immediate_draw_sizes_guard_t() { g_glstate_c.fpe_state.fpe_draw.current_data.sizes = sizes; }
+    ~immediate_draw_sizes_guard_t() {
+        auto& data = g_glstate_c.fpe_state.fpe_draw.current_data;
+        data.sizes = sizes;
+        data.sizes_epoch = sfpewNextSizesEpoch();
+    }
 
     immediate_draw_sizes_guard_t() = default;
     immediate_draw_sizes_guard_t(const immediate_draw_sizes_guard_t&) = delete;
@@ -238,11 +242,20 @@ struct pending_immediate_batch_t {
     bool unexpanded = false;
     GLenum unexpandedPrimitive = GL_TRIANGLES;
     fixed_function_draw_size_t sizes{};
+    // Stamp of the size block above: comparing it is how a joining run checks
+    // that the layout still matches, which is an integer compare instead of
+    // one over the whole block (see fixed_function_draw_data_t::sizes_epoch).
+    uint64_t sizesEpoch = 0;
     std::vector<GLfloat> vertices;
     size_t vertexCount = 0;
     size_t runCount = 0;
     GLenum activeTexture = GL_TEXTURE0;
     GLuint texture2D = 0;
+    // The texture state the two fields above were read under. Comparing it
+    // is how a joining run decides whether the texture still matches, which
+    // costs one integer instead of the two logical-binding lookups those
+    // fields need - and those lookups are only paid when a batch starts.
+    uint64_t textureGeneration = 0;
 };
 
 thread_local pending_immediate_batch_t pendingGlyphBatch;
@@ -298,9 +311,11 @@ void drawImmediateVertices(GLenum primitive, const GLfloat* vertices, size_t flo
     auto& state = gs.fpe_state;
     const fixed_function_draw_size_t& shader_sizes = constant_sizes ? *constant_sizes : sizes;
     state.fpe_draw.current_data.sizes = shader_sizes;
+    state.fpe_draw.current_data.sizes_epoch = sfpewNextSizesEpoch();
 
     fixed_function_draw_state_t layoutState;
     layoutState.current_data.sizes = sizes;
+    layoutState.current_data.sizes_epoch = sfpewNextSizesEpoch();
     layoutState.compile_vertexattrib(state.vertexpointer_array);
 
     auto& va = state.normalized_vpa;
@@ -468,7 +483,10 @@ GLenum mergeTargetPrimitive(GLenum primitive, size_t vertexCount) {
     case GL_POLYGON:
         return vertexCount >= 3 ? GL_TRIANGLES : GL_NONE;
     case GL_QUADS:
-        return vertexCount >= 4 && vertexCount % 4u == 0 ? GL_TRIANGLES : GL_NONE;
+        // Stays GL_QUADS: quads are independent primitives, so runs of them
+        // concatenate as-is and the draw path converts the merged batch with
+        // its cached index buffer instead of duplicating shared corners here.
+        return vertexCount >= 4 && vertexCount % 4u == 0 ? GL_QUADS : GL_NONE;
     case GL_QUAD_STRIP:
         return vertexCount >= 4 && vertexCount % 2u == 0 ? GL_TRIANGLES : GL_NONE;
     case GL_LINES:
@@ -505,7 +523,14 @@ void appendMergedRun(GLenum primitive, const GLfloat* src, size_t count, size_t 
     case GL_POINTS:
     case GL_LINES:
     case GL_TRIANGLES:
-        // Already independent: one contiguous copy.
+    case GL_QUADS:
+        // Already independent: one contiguous copy. Quads belong here even
+        // though the backend has no quad primitive - concatenating two runs
+        // of them yields exactly the quads of both, and the draw path turns
+        // the whole batch into triangles with its cached index buffer. Doing
+        // that with indices rather than by duplicating the shared corners
+        // keeps a third of the vertices (and a third of the upload) out of
+        // the batch entirely.
         {
             const size_t offset = out.size();
             out.resize(offset + count * stride);
@@ -539,23 +564,6 @@ void appendMergedRun(GLenum primitive, const GLfloat* src, size_t count, size_t 
     case GL_TRIANGLE_FAN:
     case GL_POLYGON:
         for (size_t i = 1; i + 1 < count; ++i) emitTriangle(0, i, i + 1);
-        break;
-    case GL_QUADS:
-        // Matches the index order the non-merged quad path uses, including
-        // its flat-shading diagonal swap (see prepare_quad_indices): under
-        // GL_FLAT both triangles must end on the quad's 4th vertex, which is
-        // where desktop GL_QUADS takes a flat primitive's color from.
-        if (g_glstate_c.fpe_state.shade_model == GL_FLAT) {
-            for (size_t q = 0; q + 3 < count; q += 4) {
-                emitTriangle(q, q + 1, q + 3);
-                emitTriangle(q + 1, q + 2, q + 3);
-            }
-        } else {
-            for (size_t q = 0; q + 3 < count; q += 4) {
-                emitTriangle(q, q + 1, q + 2);
-                emitTriangle(q + 2, q + 3, q);
-            }
-        }
         break;
     case GL_QUAD_STRIP:
         // Spec vertex order: 2n, 2n+1, 2n+3, 2n+2 forms each quad.
@@ -599,11 +607,10 @@ bool queueImmediateRun(const fixed_function_draw_state_t& draw) {
 
     auto& batch = pendingGlyphBatch;
     const auto& sizes = draw.current_data.sizes;
-    const GLenum activeTexture = sfpewLogicalActiveTexture();
-    const GLuint texture2D = sfpewLogicalTextureBinding(GL_TEXTURE_2D);
+    const uint64_t textureGeneration = sfpewTextureStateGeneration();
     if (batch.active &&
-        (batch.primitive != target || std::memcmp(&batch.sizes, &sizes, sizeof(sizes)) != 0 ||
-         batch.activeTexture != activeTexture || batch.texture2D != texture2D)) {
+        (batch.primitive != target || batch.textureGeneration != textureGeneration ||
+         batch.sizesEpoch != draw.current_data.sizes_epoch)) {
         flushPendingImmediateDraws();
     }
     const size_t stride = draw.vb.size() / draw.vertex_count;
@@ -619,11 +626,15 @@ bool queueImmediateRun(const fixed_function_draw_state_t& draw) {
         batch.unexpanded = true;
         batch.unexpandedPrimitive = draw.primitive;
         batch.sizes = sizes;
+        batch.sizesEpoch = draw.current_data.sizes_epoch;
         batch.vertices.assign(draw.vb.begin(), draw.vb.end());
         batch.vertexCount = draw.vertex_count;
         batch.runCount = 1;
-        batch.activeTexture = activeTexture;
-        batch.texture2D = texture2D;
+        // Read once per batch, not once per run: the flush path needs the
+        // real values to restore the texture it drew under.
+        batch.activeTexture = sfpewLogicalActiveTexture();
+        batch.texture2D = sfpewLogicalTextureBinding(GL_TEXTURE_2D);
+        batch.textureGeneration = textureGeneration;
         return true;
     }
 
@@ -968,6 +979,7 @@ void sfpewCompileImmediateRuns(DisplayList& commands) {
     std::swap(saved_draw.vb, draw.vb);
     std::swap(saved_draw.vertex_count, draw.vertex_count);
     draw.current_data.sizes = {};
+    draw.current_data.sizes_epoch = sfpewNextSizesEpoch();
     const bool saved_color_material = gs.fpe_state.fpe_bools.color_material_enable;
     gs.fpe_state.fpe_bools.color_material_enable = false;
     const GLboolean saved_disable_recording = disableRecording;
@@ -1014,6 +1026,7 @@ void sfpewCompileImmediateRuns(DisplayList& commands) {
         // live replay's constant-attribute path.
         draw.reset();
         draw.current_data.sizes = {};
+        draw.current_data.sizes_epoch = sfpewNextSizesEpoch();
         draw.primitive = mode;
         for (size_t k = i + 1; k < end_index; ++k) commands[k]->execute();
 

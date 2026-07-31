@@ -7,9 +7,18 @@
 // End of Source File Header
 
 #include "types.h"
+#include <atomic>
 #include <cstring>
 
 #define DEBUG 0
+
+uint64_t sfpewNextSizesEpoch() {
+    // Relaxed is enough: the value only has to be distinct from every other
+    // stamp, and it is always published together with the sizes it describes
+    // through the same (per-context) state the reader already owns.
+    static std::atomic<uint64_t> counter{0};
+    return counter.fetch_add(1, std::memory_order_relaxed) + 1;
+}
 
 void fixed_function_draw_state_t::reset() {
     primitive = kNoPrimitive;
@@ -22,7 +31,14 @@ void fixed_function_draw_state_t::reset() {
 void fixed_function_draw_state_t::set_attribute_size(int slot, GLint requested) {
     GLint& stored = current_data.sizes.data[slot];
     if (primitive == kNoPrimitive || vertex_count == 0) {
-        stored = requested;
+        // Only a real change earns a new stamp: every vertex re-declares the
+        // sizes of the attributes it sets, and stamping those no-op writes
+        // would rebuild the packing layout for the first vertex of every
+        // single Begin/End batch.
+        if (stored != requested) {
+            stored = requested;
+            current_data.sizes_epoch = sfpewNextSizesEpoch();
+        }
         return;
     }
     if (requested <= stored) return; // grow-only while collecting
@@ -79,6 +95,7 @@ void fixed_function_draw_state_t::set_attribute_size(int slot, GLint requested) 
     }
     vb = std::move(repacked_vb);
     stored = requested;
+    current_data.sizes_epoch = sfpewNextSizesEpoch();
 }
 
 void fixed_function_draw_state_t::rebuild_packed_layout() {
@@ -115,6 +132,7 @@ void fixed_function_draw_state_t::rebuild_packed_layout() {
         add(glm::value_ptr(current_data.texcoord[i]), sizes.texcoord_size[i]);
     }
     packed_layout_sizes = sizes;
+    packed_layout_epoch = current_data.sizes_epoch;
 }
 
 void fixed_function_draw_state_t::advance() {
@@ -132,14 +150,19 @@ void fixed_function_draw_state_t::advance() {
         edge_flags.push_back(0u);
     }
 
-    // One 92-byte compare replaces the old per-vertex 23-slot rescan and
-    // 16-unit texcoord walk; it also revalidates after wholesale sizes
-    // overwrites (attrib-stack restore, immediate-draw guards).
-    if (packed_span_count < 0 ||
-        std::memcmp(&packed_layout_sizes, &current_data.sizes, sizeof(packed_layout_sizes)) != 0) {
+    // One integer compare per vertex. The stamp changes only when a write
+    // actually changes the size block, so a steady layout - every vertex of
+    // every batch in a draw loop - costs this compare and nothing else. It
+    // also revalidates after wholesale sizes overwrites (attrib-stack
+    // restore, immediate-draw guards), which take a fresh stamp.
+    if (packed_span_count < 0 || packed_layout_epoch != current_data.sizes_epoch) {
         rebuild_packed_layout();
     }
 
+    // resize() + a scalar copy loop, deliberately: an immediate-mode vertex
+    // is a handful of floats, and vector::insert routes those few bytes
+    // through memmove, whose call overhead measured worse than the zeroing
+    // resize does (tinybatch 0.37 -> 0.42 us/batch when this used insert).
     const size_t old_size = vb.size();
     vb.resize(old_size + packed_floats);
     GLfloat* output = vb.data() + old_size;

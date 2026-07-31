@@ -91,6 +91,22 @@ def load(path):
 bv, bu = load(sys.argv[1])
 cv, cu = load(sys.argv[2])
 
+# The first round of each library pays process-level one-time costs its
+# successors do not: driver and shader-toolchain initialization, first
+# population of every cache. Phases warm up internally, but that cannot
+# reach a cost paid once per process, so the first round is discarded.
+# Without this a single cold sample inflates the spread far enough to make
+# the noise test below call any difference "parity" - a 14x gap in
+# shaderbuild was reported as parity because one cold round was 33x the
+# median.
+ROUNDS = int(os.environ.get("ROUNDS", "0") or 0)
+DISCARD_WARMUP = ROUNDS >= 3
+if DISCARD_WARMUP:
+    for vals in (bv, cv):
+        for name in vals:
+            if len(vals[name]) >= 3:
+                del vals[name][0]
+
 order = list(OrderedDict.fromkeys(list(bv.keys()) + list(cv.keys())))
 if not order:
     print("no results parsed - did both libraries run?", file=sys.stderr)
@@ -99,7 +115,8 @@ if not order:
 print()
 print(f"baseline : {os.environ['BASE']}")
 print(f"candidate: {os.environ['CAND']}")
-print(f"rounds   : {os.environ['ROUNDS']} (median; range in brackets)")
+print(f"rounds   : {os.environ['ROUNDS']} (median; range in brackets"
+      + ("; first discarded as warm-up)" if DISCARD_WARMUP else ")"))
 print()
 hdr = f"{'phase':<14}{'unit':<9}{'baseline':>20}{'candidate':>20}{'ratio':>8}"
 print(hdr); print("-" * len(hdr))
@@ -121,10 +138,15 @@ for name in order:
     bs = f"{bm:.2f} [{min(b):.2f}-{max(b):.2f}]"
     cs = f"{cm:.2f} [{min(c):.2f}-{max(c):.2f}]"
     # Only call it either way when the medians differ by more than the noisier
-    # side's own spread.
-    bspread = (max(b) - min(b)) / bm
-    cspread = (max(c) - min(c)) / cm
-    noise = max(bspread, cspread)
+    # side's own spread. The spread ignores the single worst sample once
+    # there are enough rounds to spare it: one scheduling hiccup should not
+    # be able to veto a verdict, while the printed range still shows it.
+    def spread(samples, med):
+        s = sorted(samples)
+        if len(s) >= 5:
+            s = s[:-1]
+        return (s[-1] - s[0]) / med
+    noise = max(spread(b, bm), spread(c, cm))
     tag = ""
     if abs(ratio - 1.0) <= noise:
         tag = "  ~parity (within noise)"

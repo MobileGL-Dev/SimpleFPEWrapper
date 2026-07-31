@@ -51,6 +51,19 @@ set(ENABLE_GLSLANG_BINARIES OFF CACHE BOOL "" FORCE)
 set(ENABLE_HLSL OFF CACHE BOOL "" FORCE)
 set(ENABLE_OPT OFF CACHE BOOL "" FORCE)
 set(BUILD_EXTERNAL OFF CACHE BOOL "" FORCE)
+# glslang defaults ENABLE_RTTI off, which makes it compile ITSELF with
+# -fno-rtti, so it never emits `typeinfo for glslang::TProgram`. This
+# library needs RTTI (dynamic_cast in the display-list and matrix paths) and
+# constructs a glslang::TProgram, a polymorphic type - so our RTTI-enabled
+# translation unit references a typeinfo the -fno-rtti glslang never
+# defines, and the .so fails to dlopen with an undefined symbol.
+#
+# It only shows up in some configurations, which is why it went unnoticed:
+# full LTO (the plain gcc job) resolves the reference away, while ThinLTO
+# and the sanitizer build do not - UBSan's vptr check needs RTTI for every
+# polymorphic type by construction. Match glslang's ABI to ours instead of
+# relying on an optimizer to hide the mismatch.
+set(ENABLE_RTTI ON CACHE BOOL "" FORCE)
 add_subdirectory(3rdparty/glslang EXCLUDE_FROM_ALL)
 
 set(SPIRV_CROSS_CLI OFF CACHE BOOL "" FORCE)

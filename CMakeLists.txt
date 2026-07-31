@@ -382,6 +382,14 @@ if(NOT ANDROID)
                         add_test(NAME smoke_uniform_cache COMMAND smoke_uniform_cache)
                         set_tests_properties(smoke_uniform_cache PROPERTIES SKIP_RETURN_CODE 77)
 
+                        add_executable(smoke_mixed_translation_link tests/smoke_mixed_translation_link.c)
+                        target_compile_definitions(smoke_mixed_translation_link PRIVATE
+                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
+                        target_link_libraries(smoke_mixed_translation_link PRIVATE dl ${SFPEW_TEST_EGL})
+                        add_dependencies(smoke_mixed_translation_link ${CMAKE_PROJECT_NAME})
+                        add_test(NAME smoke_mixed_translation_link COMMAND smoke_mixed_translation_link)
+                        set_tests_properties(smoke_mixed_translation_link PROPERTIES SKIP_RETURN_CODE 77)
+
                         add_executable(smoke_ffp_vbo_arrays tests/smoke_ffp_vbo_arrays.c)
                         target_compile_definitions(smoke_ffp_vbo_arrays PRIVATE
                                 WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")

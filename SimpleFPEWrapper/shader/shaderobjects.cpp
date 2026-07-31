@@ -523,6 +523,12 @@ void glLinkProgram(GLuint program) {
 
     g_glFuncs.glLinkProgram(program);
 
+    // A (re)link resets every uniform in the program to zero and may move
+    // locations, so the per-program feed cache (resolved locations AND
+    // last-sent values) is stale wholesale: keeping it would elide the
+    // next send of a value the link just wiped.
+    sfpewForgetUserProgram(program);
+
     GLint status = GL_FALSE;
     if (g_glFuncs.glGetProgramiv != nullptr)
         g_glFuncs.glGetProgramiv(program, GL_LINK_STATUS, &status);

@@ -19,54 +19,55 @@
 
 #define DEBUG 0
 
+
 // Set by the wrapper's own eglMakeCurrent when the app routes EGL through
 // us. From then on this thread's current context is known exactly and even
 // the strict resolve needs no EGL call at all - the difference between one
 // plain pointer read and one libEGL entry per entry point, which on glvnd
 // costs ~425ns (getpid fork check + dispatch mutex).
-namespace {
-thread_local EGLContext g_authoritative_context = EGL_NO_CONTEXT;
-thread_local bool g_authoritative_context_known = false;
-} // namespace
+// Externally visible so the resolve's fast path can be inlined into every
+// exported entry point (see sfpewResolveState in types.h): the call to
+// get_instance was measured at 48% of a glGet, and every entry pays it.
+thread_local SFPEW_TLS_HOT void* g_authoritative_context = nullptr;
+thread_local SFPEW_TLS_HOT bool g_authoritative_context_known = false;
+thread_local SFPEW_TLS_HOT unsigned g_context_reconcile_counter = 0;
+bool g_sfpew_relaxed_context = [] {
+    const char* value = getenv("SFPEW_RELAXED_CONTEXT");
+    return value != nullptr && value[0] != '\0' && value[0] != '0';
+}();
 
 void sfpewNoteCurrentContext(EGLContext context) {
     g_authoritative_context = context;
     g_authoritative_context_known = true;
 }
 
-EGLContext sfpewCurrentContext() {
-    if (g_authoritative_context_known) {
-        // An app that routes SOME eglMakeCurrent calls through the wrapper
-        // and others straight to libEGL would leave this stale, so the truth
-        // is re-read every 256 queries - the same self-healing reconciliation
-        // the logical shadows use (plans/07). One libEGL query per ~256 GL
-        // calls keeps the fast path essentially free while bounding how long
-        // a bypassed switch can go unnoticed.
-        // Read on every strict resolve, so it gets the same initial-exec
-        // treatment as the snapshot pair below (4 more bytes).
-        thread_local __attribute__((tls_model("initial-exec"))) unsigned reconcile_counter = 0;
-        if (++reconcile_counter < 256u) return g_authoritative_context;
-        reconcile_counter = 0;
-        if (g_eglFuncs.eglGetCurrentContext != nullptr)
-            g_authoritative_context = g_eglFuncs.eglGetCurrentContext();
-        return g_authoritative_context;
-    }
-    return g_eglFuncs.eglGetCurrentContext ? g_eglFuncs.eglGetCurrentContext() : EGL_NO_CONTEXT;
+// The rare half of the resolve, kept out of line so the common half can be
+// inlined into every entry point (sfpewResolveState in types.h).
+//
+// An app that routes SOME eglMakeCurrent calls through the wrapper and others
+// straight to libEGL would leave the authoritative value stale, so the truth
+// is re-read every 256 resolves - the same self-healing reconciliation the
+// logical shadows use (plans/07). One libEGL query per ~256 GL calls keeps
+// the fast path essentially free while bounding how long a bypassed switch
+// can go unnoticed.
+void* sfpewReconcileContext() {
+    g_context_reconcile_counter = 0;
+    if (g_eglFuncs.eglGetCurrentContext == nullptr)
+        return g_authoritative_context_known ? g_authoritative_context : nullptr;
+    void* const context = g_eglFuncs.eglGetCurrentContext();
+    if (g_authoritative_context_known) g_authoritative_context = context;
+    return context;
 }
 
-namespace {
+EGLContext sfpewCurrentContext() { return sfpewCurrentContextInline(); }
+
 // Thread-local snapshot of the last strict resolve. Shared by
-// get_instance() / current() / current_vertex_data() / cached_context().
-// initial-exec, deliberately only here. Every exported entry point reads these
-// two, and the general-dynamic model costs a _dl_tlsdesc_dynamic_xsave call per
-// access (measured at ~4% of a draw loop; matrixops 116 -> 79 ns/group when the
-// whole module used initial-exec). The model is NOT applied module-wide: that
-// would claim ~1.1 KB of glibc's ~1.6 KB static-TLS surplus process-wide, and a
-// host that has already spent it could then fail to dlopen this library at all.
-// Sixteen bytes is a rounding error against that budget.
-#define SFPEW_TLS_HOT __attribute__((tls_model("initial-exec")))
-thread_local SFPEW_TLS_HOT EGLContext tls_snapshot_context = (EGLContext)(intptr_t)-1;
+// get_instance() / current() / current_vertex_data() / cached_context(), and
+// by the inlined resolver in types.h. Declared there; see the note on the
+// initial-exec model beside those declarations.
+thread_local SFPEW_TLS_HOT void* tls_snapshot_context = (void*)(intptr_t)-1;
 thread_local SFPEW_TLS_HOT glstate_t* tls_snapshot_state = nullptr;
+namespace {
 
 // SFPEW_RELAXED_CONTEXT=1: the app promises each thread uses at most one
 // EGL context for the process lifetime (true for Minecraft-era launchers).
@@ -74,13 +75,6 @@ thread_local SFPEW_TLS_HOT glstate_t* tls_snapshot_state = nullptr;
 // removing the per-entry eglGetCurrentContext - which costs ~425ns per call
 // on glvnd desktops (getpid fork check + dispatch mutex). Default: off,
 // full lazy reconciliation per docs/context-model.md.
-bool sfpew_relaxed_context() {
-    static const bool relaxed = [] {
-        const char* value = getenv("SFPEW_RELAXED_CONTEXT");
-        return value != nullptr && value[0] != '\0' && value[0] != '0';
-    }();
-    return relaxed;
-}
 } // namespace
 
 glstate_t& glstate_t::get_instance() {
@@ -101,7 +95,7 @@ glstate_t& glstate_t::get_instance() {
     static std::mutex instances_mutex;
     static glstate_t no_context_state; // keeps backend-less calls crash-free
 
-    if (sfpew_relaxed_context() && tls_snapshot_state != nullptr &&
+    if (g_sfpew_relaxed_context && tls_snapshot_state != nullptr &&
         tls_snapshot_context != EGL_NO_CONTEXT) {
         return *tls_snapshot_state;
     }

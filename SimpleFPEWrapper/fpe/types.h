@@ -21,6 +21,30 @@
 #include "vertexpointer_utils.h"
 #include <xxhash64.h>
 
+// initial-exec for the handful of thread-locals every exported entry point
+// touches: the general-dynamic model costs a _dl_tlsdesc call per access
+// (~4% of a draw loop). NOT applied module-wide - that would claim ~1.1 KB of
+// glibc's ~1.6 KB static-TLS surplus process-wide, and a host that has
+// already spent it could then fail to dlopen this library at all. These few
+// are a rounding error against that budget.
+#define SFPEW_TLS_HOT __attribute__((tls_model("initial-exec")))
+
+struct glstate_t;
+
+// Snapshot of the last strict resolve on this thread.
+extern thread_local SFPEW_TLS_HOT void* tls_snapshot_context;
+extern thread_local SFPEW_TLS_HOT glstate_t* tls_snapshot_state;
+// The context the wrapper's own eglMakeCurrent recorded, and how many
+// resolves have trusted it since it was last reconciled against libEGL.
+extern thread_local SFPEW_TLS_HOT void* g_authoritative_context;
+extern thread_local SFPEW_TLS_HOT bool g_authoritative_context_known;
+extern thread_local SFPEW_TLS_HOT unsigned g_context_reconcile_counter;
+// SFPEW_RELAXED_CONTEXT=1: each thread promises to use one context forever.
+extern bool g_sfpew_relaxed_context;
+// Reconciles against libEGL and resets the counter. Out of line: it is the
+// 1-in-256 path.
+void* sfpewReconcileContext();
+
 GLsizei type_size(GLenum type);
 
 struct transformation_t {
@@ -868,3 +892,24 @@ struct glstate_t {
 
     bool send_vertex_attributes(const vertex_pointer_array_t& va, GLuint array_buffer, GLintptr binding_offset = 0);
 };
+
+// The strict resolve every exported entry point performs, inlined. Only the
+// context switch and the periodic reconciliation stay out of line: the call
+// itself was 48% of a glGetFloatv, and every entry point pays it once.
+inline void* sfpewCurrentContextInline() {
+    if (!g_authoritative_context_known) return sfpewReconcileContext();
+    // One libEGL query per 256 resolves bounds how long an eglMakeCurrent
+    // that bypassed the wrapper can go unnoticed (docs/context-model.md).
+    if (++g_context_reconcile_counter < 256u) return g_authoritative_context;
+    return sfpewReconcileContext();
+}
+
+inline glstate_t& sfpewResolveState() {
+    if (g_sfpew_relaxed_context && tls_snapshot_state != nullptr &&
+        tls_snapshot_context != nullptr) {
+        return *tls_snapshot_state;
+    }
+    if (sfpewCurrentContextInline() == tls_snapshot_context && tls_snapshot_state != nullptr)
+        return *tls_snapshot_state;
+    return glstate_t::get_instance(); // switch, or first resolve on this thread
+}

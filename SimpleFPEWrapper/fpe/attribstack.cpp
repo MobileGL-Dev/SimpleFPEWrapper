@@ -254,7 +254,9 @@ void glPopAttrib() {
 
 void glPushClientAttrib(GLbitfield mask) {
     auto& gs = g_glstate;
-    sfpewEntryBarrier();
+    // Flush-only: the client-array snapshot is wrapper CPU state
+    // (pointers, client active texture, pixel store) - no binding.
+    sfpewClientStateBarrier();
     auto& stack = clientAttribStack();
     if (stack.size() >= kMaxAttribStackDepth) {
         gs.set_error(GL_STACK_OVERFLOW);
@@ -273,7 +275,9 @@ void glPushClientAttrib(GLbitfield mask) {
 
 void glPopClientAttrib() {
     auto& gs = g_glstate;
-    sfpewEntryBarrier();
+    // Flush-only: the client-array snapshot is wrapper CPU state
+    // (pointers, client active texture, pixel store) - no binding.
+    sfpewClientStateBarrier();
     auto& stack = clientAttribStack();
     if (stack.empty()) {
         gs.set_error(GL_STACK_UNDERFLOW);

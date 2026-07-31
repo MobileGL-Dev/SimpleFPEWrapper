@@ -147,9 +147,13 @@ void glUseProgram(GLuint program) {
 // shadow lets glPushAttrib(GL_COLOR_BUFFER_BIT) restore it (legacy
 // Minecraft brackets GUI and item rendering that way, and a leaked blend
 // function corrupts every later translucent draw).
+// Blend, colour mask, depth range, hint, pixel store and texture parameters
+// take the flush-only barrier: all of them are server or CPU state that
+// neither reads nor writes the program, VAO or buffer bindings, and a
+// renderer changes blending and texture filtering between draws constantly.
 void glBlendColor(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha) {
     if (!sfpewEnsureBackend()) return;
-    sfpewEntryBarrier();
+    sfpewClientStateBarrier();
     LIST_RECORD(glBlendColor, {}, red, green, blue, alpha)
     auto& cb = g_glstate.fpe_state.color_buffer;
     cb.blend_color[0] = red;
@@ -161,7 +165,7 @@ void glBlendColor(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha) {
 
 void glBlendEquation(GLenum mode) {
     if (!sfpewEnsureBackend()) return;
-    sfpewEntryBarrier();
+    sfpewClientStateBarrier();
     LIST_RECORD(glBlendEquation, {}, mode)
     auto& cb = g_glstate.fpe_state.color_buffer;
     cb.equation_rgb = mode;
@@ -171,7 +175,7 @@ void glBlendEquation(GLenum mode) {
 
 void glBlendEquationSeparate(GLenum modeRGB, GLenum modeAlpha) {
     if (!sfpewEnsureBackend()) return;
-    sfpewEntryBarrier();
+    sfpewClientStateBarrier();
     LIST_RECORD(glBlendEquationSeparate, {}, modeRGB, modeAlpha)
     auto& cb = g_glstate.fpe_state.color_buffer;
     cb.equation_rgb = modeRGB;
@@ -182,7 +186,7 @@ void glBlendEquationSeparate(GLenum modeRGB, GLenum modeAlpha) {
 
 void glBlendFunc(GLenum sfactor, GLenum dfactor) {
     if (!sfpewEnsureBackend()) return;
-    sfpewEntryBarrier();
+    sfpewClientStateBarrier();
     LIST_RECORD(glBlendFunc, {}, sfactor, dfactor)
     auto& cb = g_glstate.fpe_state.color_buffer;
     cb.src_rgb = cb.src_alpha = sfactor;
@@ -193,7 +197,7 @@ void glBlendFunc(GLenum sfactor, GLenum dfactor) {
 void glBlendFuncSeparate(GLenum sfactorRGB, GLenum dfactorRGB, GLenum sfactorAlpha,
                          GLenum dfactorAlpha) {
     if (!sfpewEnsureBackend()) return;
-    sfpewEntryBarrier();
+    sfpewClientStateBarrier();
     LIST_RECORD(glBlendFuncSeparate, {}, sfactorRGB, dfactorRGB, sfactorAlpha, dfactorAlpha)
     auto& cb = g_glstate.fpe_state.color_buffer;
     cb.src_rgb = sfactorRGB;
@@ -206,7 +210,7 @@ void glBlendFuncSeparate(GLenum sfactorRGB, GLenum dfactorRGB, GLenum sfactorAlp
 
 void glColorMask(GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha) {
     if (!sfpewEnsureBackend()) return;
-    sfpewEntryBarrier();
+    sfpewClientStateBarrier();
     LIST_RECORD(glColorMask, {}, red, green, blue, alpha)
     auto& cb = g_glstate.fpe_state.color_buffer;
     cb.color_mask[0] = red;
@@ -309,7 +313,7 @@ bool sfpewHandleGenerateMipmapParam(GLenum target, GLenum pname, GLint param) {
 
 void glTexParameterf(GLenum target, GLenum pname, GLfloat param) {
     (void)g_glstate; // entry strict resolve; mipmap tracking reads the binding shadow
-    sfpewEntryBarrier();
+    sfpewClientStateBarrier();
     LIST_RECORD(glTexParameterf, {}, target, pname, param)
     if (sfpewHandleGenerateMipmapParam(target, pname, (GLint)param)) return;
     if (g_glFuncs.glTexParameterf == nullptr) return;
@@ -319,7 +323,7 @@ void glTexParameterf(GLenum target, GLenum pname, GLfloat param) {
 }
 
 void glTexParameterfv(GLenum target, GLenum pname, const GLfloat* params) {
-    sfpewEntryBarrier();
+    sfpewClientStateBarrier();
     if (g_glFuncs.glTexParameterfv == nullptr || params == nullptr) return;
     LIST_RECORD(glTexParameterfv,
                 {{2, (pname == GL_TEXTURE_BORDER_COLOR ? 4u : 1u) * sizeof(GLfloat)}}, target, pname,
@@ -334,7 +338,7 @@ void glTexParameterfv(GLenum target, GLenum pname, const GLfloat* params) {
 
 void glTexParameteri(GLenum target, GLenum pname, GLint param) {
     (void)g_glstate; // entry strict resolve; mipmap tracking reads the binding shadow
-    sfpewEntryBarrier();
+    sfpewClientStateBarrier();
     LIST_RECORD(glTexParameteri, {}, target, pname, param)
     if (sfpewHandleGenerateMipmapParam(target, pname, param)) return;
     if (g_glFuncs.glTexParameteri != nullptr)
@@ -342,7 +346,7 @@ void glTexParameteri(GLenum target, GLenum pname, GLint param) {
 }
 
 void glTexParameteriv(GLenum target, GLenum pname, const GLint* params) {
-    sfpewEntryBarrier();
+    sfpewClientStateBarrier();
     if (g_glFuncs.glTexParameteriv == nullptr || params == nullptr) return;
     LIST_RECORD(glTexParameteriv,
                 {{2, (pname == GL_TEXTURE_BORDER_COLOR ? 4u : 1u) * sizeof(GLint)}}, target, pname,
@@ -391,7 +395,7 @@ void glTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, G
 
 void glDepthRange(GLdouble nearVal, GLdouble farVal) {
     if (!sfpewEnsureBackend() || g_glFuncs.glDepthRangef == nullptr) return;
-    sfpewEntryBarrier();
+    sfpewClientStateBarrier();
     g_glFuncs.glDepthRangef(static_cast<GLfloat>(nearVal), static_cast<GLfloat>(farVal));
 }
 
@@ -405,7 +409,7 @@ void glHint(GLenum target, GLenum mode) {
     case GL_GENERATE_MIPMAP_HINT:
     case GL_FRAGMENT_SHADER_DERIVATIVE_HINT:
         if (!sfpewEnsureBackend() || g_glFuncs.glHint == nullptr) return;
-        sfpewEntryBarrier();
+        sfpewClientStateBarrier();
         g_glFuncs.glHint(target, mode);
         return;
     // Legal GL 2.1 hints with no GLES equivalent: accepting them as a no-op
@@ -442,7 +446,7 @@ void glPixelStorei(GLenum pname, GLint param) {
         // Everything else (ALIGNMENT, ROW_LENGTH, SKIP_*, IMAGE_HEIGHT...)
         // is native ES 3.0 state; let the backend validate the value.
         if (!sfpewEnsureBackend() || g_glFuncs.glPixelStorei == nullptr) return;
-        sfpewEntryBarrier();
+        sfpewClientStateBarrier();
         g_glFuncs.glPixelStorei(pname, param);
         return;
     }

@@ -20,10 +20,10 @@
 // fpe_Fog.color is used as the probe because it is a plain vec4 the fragment
 // shader can output directly. The sequence matters more than any single draw:
 //
-//   draw 1  fog color green  -> green   (first send, cache empty)
-//   draw 2  unchanged         -> green   (this is the send that gets skipped)
-//   draw 3  fog color red    -> red     (cache must notice the change)
-//   draw 4  back to green     -> green   (and notice it changing back)
+//   draw 1  fog color green    -> green    (first send, cache empty)
+//   draw 2  unchanged           -> green    (this is the send that gets skipped)
+//   draw 3  fog color magenta  -> magenta  (cache must notice the change)
+//   draw 4  back to green       -> green    (and notice it changing back)
 //
 // Skips (77) when the machine has no EGL device.
 
@@ -163,8 +163,12 @@ int main(void) {
     fUseProgram(prog);
     fClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 
-    static const GLfloat green[] = {0.0f, 1.0f, 0.0f, 1.0f};
-    static const GLfloat red[]   = {1.0f, 0.0f, 0.0f, 1.0f};
+    // Both probe colors keep R == B: Mesa's llvmpipe swaps R/B in fragment
+    // output on surfaceless BGRA pbuffer configs (reproduced with a plain
+    // GLES3 client, no wrapper involved), and symmetric colors make the
+    // uniform-cache check immune to that driver bug without weakening it.
+    static const GLfloat green[]   = {0.0f, 1.0f, 0.0f, 1.0f};
+    static const GLfloat magenta[] = {1.0f, 0.0f, 1.0f, 1.0f};
 
     fFogfv(GL_FOG_COLOR, green);
     fClear(GL_COLOR_BUFFER_BIT);
@@ -179,11 +183,11 @@ int main(void) {
     expect(0, 1, 0, "draw 2: unchanged uniform still correct (send skipped)");
 
     // Changed: a stale cache would keep drawing green here.
-    fFogfv(GL_FOG_COLOR, red);
+    fFogfv(GL_FOG_COLOR, magenta);
     fClear(GL_COLOR_BUFFER_BIT);
     fDrawArrays(GL_TRIANGLES, 0, 6);
     fFinish();
-    expect(1, 0, 0, "draw 3: changed uniform is re-sent");
+    expect(1, 0, 1, "draw 3: changed uniform is re-sent");
 
     // Changed back, to catch a cache that only ever updates once.
     fFogfv(GL_FOG_COLOR, green);

@@ -252,7 +252,36 @@ static int make_context_egl(void) {
         !makeCurrentReal)
         return 0;
 
-    EGLDisplay d = getDisplay((void*)0);
+    // EGL_DEFAULT_DISPLAY resolves through the session's display server, so a
+    // run without access to one (a different user, a headless box) either
+    // fails outright or lands on a software rasterizer - and then the numbers
+    // measure llvmpipe, not the GPU. GLBENCH_EGL_DEVICE=<index> selects a GPU
+    // directly through EGL_EXT_platform_device, which needs no display server;
+    // the index is the eglQueryDevicesEXT order.
+    EGLDisplay d = (EGLDisplay)0;
+    const char* device_sel = getenv("GLBENCH_EGL_DEVICE");
+    if (device_sel != NULL && device_sel[0] != '\0') {
+        void* (*getProc)(const char*) = dlsym(egl, "eglGetProcAddress");
+        EGLBoolean (*queryDevices)(EGLint, void**, EGLint*) =
+            getProc ? (EGLBoolean(*)(EGLint, void**, EGLint*))getProc("eglQueryDevicesEXT") : 0;
+        EGLDisplay (*getPlatformDisplay)(unsigned int, void*, const EGLint*) =
+            getProc ? (EGLDisplay(*)(unsigned int, void*, const EGLint*))getProc(
+                          "eglGetPlatformDisplayEXT")
+                    : 0;
+        void* devices[16];
+        EGLint count = 0;
+        const int want = atoi(device_sel);
+        if (queryDevices && getPlatformDisplay && queryDevices(16, devices, &count) && count > 0 &&
+            want >= 0 && want < count) {
+            d = getPlatformDisplay(0x313F /*PLATFORM_DEVICE_EXT*/, devices[want], NULL);
+        }
+        if (!d) {
+            fprintf(stderr, "GLBENCH_EGL_DEVICE=%s: no such EGL device (found %d)\n", device_sel,
+                    (int)count);
+            return 0;
+        }
+    }
+    if (!d) d = getDisplay((void*)0);
     if (!initialize(d, NULL, NULL)) return 0;
     const EGLint ca[] = {0x3033 /*SURFACE_TYPE*/, 0x0001 /*PBUFFER*/,
                          0x3040 /*RENDERABLE_TYPE*/, 0x0040 /*ES3*/,

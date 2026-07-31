@@ -45,6 +45,11 @@ struct shader_record_t {
     // COMPILE_STATUS reports success and translation reruns at link with
     // every TU of the stage (GLES has no notion of this).
     bool deferred = false;
+    // What the BACKEND object currently holds: the app's original source
+    // (translation failed, or a mixed-program fallback at link) rather
+    // than translated ESSL. Programs sharing the shader consult this at
+    // link time to upload whichever form their own consistency needs.
+    bool backend_uploaded_original = false;
     // GLSL 1.20 uniform initializers scraped by the translator; applied
     // with glUniform* after every successful link of a containing program.
     std::vector<SFPEW::Shader::uniform_initializer_t> uniform_inits;
@@ -183,6 +188,7 @@ void glCompileShader(GLuint shader) {
     if (it != shaderRecords().end()) {
         it->second.translated = result.ok;
         it->second.deferred = defer;
+        it->second.backend_uploaded_original = !defer && !result.ok;
         it->second.translate_log = defer ? std::string() : std::move(result.log);
         it->second.uniform_inits = std::move(result.uniform_initializers);
     }
@@ -388,6 +394,9 @@ void glLinkProgram(GLuint program) {
     struct stage_work_t {
         std::vector<GLuint> tus;
         std::vector<std::string> sources;
+        std::vector<uint8_t> translated;        // parallel to tus
+        std::vector<uint8_t> deferred;          // parallel to tus
+        std::vector<uint8_t> backend_original;  // parallel to tus
         bool needs_combined = false;
     } work[2];
     bool tracked = false;
@@ -407,6 +416,9 @@ void glLinkProgram(GLuint program) {
                 auto& w = work[stageIndex(sit->second.stage)];
                 w.tus.push_back(sh);
                 w.sources.push_back(sit->second.original);
+                w.translated.push_back(sit->second.translated ? 1 : 0);
+                w.deferred.push_back(sit->second.deferred ? 1 : 0);
+                w.backend_original.push_back(sit->second.backend_uploaded_original ? 1 : 0);
                 w.needs_combined = w.needs_combined || sit->second.deferred;
             }
             for (auto& w : work) w.needs_combined = w.needs_combined || w.tus.size() > 1;
@@ -457,6 +469,56 @@ void glLinkProgram(GLuint program) {
         g_glFuncs.glShaderSource(primary, 1, &text, &text_length);
         g_glFuncs.glCompileShader(primary);
         appendUnique(rec.combined_inits, result.uniform_initializers);
+    }
+
+    // Version consistency: a pass-through TU keeps the app's #version while
+    // translated TUs carry the backend's target version, and GLSL ES
+    // requires every shader of a program to share one version (Mesa
+    // enforces it; NVIDIA happens to be lenient). A program mixing the two
+    // falls back to the ORIGINAL source for all of its TUs - the app's own
+    // sources are version-consistent by construction. The translated form
+    // is restored the next time a program links this shader with no
+    // pass-through member; combined (multi-TU) stages cannot pass through
+    // at all and keep the existing force-fail path.
+    if (tracked && !work[0].needs_combined && !work[1].needs_combined &&
+        g_glFuncs.glShaderSource != nullptr && g_glFuncs.glCompileShader != nullptr) {
+        bool any_pass = false, any_translated = false;
+        for (const auto& w : work) {
+            for (size_t i = 0; i < w.tus.size(); ++i) {
+                if (w.translated[i])
+                    any_translated = true;
+                else
+                    any_pass = true;
+            }
+        }
+        for (int s = 0; s < 2; ++s) {
+            auto& w = work[s];
+            const GLenum stage = s == 0 ? GL_VERTEX_SHADER : GL_FRAGMENT_SHADER;
+            for (size_t i = 0; i < w.tus.size(); ++i) {
+                std::string upload;
+                bool to_original = false;
+                if (any_pass && any_translated && w.translated[i] && !w.backend_original[i]) {
+                    upload = w.sources[i];
+                    to_original = true;
+                } else if (!any_pass && w.backend_original[i]) {
+                    // Memoized in the translator, so this is a cache hit.
+                    auto result = SFPEW::Shader::translate(stage, w.sources[i],
+                                                           SFPEW::Shader::detect_backend_target());
+                    if (!result.ok) continue;
+                    upload = std::move(result.essl);
+                } else {
+                    continue;
+                }
+                const char* text = upload.c_str();
+                const GLint text_length = (GLint)upload.size();
+                g_glFuncs.glShaderSource(w.tus[i], 1, &text, &text_length);
+                g_glFuncs.glCompileShader(w.tus[i]);
+                std::lock_guard<std::mutex> lock(g_shader_mutex);
+                auto sit = shaderRecords().find(w.tus[i]);
+                if (sit != shaderRecords().end())
+                    sit->second.backend_uploaded_original = to_original;
+            }
+        }
     }
 
     g_glFuncs.glLinkProgram(program);

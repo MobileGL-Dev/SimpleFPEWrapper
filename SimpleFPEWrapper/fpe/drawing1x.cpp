@@ -1195,6 +1195,17 @@ void glEnd() {
         return;
     }
 
+    // A run with no vertices draws nothing, so there is nothing to order
+    // against and nothing to submit. It used to fall through to the full
+    // draw path - program selection, uniform feed, binds, a zero-count draw -
+    // which cost 885ns for a pair an application meant as a no-op (a culled
+    // batch, an empty display-list block). Leave the pending batch alone:
+    // draining it here would break the merge for no reason.
+    if (s.vertex_count == 0 || s.vb.empty()) {
+        s.reset();
+        return;
+    }
+
     flushPendingImmediateDraws();
     drawImmediateVertices(s.primitive, s.vb.data(), s.vb.size(), s.vertex_count,
                           s.current_data.sizes, nullptr, 0, &s.edge_flags);

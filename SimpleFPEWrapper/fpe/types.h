@@ -42,10 +42,15 @@ extern thread_local SFPEW_TLS_HOT bool g_authoritative_context_known;
 extern thread_local SFPEW_TLS_HOT unsigned g_context_reconcile_counter;
 // How many resolves may trust the recorded context before it is re-read from
 // libEGL. Adaptive: doubles while reconciliation keeps confirming the value,
-// and drops back to a tight interval the moment one finds a context the
-// wrapper was not told about. An app that never bypasses eglMakeCurrent - the
-// normal case - stops paying for the check, while one that does is caught
-// sooner than the old fixed interval caught it.
+// and drops back to a tight interval the moment one finds a different one.
+//
+// This applies whether the wrapper was TOLD the context (its own
+// eglMakeCurrent ran) or merely queried it. An application that binds EGL
+// itself - which is what the Android launchers do - never tells us, and used
+// to take the ~425ns glvnd eglGetCurrentContext on EVERY entry point: an
+// empty glBegin/glEnd pair cost 878ns, essentially all of it that query.
+// Both cases now carry the same bounded staleness, which is what the lazy
+// context model documents.
 extern thread_local SFPEW_TLS_HOT unsigned g_context_reconcile_interval;
 // SFPEW_RELAXED_CONTEXT=1: each thread promises to use one context forever.
 extern bool g_sfpew_relaxed_context;
@@ -924,13 +929,19 @@ struct glstate_t {
 // context switch and the periodic reconciliation stay out of line: the call
 // itself was 48% of a glGetFloatv, and every entry point pays it once.
 inline void* sfpewCurrentContextInline() {
-    if (!g_authoritative_context_known) return sfpewReconcileContext();
     // Bounds how long an eglMakeCurrent that bypassed the wrapper can go
     // unnoticed (docs/context-model.md). The bound adapts - see the interval's
     // declaration - because on glvnd the query itself costs ~425ns, which at a
     // fixed 256 was 9% of a glGet.
-    if (++g_context_reconcile_counter < g_context_reconcile_interval)
+    //
+    // The `known` test is not redundant: until the first reconcile (or the
+    // wrapper's own eglMakeCurrent) there is nothing recorded to trust, and
+    // handing out the unset value would resolve to the no-context state for a
+    // whole interval - which renders with empty fixed-function state.
+    if (g_authoritative_context_known &&
+        ++g_context_reconcile_counter < g_context_reconcile_interval) {
         return g_authoritative_context;
+    }
     return sfpewReconcileContext();
 }
 

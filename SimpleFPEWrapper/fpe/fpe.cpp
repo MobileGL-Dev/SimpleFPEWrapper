@@ -57,16 +57,16 @@ void* sfpewReconcileContext() {
     if (g_eglFuncs.eglGetCurrentContext == nullptr)
         return g_authoritative_context_known ? g_authoritative_context : nullptr;
     void* const context = g_eglFuncs.eglGetCurrentContext();
-    if (g_authoritative_context_known) {
-        if (context == g_authoritative_context) {
-            // Confirmed again: trust it for longer. The cap keeps the bound
-            // well inside a frame's worth of GL calls.
-            if (g_context_reconcile_interval < 4096u) g_context_reconcile_interval *= 2u;
-        } else {
-            // A switch the wrapper was never told about. Tighten back up.
-            g_context_reconcile_interval = 64u;
-            g_authoritative_context = context;
-        }
+    if (g_authoritative_context_known && context == g_authoritative_context) {
+        // Confirmed again: trust it for longer. The cap keeps the bound well
+        // inside a frame's worth of GL calls.
+        if (g_context_reconcile_interval < 4096u) g_context_reconcile_interval *= 2u;
+    } else {
+        // Either the first query on this thread, or a switch the wrapper was
+        // never told about. Take the new value and tighten back up.
+        g_context_reconcile_interval = 64u;
+        g_authoritative_context = context;
+        g_authoritative_context_known = true;
     }
     return context;
 }

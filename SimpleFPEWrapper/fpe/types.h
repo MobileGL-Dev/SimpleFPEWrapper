@@ -642,7 +642,38 @@ struct program_hash_cache_t {
     GLenum color_material_mode = 0;
     fixed_function_bool_t bools{};
     GLenum texture_env_mode[MAX_TEX]{};
+    // The combiner and texgen parameters the generator bakes into the shader
+    // source. Without them the cache had to declare a miss whenever a unit
+    // ran GL_COMBINE or texgen, which is precisely the multi-stage setup a
+    // legacy renderer uses - so those draws re-hashed the entire
+    // fixed-function state every time.
+    struct combiner_signature_t {
+        GLenum combine_rgb = 0, combine_alpha = 0;
+        GLenum source_rgb[3]{}, source_alpha[3]{};
+        GLenum operand_rgb[3]{}, operand_alpha[3]{};
+        GLfloat rgb_scale = 0.0f, alpha_scale = 0.0f;
+        bool operator==(const combiner_signature_t&) const = default;
+    } combiners[MAX_TEX];
+    GLenum texture_gen_mode[MAX_TEX][4]{};
 };
+
+// The subset of a texture environment the shader generator bakes into its
+// source. The environment colour and LOD bias are excluded on purpose: they
+// reach the shader as uniforms, so changing them must not mint a new program.
+inline program_hash_cache_t::combiner_signature_t sfpewCombinerSignature(const texture_env_t& env) {
+    program_hash_cache_t::combiner_signature_t out;
+    out.combine_rgb = env.combine_rgb;
+    out.combine_alpha = env.combine_alpha;
+    for (int i = 0; i < 3; ++i) {
+        out.source_rgb[i] = env.source_rgb[i];
+        out.source_alpha[i] = env.source_alpha[i];
+        out.operand_rgb[i] = env.operand_rgb[i];
+        out.operand_alpha[i] = env.operand_alpha[i];
+    }
+    out.rgb_scale = env.rgb_scale;
+    out.alpha_scale = env.alpha_scale;
+    return out;
+}
 
 // glstate_t is THE aggregate for all context-scoped FPE state. It is a
 // process-wide singleton today (glstate_t::get_instance()); plans/07 turns

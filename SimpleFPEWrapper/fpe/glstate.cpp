@@ -357,18 +357,19 @@ program_key_t glstate_t::program_hash() {
                 matches = false;
                 break;
             }
-            // COMBINE bakes its combiner parameters into the generated
-            // source; the cache does not mirror them, so never take the
-            // fast path while a COMBINE unit is live.
-            if (bools.texture_2d_enable[i] && fpe_state.texture_env_mode[i] == GL_COMBINE) {
+            if (!bools.texture_2d_enable[i]) continue;
+            // COMBINE and texgen bake parameters into the generated source.
+            // Both are mirrored here, so a multi-stage setup keeps the fast
+            // path as long as those parameters hold still.
+            if (fpe_state.texture_env_mode[i] == GL_COMBINE &&
+                !(cache.combiners[i] == sfpewCombinerSignature(fpe_uniform.texture_env[i]))) {
                 matches = false;
                 break;
             }
-            // texgen modes are likewise baked into the source but not
-            // mirrored in this cache.
-            if (bools.texture_2d_enable[i] &&
-                (bools.texture_gen_enable[i][0] || bools.texture_gen_enable[i][1] ||
-                 bools.texture_gen_enable[i][2] || bools.texture_gen_enable[i][3])) {
+            if ((bools.texture_gen_enable[i][0] || bools.texture_gen_enable[i][1] ||
+                 bools.texture_gen_enable[i][2] || bools.texture_gen_enable[i][3]) &&
+                std::memcmp(cache.texture_gen_mode[i], fpe_state.texture_gen_mode[i],
+                            sizeof(cache.texture_gen_mode[i])) != 0) {
                 matches = false;
                 break;
             }
@@ -467,7 +468,12 @@ program_key_t glstate_t::program_hash() {
     cache.color_material_face = canon_cm_face;
     cache.color_material_mode = canon_cm_mode;
     cache.bools = fpe_state.fpe_bools;
-    for (int i = 0; i < MAX_TEX; ++i) cache.texture_env_mode[i] = fpe_state.texture_env_mode[i];
+    for (int i = 0; i < MAX_TEX; ++i) {
+        cache.texture_env_mode[i] = fpe_state.texture_env_mode[i];
+        cache.combiners[i] = sfpewCombinerSignature(fpe_uniform.texture_env[i]);
+        std::memcpy(cache.texture_gen_mode[i], fpe_state.texture_gen_mode[i],
+                    sizeof(cache.texture_gen_mode[i]));
+    }
     cache.hash = {hash.lo.hash(), hash.hi.hash()};
     return cache.hash;
 }

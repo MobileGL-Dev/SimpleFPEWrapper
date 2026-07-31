@@ -25,16 +25,36 @@
 //                                fragment cost so only CPU overhead shows
 //   CMPBENCH_TSV=1               emit "phase<TAB>value<TAB>unit" for scripts
 //
-// Phases fall in two groups. The first nine isolate one mechanism each
-// (immediate, dlist, clientarrays, drawelements, tinybatch, progtoggle,
-// matrixops, getter, texswitch). The mc* ones reproduce the GL 1.x call
-// sequences Minecraft issues, so a library can be judged on the shape of
-// work a real app produces rather than on microbenchmarks alone; see
-// plans/12-fpe-draw-cost.md for what each reconstructs.
+// Phases fall in three groups. The first nine isolate one geometry
+// submission mechanism each (immediate, dlist, clientarrays, drawelements,
+// tinybatch, progtoggle, matrixops, getter, texswitch). The mc* ones
+// reproduce the GL 1.x call sequences Minecraft issues, so a library can be
+// judged on the shape of work a real app produces rather than on
+// microbenchmarks alone; see plans/12-fpe-draw-cost.md for what each
+// reconstructs.
 //
-// Every phase uses only GL 1.x calls that any of these libraries implements,
-// so a phase that prints nothing means an entry point was missing, not that
-// the library was excused from the work.
+// The last five cover the rest of what a GL 2.1 implementation has to
+// implement, which submitting geometry does not touch:
+//   lighting     8 lights, normals, per-draw materials, shade/two-side
+//                toggling - the largest generator of fixed-function shader
+//                permutations
+//   texstages    multitexture with per-unit texture environments (including
+//                COMBINE), texture matrices and texgen
+//   statechurn   the attribute stack plus blend/depth/stencil/scissor/cull
+//                churn around a draw: the cost of tracking state, not of
+//                drawing
+//   shaderbuild  GLSL 1.10 compile+link throughput, unique sources so no
+//                cache can answer
+//   progdraw     a user program driven as an app drives it: generic
+//                attributes from a VBO, a full uniform set per draw,
+//                indexed draws, periodic render-to-texture
+//
+// The first two groups use only GL 1.x calls that any of these libraries
+// implements, so a phase that prints nothing means an entry point was
+// missing, not that the library was excused from the work. The last group
+// resolves its entry points optionally and reports nothing when a library
+// lacks them or cannot build the shader - "absent" must never read as
+// "fast".
 
 #define _GNU_SOURCE
 #include <dlfcn.h>
@@ -82,6 +102,95 @@ typedef int GLint, GLsizei;
 #define GL_FOG_START 0x0B63
 #define GL_FOG_END 0x0B64
 #define GL_LINEAR_F 0x2601
+
+/* lighting / material */
+#define GL_LIGHT0 0x4000
+#define GL_POSITION 0x1203
+#define GL_AMBIENT 0x1200
+#define GL_DIFFUSE 0x1201
+#define GL_SPECULAR 0x1202
+#define GL_SPOT_DIRECTION 0x1204
+#define GL_SPOT_EXPONENT 0x1205
+#define GL_SPOT_CUTOFF 0x1206
+#define GL_CONSTANT_ATTENUATION 0x1207
+#define GL_LINEAR_ATTENUATION 0x1208
+#define GL_QUADRATIC_ATTENUATION 0x1209
+#define GL_EMISSION 0x1600
+#define GL_SHININESS 0x1601
+#define GL_FRONT 0x0404
+#define GL_BACK 0x0405
+#define GL_FRONT_AND_BACK 0x0408
+#define GL_AMBIENT_AND_DIFFUSE 0x1602
+#define GL_LIGHT_MODEL_TWO_SIDE 0x0B52
+#define GL_LIGHT_MODEL_AMBIENT 0x0B53
+#define GL_COLOR_MATERIAL 0x0B57
+#define GL_NORMALIZE 0x0BA1
+#define GL_NORMAL_ARRAY 0x8075
+#define GL_SMOOTH 0x1D01
+#define GL_FLAT 0x1D00
+
+/* texture stages */
+#define GL_TEXTURE_ENV 0x2300
+#define GL_TEXTURE_ENV_MODE 0x2200
+#define GL_TEXTURE_ENV_COLOR 0x2201
+#define GL_MODULATE 0x2100
+#define GL_ADD 0x0104
+#define GL_COMBINE 0x8570
+#define GL_COMBINE_RGB 0x8571
+#define GL_SRC0_RGB 0x8580
+#define GL_SRC1_RGB 0x8581
+#define GL_OPERAND0_RGB 0x8590
+#define GL_INTERPOLATE 0x8575
+#define GL_PREVIOUS 0x8578
+#define GL_TEXTURE_C 0x1702
+#define GL_SRC_COLOR 0x0300
+#define GL_TEXTURE_GEN_S 0x0C60
+#define GL_TEXTURE_GEN_T 0x0C61
+#define GL_TEXTURE_GEN_MODE 0x2500
+#define GL_SPHERE_MAP 0x2402
+#define GL_OBJECT_LINEAR 0x2401
+#define GL_S 0x2000
+#define GL_T 0x2001
+
+/* state churn */
+#define GL_BLEND 0x0BE2
+#define GL_SRC_ALPHA 0x0302
+#define GL_ONE_MINUS_SRC_ALPHA 0x0303
+#define GL_ONE 1
+#define GL_ZERO 0
+#define GL_DEPTH_TEST 0x0B71
+#define GL_LESS 0x0201
+#define GL_LEQUAL 0x0203
+#define GL_GREATER 0x0204
+#define GL_STENCIL_TEST 0x0B90
+#define GL_KEEP 0x1E00
+#define GL_REPLACE 0x1E01
+#define GL_SCISSOR_TEST 0x0C11
+#define GL_CULL_FACE 0x0B44
+#define GL_CCW 0x0901
+#define GL_CW 0x0900
+#define GL_POLYGON_OFFSET_FILL 0x8037
+#define GL_ALL_ATTRIB_BITS 0x000FFFFF
+#define GL_ENABLE_BIT 0x00002000
+#define GL_COLOR_BUFFER_BIT_A 0x00004000
+#define GL_TRANSFORM_BIT 0x00001000
+#define GL_ALWAYS 0x0207
+#define GL_GEQUAL 0x0206
+
+/* GL 2.x programmable pipeline */
+#define GL_FRAGMENT_SHADER 0x8B30
+#define GL_VERTEX_SHADER 0x8B31
+#define GL_COMPILE_STATUS 0x8B81
+#define GL_LINK_STATUS 0x8B82
+#define GL_INFO_LOG_LENGTH 0x8B84
+#define GL_ELEMENT_ARRAY_BUFFER 0x8893
+#define GL_FRAMEBUFFER 0x8D40
+#define GL_COLOR_ATTACHMENT0 0x8CE0
+#define GL_FRAMEBUFFER_COMPLETE 0x8CD5
+#define GL_TEXTURE_WRAP_S 0x2802
+#define GL_TEXTURE_WRAP_T 0x2803
+#define GL_CLAMP_TO_EDGE 0x812F
+#define GL_LINEAR_T 0x2601
 
 static void* lib;
 static void* backend_gles;
@@ -180,6 +289,71 @@ static void (*fTexParameteri)(GLenum, GLenum, GLint);
 static void (*fReadPixels)(GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, void*);
 static const GLubyte* (*fGetString)(GLenum);
 
+// Entry points the later phases need. Resolved OPTIONALLY: a library that
+// lacks one skips that phase instead of failing the whole run, which keeps
+// the comparison usable against implementations of differing completeness.
+static void (*fLightf)(GLenum, GLenum, GLfloat);
+static void (*fLightfv)(GLenum, GLenum, const GLfloat*);
+static void (*fLightModelfv)(GLenum, const GLfloat*);
+static void (*fLightModeli)(GLenum, GLint);
+static void (*fMaterialf)(GLenum, GLenum, GLfloat);
+static void (*fMaterialfv)(GLenum, GLenum, const GLfloat*);
+static void (*fColorMaterial)(GLenum, GLenum);
+static void (*fNormal3f)(GLfloat, GLfloat, GLfloat);
+static void (*fNormalPointer)(GLenum, GLsizei, const void*);
+static void (*fShadeModel)(GLenum);
+
+static void (*fActiveTexture)(GLenum);
+static void (*fMultiTexCoord2f)(GLenum, GLfloat, GLfloat);
+static void (*fTexEnvi)(GLenum, GLenum, GLint);
+static void (*fTexEnvfv)(GLenum, GLenum, const GLfloat*);
+static void (*fTexGeni)(GLenum, GLenum, GLint);
+
+static void (*fPushAttrib)(GLbitfield);
+static void (*fPopAttrib)(void);
+static void (*fBlendFunc)(GLenum, GLenum);
+static void (*fDepthFunc)(GLenum);
+static void (*fAlphaFunc)(GLenum, GLfloat);
+static void (*fStencilFunc)(GLenum, GLint, GLuint);
+static void (*fStencilOp)(GLenum, GLenum, GLenum);
+static void (*fScissor)(GLint, GLint, GLsizei, GLsizei);
+static void (*fColorMask)(GLboolean, GLboolean, GLboolean, GLboolean);
+static void (*fDepthMask)(GLboolean);
+static void (*fPolygonOffset)(GLfloat, GLfloat);
+static void (*fLineWidth)(GLfloat);
+static void (*fCullFace)(GLenum);
+static void (*fFrontFace)(GLenum);
+
+static GLuint (*fCreateShader)(GLenum);
+static void (*fShaderSource)(GLuint, GLsizei, const char* const*, const GLint*);
+static void (*fCompileShader)(GLuint);
+static void (*fGetShaderiv)(GLuint, GLenum, GLint*);
+static void (*fGetShaderInfoLog)(GLuint, GLsizei, GLsizei*, char*);
+static void (*fDeleteShader)(GLuint);
+static GLuint (*fCreateProgram)(void);
+static void (*fAttachShader)(GLuint, GLuint);
+static void (*fLinkProgram)(GLuint);
+static void (*fGetProgramiv)(GLuint, GLenum, GLint*);
+static void (*fGetProgramInfoLog)(GLuint, GLsizei, GLsizei*, char*);
+static void (*fUseProgram)(GLuint);
+static void (*fDeleteProgram)(GLuint);
+static GLint (*fGetUniformLocation)(GLuint, const char*);
+static GLint (*fGetAttribLocation)(GLuint, const char*);
+static void (*fUniform1i)(GLint, GLint);
+static void (*fUniform1f)(GLint, GLfloat);
+static void (*fUniform3fv)(GLint, GLsizei, const GLfloat*);
+static void (*fUniform4fv)(GLint, GLsizei, const GLfloat*);
+static void (*fUniformMatrix4fv)(GLint, GLsizei, GLboolean, const GLfloat*);
+static void (*fVertexAttribPointer)(GLuint, GLint, GLenum, GLboolean, GLsizei, const void*);
+static void (*fEnableVertexAttribArray)(GLuint);
+static void (*fDisableVertexAttribArray)(GLuint);
+static void (*fBindAttribLocation)(GLuint, GLuint, const char*);
+
+static void (*fGenFramebuffers)(GLsizei, GLuint*);
+static void (*fBindFramebuffer)(GLenum, GLuint);
+static void (*fFramebufferTexture2D)(GLenum, GLenum, GLenum, GLuint, GLint);
+static GLenum (*fCheckFramebufferStatus)(GLenum);
+
 static void load_gl(void) {
     LOAD(fClearColor, "glClearColor");
     LOAD(fClear, "glClear");
@@ -224,6 +398,79 @@ static void load_gl(void) {
     LOAD(fTexParameteri, "glTexParameteri");
     LOAD(fReadPixels, "glReadPixels");
     LOAD(fGetString, "glGetString");
+
+    // Optional: missing ones disable their phase, not the run. The EXT
+    // spellings are the FBO ones - GL 2.1 promoted them, but a library may
+    // only ever have exported the ARB/EXT names.
+#define LOAD_OPT(v, n) *(void**)(&v) = sym(n)
+#define LOAD_OPT2(v, n, alt)                                                                       \
+    do {                                                                                           \
+        *(void**)(&v) = sym(n);                                                                    \
+        if (!v) *(void**)(&v) = sym(alt);                                                          \
+    } while (0)
+    LOAD_OPT(fLightf, "glLightf");
+    LOAD_OPT(fLightfv, "glLightfv");
+    LOAD_OPT(fLightModelfv, "glLightModelfv");
+    LOAD_OPT(fLightModeli, "glLightModeli");
+    LOAD_OPT(fMaterialf, "glMaterialf");
+    LOAD_OPT(fMaterialfv, "glMaterialfv");
+    LOAD_OPT(fColorMaterial, "glColorMaterial");
+    LOAD_OPT(fNormal3f, "glNormal3f");
+    LOAD_OPT(fNormalPointer, "glNormalPointer");
+    LOAD_OPT(fShadeModel, "glShadeModel");
+
+    LOAD_OPT2(fActiveTexture, "glActiveTexture", "glActiveTextureARB");
+    LOAD_OPT2(fMultiTexCoord2f, "glMultiTexCoord2f", "glMultiTexCoord2fARB");
+    LOAD_OPT(fTexEnvi, "glTexEnvi");
+    LOAD_OPT(fTexEnvfv, "glTexEnvfv");
+    LOAD_OPT(fTexGeni, "glTexGeni");
+
+    LOAD_OPT(fPushAttrib, "glPushAttrib");
+    LOAD_OPT(fPopAttrib, "glPopAttrib");
+    LOAD_OPT(fBlendFunc, "glBlendFunc");
+    LOAD_OPT(fDepthFunc, "glDepthFunc");
+    LOAD_OPT(fAlphaFunc, "glAlphaFunc");
+    LOAD_OPT(fStencilFunc, "glStencilFunc");
+    LOAD_OPT(fStencilOp, "glStencilOp");
+    LOAD_OPT(fScissor, "glScissor");
+    LOAD_OPT(fColorMask, "glColorMask");
+    LOAD_OPT(fDepthMask, "glDepthMask");
+    LOAD_OPT(fPolygonOffset, "glPolygonOffset");
+    LOAD_OPT(fLineWidth, "glLineWidth");
+    LOAD_OPT(fCullFace, "glCullFace");
+    LOAD_OPT(fFrontFace, "glFrontFace");
+
+    LOAD_OPT(fCreateShader, "glCreateShader");
+    LOAD_OPT(fShaderSource, "glShaderSource");
+    LOAD_OPT(fCompileShader, "glCompileShader");
+    LOAD_OPT(fGetShaderiv, "glGetShaderiv");
+    LOAD_OPT(fGetShaderInfoLog, "glGetShaderInfoLog");
+    LOAD_OPT(fDeleteShader, "glDeleteShader");
+    LOAD_OPT(fCreateProgram, "glCreateProgram");
+    LOAD_OPT(fAttachShader, "glAttachShader");
+    LOAD_OPT(fLinkProgram, "glLinkProgram");
+    LOAD_OPT(fGetProgramiv, "glGetProgramiv");
+    LOAD_OPT(fGetProgramInfoLog, "glGetProgramInfoLog");
+    LOAD_OPT(fUseProgram, "glUseProgram");
+    LOAD_OPT(fDeleteProgram, "glDeleteProgram");
+    LOAD_OPT(fGetUniformLocation, "glGetUniformLocation");
+    LOAD_OPT(fGetAttribLocation, "glGetAttribLocation");
+    LOAD_OPT(fUniform1i, "glUniform1i");
+    LOAD_OPT(fUniform1f, "glUniform1f");
+    LOAD_OPT(fUniform3fv, "glUniform3fv");
+    LOAD_OPT(fUniform4fv, "glUniform4fv");
+    LOAD_OPT(fUniformMatrix4fv, "glUniformMatrix4fv");
+    LOAD_OPT(fVertexAttribPointer, "glVertexAttribPointer");
+    LOAD_OPT(fEnableVertexAttribArray, "glEnableVertexAttribArray");
+    LOAD_OPT(fDisableVertexAttribArray, "glDisableVertexAttribArray");
+    LOAD_OPT(fBindAttribLocation, "glBindAttribLocation");
+
+    LOAD_OPT2(fGenFramebuffers, "glGenFramebuffers", "glGenFramebuffersEXT");
+    LOAD_OPT2(fBindFramebuffer, "glBindFramebuffer", "glBindFramebufferEXT");
+    LOAD_OPT2(fFramebufferTexture2D, "glFramebufferTexture2D", "glFramebufferTexture2DEXT");
+    LOAD_OPT2(fCheckFramebufferStatus, "glCheckFramebufferStatus", "glCheckFramebufferStatusEXT");
+#undef LOAD_OPT
+#undef LOAD_OPT2
 }
 
 /* ---------------- context creation: EGL or GLX, via the library ------- */
@@ -360,6 +607,89 @@ static void draw_quads_immediate(int quads) {
 #define CA_VERTS (CA_QUADS * 4)
 static GLfloat interleaved[CA_VERTS * 9];
 static unsigned short indices[CA_QUADS * 6];
+
+// One model of the lighting phase. Split out so the phase can run it
+// untimed first: fixed-function state maps to a generated shader, and
+// letting every permutation this loop reaches compile once before the
+// clock starts is what keeps the reported number a per-draw steady-state
+// cost instead of a figure that shrinks as the iteration count grows.
+static void lighting_draw_model(int m) {
+    const GLfloat f = 0.001f * (GLfloat)(m & 255);
+    const GLfloat emission[4] = {f, 0.0f, 0.0f, 1.0f};
+    const GLfloat ambient[4] = {0.2f + f, 0.2f, 0.2f, 1.0f};
+    const GLfloat diffuse[4] = {0.8f, 0.7f - f, 0.6f, 1.0f};
+    const GLfloat specular[4] = {0.9f, 0.9f, 0.9f, 1.0f};
+    fMaterialfv(GL_FRONT, GL_EMISSION, emission);
+    fMaterialfv(GL_FRONT, GL_AMBIENT, ambient);
+    fMaterialfv(GL_FRONT, GL_DIFFUSE, diffuse);
+    fMaterialfv(GL_FRONT, GL_SPECULAR, specular);
+    fMaterialf(GL_FRONT, GL_SHININESS, 16.0f + f);
+    // Every 16th model flips the lighting state a fixed-function shader has
+    // to be regenerated (or reselected) for; the rest only move uniforms.
+    if ((m & 15) == 0) {
+        fShadeModel((m & 16) ? GL_FLAT : GL_SMOOTH);
+        fLightModeli(GL_LIGHT_MODEL_TWO_SIDE, (m & 32) ? 1 : 0);
+        if ((m & 32)) fEnable(GL_COLOR_MATERIAL); else fDisable(GL_COLOR_MATERIAL);
+    }
+    fBegin(GL_QUADS);
+    for (int q = 0; q < 8; ++q) {
+        const GLfloat x = 0.01f * (GLfloat)q;
+        fNormal3f(0.0f, 0.0f, 1.0f);
+        fColor4f(0.5f, 0.6f, 0.7f, 1.0f);
+        fVertex3f(x, 0.0f, 0.0f);
+        fNormal3f(0.0f, 0.577f, 0.816f);
+        fVertex3f(x + 0.01f, 0.0f, 0.0f);
+        fNormal3f(0.577f, 0.577f, 0.577f);
+        fVertex3f(x + 0.01f, 0.01f, 0.0f);
+        fNormal3f(0.0f, 0.0f, 1.0f);
+        fVertex3f(x, 0.01f, 0.0f);
+    }
+    fEnd();
+}
+
+// One draw of the texture-stage phase, split out for the same reason: the
+// environment/texgen combinations it cycles through are shader inputs.
+static void texstages_draw(int d, int units) {
+    const GLfloat envColor[4] = {0.3f, 0.4f, 0.5f, 1.0f};
+    for (int u = 0; u < units; ++u) {
+        fActiveTexture(GL_TEXTURE0_C + u);
+        // Rotate through the three environments a legacy renderer actually
+        // mixes; COMBINE additionally carries source and operand state.
+        const int mode = (d + u) % 3;
+        if (mode == 0) {
+            fTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+        } else if (mode == 1) {
+            fTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_ADD);
+        } else {
+            fTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_COMBINE);
+            fTexEnvi(GL_TEXTURE_ENV, GL_COMBINE_RGB, GL_INTERPOLATE);
+            fTexEnvi(GL_TEXTURE_ENV, GL_SRC0_RGB, GL_TEXTURE_C);
+            fTexEnvi(GL_TEXTURE_ENV, GL_SRC1_RGB, GL_PREVIOUS);
+            fTexEnvi(GL_TEXTURE_ENV, GL_OPERAND0_RGB, GL_SRC_COLOR);
+        }
+        fTexEnvfv(GL_TEXTURE_ENV, GL_TEXTURE_ENV_COLOR, envColor);
+        // A per-unit texture matrix: another generated-shader input.
+        fMatrixMode(GL_TEXTURE_C);
+        fLoadIdentity();
+        fTranslatef(0.001f * (GLfloat)d, 0.0f, 0.0f);
+    }
+    fMatrixMode(GL_MODELVIEW);
+    if (fTexGeni && (d & 63) == 0) {
+        fActiveTexture(GL_TEXTURE0_C + (units - 1));
+        fTexGeni(GL_S, GL_TEXTURE_GEN_MODE, (d & 64) ? GL_SPHERE_MAP : GL_OBJECT_LINEAR);
+        fTexGeni(GL_T, GL_TEXTURE_GEN_MODE, (d & 64) ? GL_SPHERE_MAP : GL_OBJECT_LINEAR);
+        if ((d & 64)) { fEnable(GL_TEXTURE_GEN_S); fEnable(GL_TEXTURE_GEN_T); }
+        else { fDisable(GL_TEXTURE_GEN_S); fDisable(GL_TEXTURE_GEN_T); }
+    }
+    fBegin(GL_QUADS);
+    for (int v = 0; v < 4; ++v) {
+        for (int u = 0; u < units; ++u)
+            fMultiTexCoord2f(GL_TEXTURE0_C + u, (GLfloat)(v & 1), (GLfloat)((v >> 1) & 1));
+        fColor4f(0.5f, 0.6f, 0.7f, 1.0f);
+        fVertex3f((GLfloat)(v & 1) * 0.02f, (GLfloat)((v >> 1) & 1) * 0.02f, 0.0f);
+    }
+    fEnd();
+}
 
 int main(void) {
     const char* path = getenv("CMPBENCH_LIB");
@@ -932,6 +1262,468 @@ int main(void) {
         fFinish();
         ms = now_ms() - t0;
         report("mcentity", ms * 1000.0 / models, "us/model");
+    }
+
+    // --- coverage phases ---------------------------------------------------
+    // The phases above exercise geometry submission. These five cover the
+    // rest of what a GL 2.1 implementation has to implement: the two halves
+    // of the fixed-function pipeline that shape shader generation (lighting,
+    // texture stages), the per-frame state management around draws, and the
+    // programmable pipeline both when building programs and when driving
+    // them. Each is guarded on its own entry points, so a library missing
+    // one simply has no line for that phase.
+
+    /* FFP lighting: the largest generator of fixed-function shader
+     * permutations. Eight lights with full parameter sets, per-vertex
+     * normals, per-draw material changes, and shade-model/two-sided
+     * toggling - the state a legacy engine changes between model draws. */
+    if (phase_on("lighting") && fLightfv && fLightf && fMaterialfv && fMaterialf && fNormal3f &&
+        fShadeModel && fColorMaterial && fLightModeli) {
+        enum { LIGHTS = 8 };
+        for (int l = 0; l < LIGHTS; ++l) {
+            const GLfloat f = 0.1f * (GLfloat)l;
+            const GLfloat position[4] = {f, 1.0f - f, 2.0f + f, 1.0f};
+            const GLfloat ambient[4] = {0.05f + f * 0.01f, 0.05f, 0.05f, 1.0f};
+            const GLfloat diffuse[4] = {0.8f - f * 0.05f, 0.7f, 0.6f + f * 0.02f, 1.0f};
+            const GLfloat specular[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+            const GLfloat direction[3] = {0.0f, -1.0f, f};
+            fLightfv(GL_LIGHT0 + l, GL_POSITION, position);
+            fLightfv(GL_LIGHT0 + l, GL_AMBIENT, ambient);
+            fLightfv(GL_LIGHT0 + l, GL_DIFFUSE, diffuse);
+            fLightfv(GL_LIGHT0 + l, GL_SPECULAR, specular);
+            fLightfv(GL_LIGHT0 + l, GL_SPOT_DIRECTION, direction);
+            fLightf(GL_LIGHT0 + l, GL_SPOT_EXPONENT, 2.0f + f);
+            fLightf(GL_LIGHT0 + l, GL_SPOT_CUTOFF, 45.0f);
+            fLightf(GL_LIGHT0 + l, GL_CONSTANT_ATTENUATION, 1.0f);
+            fLightf(GL_LIGHT0 + l, GL_LINEAR_ATTENUATION, 0.01f);
+            fLightf(GL_LIGHT0 + l, GL_QUADRATIC_ATTENUATION, 0.001f);
+            fEnable(GL_LIGHT0 + l);
+        }
+        const GLfloat sceneAmbient[4] = {0.2f, 0.2f, 0.2f, 1.0f};
+        if (fLightModelfv) fLightModelfv(GL_LIGHT_MODEL_AMBIENT, sceneAmbient);
+        fEnable(GL_LIGHTING);
+        fEnable(GL_NORMALIZE);
+        fColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
+
+        const int models = (int)(4000 * scale) > 0 ? (int)(4000 * scale) : 1;
+        // 64 models cover every permutation the loop reaches, so all the
+        // generated shaders exist before the clock starts.
+        for (int m = 0; m < 64; ++m) lighting_draw_model(m);
+        fFinish();
+        t0 = now_ms();
+        for (int m = 0; m < models; ++m) lighting_draw_model(m);
+        fFinish();
+        ms = now_ms() - t0;
+        for (int l = 0; l < LIGHTS; ++l) fDisable(GL_LIGHT0 + l);
+        fDisable(GL_LIGHTING);
+        fDisable(GL_NORMALIZE);
+        fDisable(GL_COLOR_MATERIAL);
+        if (fShadeModel) fShadeModel(GL_SMOOTH);
+        report("lighting", ms * 1000.0 / models, "us/model");
+    }
+
+    /* FFP texture stages: multitexture with per-unit environments. The
+     * combiner setup, the texture matrix and texgen are all inputs to the
+     * generated fragment shader, and each unit adds a coordinate array. */
+    if (phase_on("texstages") && fActiveTexture && fMultiTexCoord2f && fTexEnvi && fTexEnvfv) {
+        enum { UNITS = 3 };
+        static GLubyte stageTexels[32 * 32 * 4];
+        for (int i = 0; i < 32 * 32 * 4; ++i) stageTexels[i] = (GLubyte)(i * 5);
+        GLuint stageTex[UNITS];
+        fGenTextures(UNITS, stageTex);
+        for (int u = 0; u < UNITS; ++u) {
+            fActiveTexture(GL_TEXTURE0_C + u);
+            fBindTexture(GL_TEXTURE_2D, stageTex[u]);
+            fTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 32, 32, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                        stageTexels);
+            fTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+            fTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+            fEnable(GL_TEXTURE_2D);
+        }
+
+        const int draws = (int)(6000 * scale) > 0 ? (int)(6000 * scale) : 1;
+        // 128 draws cover the environment rotation and both texgen states.
+        for (int d = 0; d < 128; ++d) texstages_draw(d, UNITS);
+        fFinish();
+        t0 = now_ms();
+        for (int d = 0; d < draws; ++d) texstages_draw(d, UNITS);
+        fFinish();
+        ms = now_ms() - t0;
+        for (int u = UNITS - 1; u >= 0; --u) {
+            fActiveTexture(GL_TEXTURE0_C + u);
+            fTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+            if (fTexGeni) { fDisable(GL_TEXTURE_GEN_S); fDisable(GL_TEXTURE_GEN_T); }
+            fMatrixMode(GL_TEXTURE_C);
+            fLoadIdentity();
+            fDisable(GL_TEXTURE_2D);
+        }
+        fMatrixMode(GL_MODELVIEW);
+        report("texstages", ms * 1000.0 / draws, "us/draw");
+    }
+
+    /* Per-frame state management: the enable/disable and blend/depth/
+     * stencil/scissor churn a GUI or particle pass produces, including the
+     * attribute stack, which has to snapshot and restore whole state
+     * groups. No geometry work beyond a single quad, so this is the cost of
+     * tracking state rather than of drawing. */
+    if (phase_on("statechurn") && fPushAttrib && fPopAttrib && fBlendFunc && fDepthFunc &&
+        fScissor && fColorMask && fDepthMask && fCullFace && fFrontFace) {
+        const int groups = (int)(8000 * scale) > 0 ? (int)(8000 * scale) : 1;
+        // Warm-up: the alpha-test and shade state reached here can select a
+        // different generated shader, and those builds are one-time.
+        for (int w = 0; w < 128; ++w) {
+            fPushAttrib(GL_ENABLE_BIT | GL_COLOR_BUFFER_BIT_A | GL_TRANSFORM_BIT);
+            if (fAlphaFunc) {
+                fEnable(GL_ALPHA_TEST);
+                fAlphaFunc((w & 16) ? GL_GEQUAL : GL_ALWAYS, 0.1f);
+            }
+            draw_quads_immediate(1);
+            fPopAttrib();
+        }
+        fFinish();
+        t0 = now_ms();
+        for (int g = 0; g < groups; ++g) {
+            fPushAttrib(GL_ENABLE_BIT | GL_COLOR_BUFFER_BIT_A | GL_TRANSFORM_BIT);
+            fEnable(GL_BLEND);
+            fBlendFunc((g & 1) ? GL_SRC_ALPHA : GL_ONE,
+                       (g & 1) ? GL_ONE_MINUS_SRC_ALPHA : GL_ZERO);
+            fEnable(GL_DEPTH_TEST);
+            fDepthFunc((g & 2) ? GL_LEQUAL : GL_LESS);
+            fDepthMask((GLboolean)((g & 4) ? 1 : 0));
+            fColorMask(1, 1, 1, (GLboolean)((g & 8) ? 1 : 0));
+            if (fAlphaFunc) {
+                fEnable(GL_ALPHA_TEST);
+                fAlphaFunc((g & 16) ? GL_GEQUAL : GL_ALWAYS, 0.1f);
+            }
+            if (fStencilFunc && fStencilOp) {
+                fEnable(GL_STENCIL_TEST);
+                fStencilFunc((g & 32) ? GL_ALWAYS : GL_LEQUAL, 1, 0xFF);
+                fStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+            }
+            fEnable(GL_SCISSOR_TEST);
+            fScissor(0, 0, 1, 1);
+            fEnable(GL_CULL_FACE);
+            fCullFace(GL_BACK);
+            fFrontFace((g & 64) ? GL_CW : GL_CCW);
+            if (fPolygonOffset) { fEnable(GL_POLYGON_OFFSET_FILL); fPolygonOffset(1.0f, 1.0f); }
+            if (fLineWidth) fLineWidth(1.0f + (GLfloat)(g & 3));
+            draw_quads_immediate(1);
+            fPopAttrib();
+        }
+        fFinish();
+        ms = now_ms() - t0;
+        fDisable(GL_BLEND); fDisable(GL_DEPTH_TEST); fDisable(GL_SCISSOR_TEST);
+        fDisable(GL_CULL_FACE); fDisable(GL_ALPHA_TEST); fDisable(GL_STENCIL_TEST);
+        fDisable(GL_POLYGON_OFFSET_FILL);
+        fDepthMask(1); fColorMask(1, 1, 1, 1);
+        report("statechurn", ms * 1000.0 / groups, "us/group");
+    }
+
+    /* GL 2.1 programmable pipeline, build side: compiling and linking GLSL.
+     * Each program's source is unique, so this measures real translation
+     * and link throughput rather than a cache hit. Programs that fail to
+     * build are not counted - an implementation must not look fast by
+     * rejecting the shader. */
+    if (phase_on("shaderbuild") && fCreateShader && fShaderSource && fCompileShader &&
+        fGetShaderiv && fCreateProgram && fAttachShader && fLinkProgram && fGetProgramiv &&
+        fDeleteShader && fDeleteProgram && fGetUniformLocation) {
+        const int programs = (int)(60 * scale) > 0 ? (int)(60 * scale) : 1;
+        int built = 0;
+        char vsBuf[1024], fsBuf[1024];
+        // One throwaway build first: a translating implementation pays its
+        // toolchain's one-time initialization on the very first shader, and
+        // that is a startup cost, not a per-program one.
+        {
+            static const char* warmVs = "void main() { gl_Position = ftransform(); }\n";
+            static const char* warmFs = "void main() { gl_FragColor = vec4(1.0); }\n";
+            const GLuint wv = fCreateShader(GL_VERTEX_SHADER);
+            const GLuint wf = fCreateShader(GL_FRAGMENT_SHADER);
+            fShaderSource(wv, 1, &warmVs, NULL);
+            fShaderSource(wf, 1, &warmFs, NULL);
+            fCompileShader(wv);
+            fCompileShader(wf);
+            const GLuint wp = fCreateProgram();
+            fAttachShader(wp, wv);
+            fAttachShader(wp, wf);
+            fLinkProgram(wp);
+            fDeleteShader(wv);
+            fDeleteShader(wf);
+            fDeleteProgram(wp);
+        }
+        fFinish();
+        t0 = now_ms();
+        for (int p = 0; p < programs; ++p) {
+            // GLSL 1.10 with the compatibility built-ins a legacy app uses;
+            // the uniqueness lives in a constant so every source differs.
+            snprintf(vsBuf, sizeof vsBuf,
+                     "uniform mat4 uXform;\n"
+                     "uniform vec4 uTint;\n"
+                     "attribute vec3 aPos;\n"
+                     "attribute vec2 aUV;\n"
+                     "varying vec2 vUV;\n"
+                     "varying vec4 vColor;\n"
+                     "void main() {\n"
+                     "    vec4 p = uXform * vec4(aPos, 1.0);\n"
+                     "    vUV = aUV + vec2(%d.0, 0.0) * 0.001;\n"
+                     "    vColor = uTint * gl_Color + vec4(%d.0 * 0.001);\n"
+                     "    gl_Position = gl_ModelViewProjectionMatrix * p;\n"
+                     "}\n",
+                     p, p);
+            // Deliberately kept to constructs every implementation compared
+            // here accepts. gl4es mistranslates clamp() (its output makes
+            // the driver report bogus overloads), and a corpus one side
+            // cannot build measures nothing.
+            snprintf(fsBuf, sizeof fsBuf,
+                     "uniform sampler2D uTex;\n"
+                     "uniform float uFade;\n"
+                     "varying vec2 vUV;\n"
+                     "varying vec4 vColor;\n"
+                     "void main() {\n"
+                     "    vec4 t = texture2D(uTex, vUV);\n"
+                     "    float f = uFade + %d.0 * 0.001;\n"
+                     "    vec3 c = mix(t.rgb, vColor.rgb, f);\n"
+                     "    gl_FragColor = vec4(c, t.a * vColor.a);\n"
+                     "}\n",
+                     p);
+            const char* vsSrc = vsBuf;
+            const char* fsSrc = fsBuf;
+            const GLuint vs = fCreateShader(GL_VERTEX_SHADER);
+            const GLuint fs = fCreateShader(GL_FRAGMENT_SHADER);
+            fShaderSource(vs, 1, &vsSrc, NULL);
+            fShaderSource(fs, 1, &fsSrc, NULL);
+            fCompileShader(vs);
+            fCompileShader(fs);
+            GLint okv = 0, okf = 0;
+            fGetShaderiv(vs, GL_COMPILE_STATUS, &okv);
+            fGetShaderiv(fs, GL_COMPILE_STATUS, &okf);
+            const GLuint prog = fCreateProgram();
+            fAttachShader(prog, vs);
+            fAttachShader(prog, fs);
+            if (fBindAttribLocation) {
+                fBindAttribLocation(prog, 0, "aPos");
+                fBindAttribLocation(prog, 1, "aUV");
+            }
+            fLinkProgram(prog);
+            GLint linked = 0;
+            fGetProgramiv(prog, GL_LINK_STATUS, &linked);
+            if (!(okv && okf && linked) && built == 0 && p == 0) {
+                // Say why, once: a library that cannot build the shader has
+                // no line in the table, and "missing" should not be
+                // confused with "fast".
+                char log[512];
+                if (!okv && fGetShaderInfoLog) {
+                    log[0] = '\0';
+                    fGetShaderInfoLog(vs, (GLsizei)sizeof log, NULL, log);
+                    fprintf(stderr, "shaderbuild: vertex compile failed: %s\n", log);
+                }
+                if (!okf && fGetShaderInfoLog) {
+                    log[0] = '\0';
+                    fGetShaderInfoLog(fs, (GLsizei)sizeof log, NULL, log);
+                    fprintf(stderr, "shaderbuild: fragment compile failed: %s\n", log);
+                }
+                if (okv && okf && !linked && fGetProgramInfoLog) {
+                    log[0] = '\0';
+                    fGetProgramInfoLog(prog, (GLsizei)sizeof log, NULL, log);
+                    fprintf(stderr, "shaderbuild: link failed: %s\n", log);
+                }
+            }
+            if (okv && okf && linked) {
+                // Resolving locations is part of what an app does with a
+                // freshly linked program, and it is where a wrapper's
+                // name-mapping cost shows up.
+                (void)fGetUniformLocation(prog, "uXform");
+                (void)fGetUniformLocation(prog, "uTint");
+                (void)fGetUniformLocation(prog, "uTex");
+                (void)fGetUniformLocation(prog, "uFade");
+                ++built;
+            }
+            fDeleteShader(vs);
+            fDeleteShader(fs);
+            fDeleteProgram(prog);
+        }
+        fFinish();
+        ms = now_ms() - t0;
+        if (built == programs) report("shaderbuild", ms * 1000.0 / programs, "us/program");
+        else fprintf(stderr, "shaderbuild: only %d/%d programs built; phase omitted\n", built,
+                     programs);
+    }
+
+    /* GL 2.1 programmable pipeline, draw side: a user program driven the
+     * way an app drives it - generic attributes out of a VBO, a full set of
+     * uniform types re-sent per draw, indexed draws, and a periodic
+     * render-to-texture switch so the framebuffer path is covered too. */
+    if (phase_on("progdraw") && fCreateShader && fShaderSource && fCompileShader && fGetShaderiv &&
+        fCreateProgram && fAttachShader && fLinkProgram && fGetProgramiv && fUseProgram &&
+        fGetUniformLocation && fUniform1i && fUniform1f && fUniform4fv && fUniformMatrix4fv &&
+        fVertexAttribPointer && fEnableVertexAttribArray && fGenBuffers && fBindBuffer &&
+        fBufferData) {
+        static const char* pdVs =
+            "uniform mat4 uXform;\n"
+            "uniform vec4 uTint;\n"
+            "uniform float uTime;\n"
+            "attribute vec3 aPos;\n"
+            "attribute vec2 aUV;\n"
+            "attribute vec4 aColor;\n"
+            "varying vec2 vUV;\n"
+            "varying vec4 vColor;\n"
+            "void main() {\n"
+            "    vUV = aUV;\n"
+            "    vColor = aColor * uTint * (0.5 + 0.5 * uTime);\n"
+            "    gl_Position = uXform * vec4(aPos, 1.0);\n"
+            "}\n";
+        static const char* pdFs =
+            "uniform sampler2D uTex;\n"
+            "uniform float uFade;\n"
+            "varying vec2 vUV;\n"
+            "varying vec4 vColor;\n"
+            "void main() {\n"
+            "    vec4 t = texture2D(uTex, vUV);\n"
+            "    gl_FragColor = vec4(mix(t.rgb, vColor.rgb, uFade), t.a * vColor.a);\n"
+            "}\n";
+        const GLuint vs = fCreateShader(GL_VERTEX_SHADER);
+        const GLuint fs = fCreateShader(GL_FRAGMENT_SHADER);
+        fShaderSource(vs, 1, &pdVs, NULL);
+        fShaderSource(fs, 1, &pdFs, NULL);
+        fCompileShader(vs);
+        fCompileShader(fs);
+        GLint okv = 0, okf = 0;
+        fGetShaderiv(vs, GL_COMPILE_STATUS, &okv);
+        fGetShaderiv(fs, GL_COMPILE_STATUS, &okf);
+        const GLuint prog = fCreateProgram();
+        fAttachShader(prog, vs);
+        fAttachShader(prog, fs);
+        if (fBindAttribLocation) {
+            fBindAttribLocation(prog, 0, "aPos");
+            fBindAttribLocation(prog, 1, "aUV");
+            fBindAttribLocation(prog, 2, "aColor");
+        }
+        fLinkProgram(prog);
+        GLint linked = 0;
+        fGetProgramiv(prog, GL_LINK_STATUS, &linked);
+        if (!(okv && okf && linked)) {
+            fprintf(stderr, "progdraw: program did not build; phase omitted\n");
+        } else {
+            GLuint pdBuf[2];
+            fGenBuffers(2, pdBuf);
+            fBindBuffer(GL_ARRAY_BUFFER, pdBuf[0]);
+            fBufferData(GL_ARRAY_BUFFER, (long)sizeof(interleaved), interleaved, GL_STATIC_DRAW);
+            fBindBuffer(GL_ELEMENT_ARRAY_BUFFER, pdBuf[1]);
+            fBufferData(GL_ELEMENT_ARRAY_BUFFER, (long)sizeof(indices), indices, GL_STATIC_DRAW);
+
+            GLint aPos = 0, aUV = 1, aColor = 2;
+            if (fGetAttribLocation) {
+                aPos = fGetAttribLocation(prog, "aPos");
+                aUV = fGetAttribLocation(prog, "aUV");
+                aColor = fGetAttribLocation(prog, "aColor");
+            }
+            fUseProgram(prog);
+            const GLint uXform = fGetUniformLocation(prog, "uXform");
+            const GLint uTint = fGetUniformLocation(prog, "uTint");
+            const GLint uTime = fGetUniformLocation(prog, "uTime");
+            const GLint uTex = fGetUniformLocation(prog, "uTex");
+            const GLint uFade = fGetUniformLocation(prog, "uFade");
+
+            // Render target for the periodic off-screen pass.
+            GLuint fbo = 0, fboTex = 0;
+            int fboReady = 0;
+            if (fGenFramebuffers && fBindFramebuffer && fFramebufferTexture2D &&
+                fCheckFramebufferStatus) {
+                fGenTextures(1, &fboTex);
+                fBindTexture(GL_TEXTURE_2D, fboTex);
+                fTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 64, 64, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+                fTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+                fTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+                fTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+                fTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+                fGenFramebuffers(1, &fbo);
+                fBindFramebuffer(GL_FRAMEBUFFER, fbo);
+                fFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, fboTex,
+                                      0);
+                fboReady = fCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+                fBindFramebuffer(GL_FRAMEBUFFER, 0);
+            }
+
+            const int draws = (int)(20000 * scale) > 0 ? (int)(20000 * scale) : 1;
+            GLfloat matrix[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+            const GLfloat tint[4] = {0.8f, 0.7f, 0.6f, 1.0f};
+            // Warm-up: first use of the program, of each attribute array and
+            // of the off-screen target all carry one-time setup.
+            if (fboReady) {
+                fBindFramebuffer(GL_FRAMEBUFFER, fbo);
+                fViewport(0, 0, 64, 64);
+            }
+            fBindBuffer(GL_ARRAY_BUFFER, pdBuf[0]);
+            if (aPos >= 0) {
+                fVertexAttribPointer((GLuint)aPos, 3, GL_FLOAT, 0, 9 * (GLsizei)sizeof(GLfloat),
+                                     (const void*)0);
+                fEnableVertexAttribArray((GLuint)aPos);
+            }
+            if (aColor >= 0) {
+                fVertexAttribPointer((GLuint)aColor, 4, GL_FLOAT, 0, 9 * (GLsizei)sizeof(GLfloat),
+                                     (const void*)(3 * sizeof(GLfloat)));
+                fEnableVertexAttribArray((GLuint)aColor);
+            }
+            if (aUV >= 0) {
+                fVertexAttribPointer((GLuint)aUV, 2, GL_FLOAT, 0, 9 * (GLsizei)sizeof(GLfloat),
+                                     (const void*)(7 * sizeof(GLfloat)));
+                fEnableVertexAttribArray((GLuint)aUV);
+            }
+            fBindBuffer(GL_ELEMENT_ARRAY_BUFFER, pdBuf[1]);
+            fDrawElements(GL_TRIANGLES, 24, GL_UNSIGNED_SHORT, (const void*)0);
+            if (fboReady) {
+                fBindFramebuffer(GL_FRAMEBUFFER, 0);
+                fViewport(0, 0, vp, vp);
+            }
+            fDrawElements(GL_TRIANGLES, 24, GL_UNSIGNED_SHORT, (const void*)0);
+            fFinish();
+            t0 = now_ms();
+            for (int d = 0; d < draws; ++d) {
+                if (fboReady && (d & 255) == 0) {
+                    // Off-screen pass: bind the FBO, draw, and come back -
+                    // the shape of a shadow/reflection/post pass.
+                    fBindFramebuffer(GL_FRAMEBUFFER, fbo);
+                    fViewport(0, 0, 64, 64);
+                }
+                fBindBuffer(GL_ARRAY_BUFFER, pdBuf[0]);
+                if (aPos >= 0) {
+                    fVertexAttribPointer((GLuint)aPos, 3, GL_FLOAT, 0, 9 * (GLsizei)sizeof(GLfloat),
+                                         (const void*)0);
+                    fEnableVertexAttribArray((GLuint)aPos);
+                }
+                if (aColor >= 0) {
+                    fVertexAttribPointer((GLuint)aColor, 4, GL_FLOAT, 0,
+                                         9 * (GLsizei)sizeof(GLfloat),
+                                         (const void*)(3 * sizeof(GLfloat)));
+                    fEnableVertexAttribArray((GLuint)aColor);
+                }
+                if (aUV >= 0) {
+                    fVertexAttribPointer((GLuint)aUV, 2, GL_FLOAT, 0, 9 * (GLsizei)sizeof(GLfloat),
+                                         (const void*)(7 * sizeof(GLfloat)));
+                    fEnableVertexAttribArray((GLuint)aUV);
+                }
+                matrix[12] = 0.0001f * (GLfloat)(d & 255);
+                if (uXform >= 0) fUniformMatrix4fv(uXform, 1, 0, matrix);
+                if (uTint >= 0) fUniform4fv(uTint, 1, tint);
+                if (uTime >= 0) fUniform1f(uTime, 0.001f * (GLfloat)(d & 1023));
+                if (uFade >= 0) fUniform1f(uFade, 0.5f);
+                if (uTex >= 0) fUniform1i(uTex, 0);
+                fBindBuffer(GL_ELEMENT_ARRAY_BUFFER, pdBuf[1]);
+                fDrawElements(GL_TRIANGLES, 24, GL_UNSIGNED_SHORT, (const void*)0);
+                if (fboReady && (d & 255) == 0) {
+                    fBindFramebuffer(GL_FRAMEBUFFER, 0);
+                    fViewport(0, 0, vp, vp);
+                }
+            }
+            fFinish();
+            ms = now_ms() - t0;
+            if (aPos >= 0 && fDisableVertexAttribArray) fDisableVertexAttribArray((GLuint)aPos);
+            if (aUV >= 0 && fDisableVertexAttribArray) fDisableVertexAttribArray((GLuint)aUV);
+            if (aColor >= 0 && fDisableVertexAttribArray) fDisableVertexAttribArray((GLuint)aColor);
+            fUseProgram(0);
+            fBindBuffer(GL_ARRAY_BUFFER, 0);
+            fBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+            report("progdraw", ms * 1000.0 / draws, "us/draw");
+        }
     }
 
     return 0;

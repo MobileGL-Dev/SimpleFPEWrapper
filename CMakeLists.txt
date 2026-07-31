@@ -41,6 +41,33 @@ if(SFPEW_LTO)
                 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -flto")
                 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -flto")
         endif()
+        # These flags reach every target, so glslang's and SPIRV-Cross's
+        # static libraries are archives of LTO bitcode - which plain `ar`
+        # can only index through a bfd plugin whose LLVM/GCC version must
+        # match the compiler's. Ubuntu ships that plugin under a versioned
+        # name (LLVMgold-18.so) and no unversioned llvm-ar, so CMake falls
+        # back to /usr/bin/ar and a mismatched or missing plugin yields an
+        # archive with an EMPTY symbol index: the linker pulls in no member,
+        # a shared library links anyway (undefined symbols are legal there),
+        # and the .so only fails at dlopen. CMAKE_<LANG>_COMPILER_AR is the
+        # archiver shipped with this exact compiler - version-matched by
+        # construction and needing no plugin at all.
+        if(CMAKE_CXX_COMPILER_AR AND CMAKE_CXX_COMPILER_RANLIB)
+                set(CMAKE_AR "${CMAKE_CXX_COMPILER_AR}")
+                set(CMAKE_RANLIB "${CMAKE_CXX_COMPILER_RANLIB}")
+        else()
+                # No archiver that is certain to handle this compiler's
+                # bitcode. Losing LTO is a slower library; guessing wrong
+                # is a library that only fails at dlopen.
+                message(WARNING "SFPEW: no LTO-capable archiver for ${CMAKE_CXX_COMPILER_ID} "
+                                "(CMAKE_CXX_COMPILER_AR unset) - building without LTO.")
+                set(SFPEW_LTO OFF)
+                string(REPLACE " -flto=thin" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+                string(REPLACE " -flto" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+                string(REPLACE " -flto=thin" "" CMAKE_SHARED_LINKER_FLAGS
+                       "${CMAKE_SHARED_LINKER_FLAGS}")
+                string(REPLACE " -flto" "" CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS}")
+        endif()
 endif()
 
 # GLSL 1.10/1.20 -> ESSL 3.00 translation toolchain (plans/09):
@@ -108,6 +135,17 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
 )
 
 target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE -Wall -Wextra)
+
+# A shared library may legally carry undefined symbols, so a link that
+# quietly dropped a static-library member (a bitcode archive the archiver
+# could not index, a missing typeinfo) still produced a .so - and the
+# failure surfaced only as a dlopen error in every single test. The
+# library resolves the host GL at runtime through dlsym, never through
+# the dynamic linker, so it genuinely has nothing left to leave
+# undefined: demand that here and fail at build time instead.
+if(NOT APPLE)
+        target_link_options(${CMAKE_PROJECT_NAME} PRIVATE -Wl,--no-undefined)
+endif()
 
 # GCC's LTO value-range analysis reports a false positive inside xxhash's
 # byte-copy loop when a 64-byte add() call is inlined (the guarded branch

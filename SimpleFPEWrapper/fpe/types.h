@@ -40,6 +40,13 @@ extern thread_local SFPEW_TLS_HOT glstate_t* tls_snapshot_state;
 extern thread_local SFPEW_TLS_HOT void* g_authoritative_context;
 extern thread_local SFPEW_TLS_HOT bool g_authoritative_context_known;
 extern thread_local SFPEW_TLS_HOT unsigned g_context_reconcile_counter;
+// How many resolves may trust the recorded context before it is re-read from
+// libEGL. Adaptive: doubles while reconciliation keeps confirming the value,
+// and drops back to a tight interval the moment one finds a context the
+// wrapper was not told about. An app that never bypasses eglMakeCurrent - the
+// normal case - stops paying for the check, while one that does is caught
+// sooner than the old fixed interval caught it.
+extern thread_local SFPEW_TLS_HOT unsigned g_context_reconcile_interval;
 // SFPEW_RELAXED_CONTEXT=1: each thread promises to use one context forever.
 extern bool g_sfpew_relaxed_context;
 // Reconciles against libEGL and resets the counter. Out of line: it is the
@@ -918,9 +925,12 @@ struct glstate_t {
 // itself was 48% of a glGetFloatv, and every entry point pays it once.
 inline void* sfpewCurrentContextInline() {
     if (!g_authoritative_context_known) return sfpewReconcileContext();
-    // One libEGL query per 256 resolves bounds how long an eglMakeCurrent
-    // that bypassed the wrapper can go unnoticed (docs/context-model.md).
-    if (++g_context_reconcile_counter < 256u) return g_authoritative_context;
+    // Bounds how long an eglMakeCurrent that bypassed the wrapper can go
+    // unnoticed (docs/context-model.md). The bound adapts - see the interval's
+    // declaration - because on glvnd the query itself costs ~425ns, which at a
+    // fixed 256 was 9% of a glGet.
+    if (++g_context_reconcile_counter < g_context_reconcile_interval)
+        return g_authoritative_context;
     return sfpewReconcileContext();
 }
 

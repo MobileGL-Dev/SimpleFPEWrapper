@@ -255,6 +255,37 @@ bool hijack_fpe_states(GLenum cap, bool enable, fixed_function_bool_t* bools) {
     return sfpewEvaluatorEnable(cap, enable);
 }
 
+// Slot for the caps whose last issued value the wrapper can trust; -1 for
+// everything else, which is always forwarded. Deliberately conservative: a
+// cap belongs here only if nothing inside the wrapper ever enables or
+// disables it behind the app's back.
+static int backendEnableSlot(GLenum cap) {
+    using shadow_t = fixed_function_state_t::backend_state_shadow_t;
+    switch (cap) {
+    case GL_DEPTH_TEST: return shadow_t::kEnableDepthTest;
+    case GL_STENCIL_TEST: return shadow_t::kEnableStencilTest;
+    case GL_SCISSOR_TEST: return shadow_t::kEnableScissorTest;
+    case GL_CULL_FACE: return shadow_t::kEnableCullFace;
+    case GL_POLYGON_OFFSET_FILL: return shadow_t::kEnablePolygonOffsetFill;
+    case GL_SAMPLE_ALPHA_TO_COVERAGE: return shadow_t::kEnableSampleAlphaToCoverage;
+    case GL_SAMPLE_COVERAGE: return shadow_t::kEnableSampleCoverage;
+    default: return -1;
+    }
+}
+
+// True when this enable/disable is already the backend's state, so the call
+// can be dropped. Legacy renderers re-assert a pass's enables around every
+// draw, and those repeats are pure driver cost.
+static bool backendEnableRedundant(glstate_t& gs, GLenum cap, bool enable) {
+    const int slot = backendEnableSlot(cap);
+    if (slot < 0) return false;
+    auto& shadow = gs.fpe_state.backend_state;
+    if (shadow.enable_known[slot] && shadow.enable_value[slot] == enable) return true;
+    shadow.enable_known[slot] = true;
+    shadow.enable_value[slot] = enable;
+    return false;
+}
+
 void glEnable(GLenum cap) {
     // Flush-only: FPE-hijacked caps mutate wrapper CPU state, and the
     // passthrough caps (GL_BLEND, GL_DEPTH_TEST, ...) are server enables that
@@ -272,6 +303,7 @@ void glEnable(GLenum cap) {
     if (hijack_fpe_states(cap, true, &gs.fpe_state.fpe_bools)) return;
 
     shadow_backend_enable(cap, true);
+    if (backendEnableRedundant(gs, cap, true)) return;
     g_glFuncs.glEnable(cap);
 }
 
@@ -287,6 +319,7 @@ void glDisable(GLenum cap) {
     if (hijack_fpe_states(cap, false, &gs.fpe_state.fpe_bools)) return;
 
     shadow_backend_enable(cap, false);
+    if (backendEnableRedundant(gs, cap, false)) return;
     g_glFuncs.glDisable(cap);
 }
 

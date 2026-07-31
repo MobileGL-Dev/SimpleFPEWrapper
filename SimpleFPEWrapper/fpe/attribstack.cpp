@@ -86,7 +86,14 @@ void copy_array(T (&dst)[N], const T (&src)[N]) {
 } // namespace
 
 void glPushAttrib(GLbitfield mask) {
-    sfpewEntryBarrier();
+    // Flush-only: the snapshot reads the wrapper's own fixed-function state
+    // and nothing else - no program, VAO or buffer binding is read or
+    // written (drawing1x.h states the bar). Under the full barrier a
+    // renderer that brackets each pass with glPushAttrib/glPopAttrib paid a
+    // glUseProgram/glBindVertexArray/glBindBuffer round trip on both sides
+    // of every bracket, which is most of what the state-churn benchmark
+    // measured.
+    sfpewClientStateBarrier();
     LIST_RECORD(glPushAttrib, {}, mask)
     auto& gs = g_glstate;
     auto& stack = attribStack();
@@ -95,51 +102,72 @@ void glPushAttrib(GLbitfield mask) {
         return;
     }
 
-    // Snapshot everything the wrapper tracks; the mask decides what PopAttrib
-    // restores. Snapshot cost is small next to a 16-deep cap.
+    // Snapshot exactly the groups this mask can restore. The unconditional
+    // version copied the lights, the materials, all sixteen texture
+    // environments and the texgen planes for every push - several kilobytes
+    // - even for the ENABLE|COLOR_BUFFER|TRANSFORM bracket a renderer puts
+    // around each pass, none of which restores any of it. The enable flags
+    // are always taken because more than one group restores parts of them.
     attrib_snapshot_t snap;
     snap.mask = mask;
     const auto& st = gs.fpe_state;
     const auto& un = gs.fpe_uniform;
     snap.bools = st.fpe_bools;
-    snap.fog_mode = st.fog_mode;
-    snap.fog_index = st.fog_index;
-    snap.fog_coord_src = st.fog_coord_src;
-    snap.fog_color = un.fog_color;
-    snap.fog_density = un.fog_density;
-    snap.fog_start = un.fog_start;
-    snap.fog_end = un.fog_end;
-    snap.shade_model = st.shade_model;
-    snap.light_model_color_ctrl = st.light_model_color_ctrl;
-    snap.light_model_local_viewer = st.light_model_local_viewer;
-    snap.light_model_two_side = st.light_model_two_side;
-    snap.light_model_ambient = un.light_model_ambient;
-    snap.color_material_face = st.color_material_face;
-    snap.color_material_mode = st.color_material_mode;
-    copy_array(snap.lights, un.lights);
-    copy_array(snap.materials, un.materials);
-    snap.alpha_func = st.alpha_func;
-    snap.alpha_ref = un.alpha_ref;
-    snap.color_buffer = st.color_buffer;
-    copy_array(snap.texture_env_mode, st.texture_env_mode);
-    copy_array(snap.texture_env, un.texture_env);
-    for (int i = 0; i < MAX_TEX; ++i)
-        for (int c = 0; c < 4; ++c) {
-            snap.texture_gen_mode[i][c] = st.texture_gen_mode[i][c];
-            snap.texgen_object_plane[i][c] = un.texgen_object_plane[i][c];
-            snap.texgen_eye_plane[i][c] = un.texgen_eye_plane[i][c];
-        }
-    snap.matrix_mode = un.transformation.matrix_mode;
-    copy_array(snap.clip_planes, un.clip_planes);
-    snap.point_size = un.point_size;
-    snap.polygon_mode_front = un.polygon_mode_front;
-    snap.polygon_mode_back = un.polygon_mode_back;
-    snap.current_data = st.fpe_draw.current_data;
+    if (mask & GL_FOG_BIT) {
+        snap.fog_mode = st.fog_mode;
+        snap.fog_index = st.fog_index;
+        snap.fog_coord_src = st.fog_coord_src;
+        snap.fog_color = un.fog_color;
+        snap.fog_density = un.fog_density;
+        snap.fog_start = un.fog_start;
+        snap.fog_end = un.fog_end;
+    }
+    if (mask & GL_LIGHTING_BIT) {
+        snap.shade_model = st.shade_model;
+        snap.light_model_color_ctrl = st.light_model_color_ctrl;
+        snap.light_model_local_viewer = st.light_model_local_viewer;
+        snap.light_model_two_side = st.light_model_two_side;
+        snap.light_model_ambient = un.light_model_ambient;
+        snap.color_material_face = st.color_material_face;
+        snap.color_material_mode = st.color_material_mode;
+        copy_array(snap.lights, un.lights);
+        copy_array(snap.materials, un.materials);
+    }
+    if (mask & GL_COLOR_BUFFER_BIT) {
+        snap.alpha_func = st.alpha_func;
+        snap.alpha_ref = un.alpha_ref;
+    }
+    // Both COLOR_BUFFER (blend function, masks) and ENABLE (the GL_BLEND and
+    // GL_DITHER flags) restore out of this one.
+    if (mask & (GL_COLOR_BUFFER_BIT | GL_ENABLE_BIT)) snap.color_buffer = st.color_buffer;
+    if (mask & GL_TEXTURE_BIT) {
+        copy_array(snap.texture_env_mode, st.texture_env_mode);
+        copy_array(snap.texture_env, un.texture_env);
+        for (int i = 0; i < MAX_TEX; ++i)
+            for (int c = 0; c < 4; ++c) {
+                snap.texture_gen_mode[i][c] = st.texture_gen_mode[i][c];
+                snap.texgen_object_plane[i][c] = un.texgen_object_plane[i][c];
+                snap.texgen_eye_plane[i][c] = un.texgen_eye_plane[i][c];
+            }
+    }
+    if (mask & GL_TRANSFORM_BIT) {
+        snap.matrix_mode = un.transformation.matrix_mode;
+        copy_array(snap.clip_planes, un.clip_planes);
+    }
+    if (mask & GL_POINT_BIT) snap.point_size = un.point_size;
+    if (mask & GL_POLYGON_BIT) {
+        snap.polygon_mode_front = un.polygon_mode_front;
+        snap.polygon_mode_back = un.polygon_mode_back;
+    }
+    if (mask & GL_CURRENT_BIT) snap.current_data = st.fpe_draw.current_data;
     stack.push_back(std::move(snap));
 }
 
 void glPopAttrib() {
-    sfpewEntryBarrier();
+    // Flush-only; see glPushAttrib. The restore issues glEnable/glDisable,
+    // glBlendFunc*, glBlendEquation*, glBlendColor and glColorMask - server
+    // state, none of it a binding this contract covers.
+    sfpewClientStateBarrier();
     LIST_RECORD(glPopAttrib, {})
     auto& gs = g_glstate;
     auto& stack = attribStack();

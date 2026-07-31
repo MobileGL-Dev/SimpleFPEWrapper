@@ -273,6 +273,48 @@ struct fixed_function_state_t {
     GLenum client_active_texture = GL_TEXTURE0;      // glClientActiveTexture, specifies active texcood
     GLenum alpha_func = GL_ALWAYS;                   // glAlphaFunc
     color_buffer_state_t color_buffer;                // blend / masks (for attrib stack)
+
+    // Last value handed to the backend for the plain per-fragment state
+    // entries. They are pure state: nothing else in the wrapper writes them,
+    // and an app cannot tell a skipped redundant call from an issued one, so
+    // a repeat is dropped instead of crossing into the driver. A legacy
+    // renderer re-asserts this state around every pass, and the driver side
+    // of those calls dominated the state-churn benchmark.
+    struct backend_state_shadow_t {
+        bool known = false;
+        GLenum depth_func = GL_LESS;
+        GLboolean depth_mask = GL_TRUE;
+        GLenum cull_face = GL_BACK;
+        GLenum front_face = GL_CCW;
+        GLint scissor[4] = {0, 0, 0, 0};
+        GLfloat polygon_offset[2] = {0.0f, 0.0f};
+        GLfloat line_width = 1.0f;
+        GLenum stencil_func = GL_ALWAYS;
+        GLint stencil_ref = 0;
+        GLuint stencil_value_mask = 0xFFFFFFFFu;
+        GLuint stencil_mask = 0xFFFFFFFFu;
+        GLenum stencil_fail = GL_KEEP;
+        GLenum stencil_zfail = GL_KEEP;
+        GLenum stencil_zpass = GL_KEEP;
+
+        // Server enables the wrapper never touches itself, so their last
+        // issued value is known exactly. GL_BLEND and GL_DITHER are absent
+        // on purpose: the accumulation-buffer path and the attrib-stack
+        // restore drive those directly, which would leave a shadow stale.
+        // Index order must match backendEnableSlot().
+        enum : int {
+            kEnableDepthTest,
+            kEnableStencilTest,
+            kEnableScissorTest,
+            kEnableCullFace,
+            kEnablePolygonOffsetFill,
+            kEnableSampleAlphaToCoverage,
+            kEnableSampleCoverage,
+            kEnableCount,
+        };
+        bool enable_known[kEnableCount] = {};
+        bool enable_value[kEnableCount] = {};
+    } backend_state;
     GLenum fog_mode = GL_EXP;                        // glFogi(GL_FOG_MODE)
     GLint fog_index = 0;                             // glFogi(GL_FOG_INDEX)
     GLenum fog_coord_src = GL_FRAGMENT_DEPTH;        // glFogi(GL_FOG_COORD_SRC)

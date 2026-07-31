@@ -216,20 +216,69 @@ void glColorMask(GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha
     if (g_glFuncs.glColorMask != nullptr) g_glFuncs.glColorMask(red, green, blue, alpha);
 }
 
-RECORDED_PASSTHROUGH(glDepthFunc, (GLenum func), (func))
-RECORDED_PASSTHROUGH(glDepthMask, (GLboolean flag), (flag))
-RECORDED_PASSTHROUGH(glCullFace, (GLenum mode), (mode))
-RECORDED_PASSTHROUGH(glFrontFace, (GLenum mode), (mode))
+// Plain per-fragment state. These entries neither read nor write the
+// program, VAO or buffer bindings, so they take the flush-only barrier
+// (drawing1x.h explains the bar): handing the app back bindings it cannot
+// observe only makes the next fixed-function draw re-establish ours, and a
+// legacy renderer puts a dozen of these between two draws.
+//
+// They are also filtered against a shadow of what the backend was last
+// told. Nothing else in the wrapper writes this state, so a repeated value
+// is unobservable - and re-asserting a whole pass's worth of state around
+// every draw is exactly what legacy renderers do.
+#define SHADOWED_STATE(name, declaration, arguments, shadow_test)                                  \
+    void name declaration {                                                                        \
+        if (!sfpewEnsureBackend()) return;                                                         \
+        sfpewClientStateBarrier();                                                                 \
+        LIST_RECORD(name, {}, OP_ARGS arguments)                                                   \
+        auto& shadow = g_glstate.fpe_state.backend_state;                                                    \
+        if (shadow.known && (shadow_test)) return;                                                 \
+        shadow.known = true;                                                                       \
+        if (g_glFuncs.name != nullptr) g_glFuncs.name arguments;                                   \
+    }
+
+SHADOWED_STATE(glDepthFunc, (GLenum func), (func),
+               shadow.depth_func == func ? true : (shadow.depth_func = func, false))
+SHADOWED_STATE(glDepthMask, (GLboolean flag), (flag),
+               shadow.depth_mask == flag ? true : (shadow.depth_mask = flag, false))
+SHADOWED_STATE(glCullFace, (GLenum mode), (mode),
+               shadow.cull_face == mode ? true : (shadow.cull_face = mode, false))
+SHADOWED_STATE(glFrontFace, (GLenum mode), (mode),
+               shadow.front_face == mode ? true : (shadow.front_face = mode, false))
+SHADOWED_STATE(glScissor, (GLint x, GLint y, GLsizei width, GLsizei height),
+               (x, y, width, height),
+               (shadow.scissor[0] == x && shadow.scissor[1] == y && shadow.scissor[2] == width &&
+                shadow.scissor[3] == height)
+                   ? true
+                   : (shadow.scissor[0] = x, shadow.scissor[1] = y, shadow.scissor[2] = width,
+                      shadow.scissor[3] = height, false))
+SHADOWED_STATE(glPolygonOffset, (GLfloat factor, GLfloat units), (factor, units),
+               (shadow.polygon_offset[0] == factor && shadow.polygon_offset[1] == units)
+                   ? true
+                   : (shadow.polygon_offset[0] = factor, shadow.polygon_offset[1] = units, false))
+SHADOWED_STATE(glLineWidth, (GLfloat width), (width),
+               shadow.line_width == width ? true : (shadow.line_width = width, false))
+SHADOWED_STATE(glStencilFunc, (GLenum func, GLint ref, GLuint mask), (func, ref, mask),
+               (shadow.stencil_func == func && shadow.stencil_ref == ref &&
+                shadow.stencil_value_mask == mask)
+                   ? true
+                   : (shadow.stencil_func = func, shadow.stencil_ref = ref,
+                      shadow.stencil_value_mask = mask, false))
+SHADOWED_STATE(glStencilMask, (GLuint mask), (mask),
+               shadow.stencil_mask == mask ? true : (shadow.stencil_mask = mask, false))
+SHADOWED_STATE(glStencilOp, (GLenum fail, GLenum zfail, GLenum zpass), (fail, zfail, zpass),
+               (shadow.stencil_fail == fail && shadow.stencil_zfail == zfail &&
+                shadow.stencil_zpass == zpass)
+                   ? true
+                   : (shadow.stencil_fail = fail, shadow.stencil_zfail = zfail,
+                      shadow.stencil_zpass = zpass, false))
+#undef SHADOWED_STATE
+
+// Viewport keeps the full barrier and no filtering: it is the one entry in
+// this group the wrapper itself re-issues (the render-to-texture and blit
+// paths), so a shadow here would have to be invalidated from those.
 RECORDED_PASSTHROUGH(glViewport, (GLint x, GLint y, GLsizei width, GLsizei height),
                     (x, y, width, height))
-RECORDED_PASSTHROUGH(glScissor, (GLint x, GLint y, GLsizei width, GLsizei height),
-                    (x, y, width, height))
-RECORDED_PASSTHROUGH(glPolygonOffset, (GLfloat factor, GLfloat units), (factor, units))
-RECORDED_PASSTHROUGH(glLineWidth, (GLfloat width), (width))
-RECORDED_PASSTHROUGH(glStencilFunc, (GLenum func, GLint ref, GLuint mask), (func, ref, mask))
-RECORDED_PASSTHROUGH(glStencilMask, (GLuint mask), (mask))
-RECORDED_PASSTHROUGH(glStencilOp, (GLenum fail, GLenum zfail, GLenum zpass),
-                    (fail, zfail, zpass))
 
 namespace {
 

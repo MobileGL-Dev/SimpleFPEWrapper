@@ -291,7 +291,17 @@ class DisplayListManager {
     inline static GLuint callingDepth = 0;
     inline static uint64_t mutationGeneration = 1;
 
-    inline static unordered_map<GLuint, DisplayList> lists;
+    // Deliberately immortal (allocated, never freed). A process normally
+    // exits with its GL context still current and its display lists still
+    // recorded; destroying the registry then would run every captured
+    // command's destructor, and those call GL - glDeleteBuffers, and a
+    // fence in the vertex arena - at a point where exit-time teardown has
+    // already invalidated the driver's dispatch, which segfaults. Freeing
+    // GPU objects on the way out buys nothing, because the driver reclaims
+    // all of them when the process dies. Runtime destruction (glDeleteLists,
+    // re-recording a list) is unaffected and still releases properly.
+    inline static unordered_map<GLuint, DisplayList>& lists =
+        *new unordered_map<GLuint, DisplayList>();
     inline static GLuint currentListID = 0;
 
     template <auto Func, typename... ProcessedArgs>

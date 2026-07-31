@@ -19,13 +19,16 @@ jobs:
       # The -dev packages are what CMake's find_library(EGL/GLESv2) needs: the
       # runtime packages ship only libEGL.so.1, so without them every
       # EGL-backed test target is silently never created and ctest runs 6
-      # tests instead of the full suite.
+      # tests instead of the full suite. libgl1-mesa-dri is the llvmpipe
+      # driver itself: without it EGL initializes no device, every EGL test
+      # SKIPs (rc 77), and ctest still reports 100% - a green run that
+      # tested nothing.
       - name: Install toolchain and a software GL device
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build clang \
             libegl1 libgles2 libegl-mesa0 mesa-utils \
-            libegl-dev libgles-dev
+            libegl-dev libgles-dev libgl1-mesa-dri
       - name: Configure
         run: |
           if [ "${{ matrix.compiler }}" = "clang" ]; then
@@ -37,8 +40,11 @@ jobs:
       - name: Build
         run: cmake --build build -j "$(nproc)"
       - name: Test
-        # The translator device phase skips (rc 77) without a usable GPU;
-        # llvmpipe usually provides one on the runner.
+        # Surfaceless is the one EGL platform that works headless without a
+        # DRM node or a display; leaving the choice to EGL made "did the
+        # tests actually run" depend on the runner's device inventory.
+        env:
+          EGL_PLATFORM: surfaceless
         run: cd build && ctest --output-on-failure
 
   asan:
@@ -49,12 +55,13 @@ jobs:
         with:
           submodules: recursive
       # See the note in the linux job: the -dev packages are what make the
-      # EGL-backed tests exist at all.
+      # EGL-backed tests exist at all, and libgl1-mesa-dri is the llvmpipe
+      # device they run on.
       - name: Install toolchain and a software GL device
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build \
-            libegl1 libgles2 libegl-mesa0 libegl-dev libgles-dev
+            libegl1 libgles2 libegl-mesa0 libegl-dev libgles-dev libgl1-mesa-dri
       - name: Configure (ASan+UBSan, no LTO)
         run: >
           cmake -S . -B build -G Ninja -DSFPEW_LTO=OFF
@@ -67,4 +74,5 @@ jobs:
       - name: Test
         env:
           ASAN_OPTIONS: detect_leaks=0
+          EGL_PLATFORM: surfaceless
         run: cd build && ctest --output-on-failure

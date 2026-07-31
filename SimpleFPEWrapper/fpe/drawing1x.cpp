@@ -313,19 +313,40 @@ void drawImmediateVertices(GLenum primitive, const GLfloat* vertices, size_t flo
     state.fpe_draw.current_data.sizes = shader_sizes;
     state.fpe_draw.current_data.sizes_epoch = sfpewNextSizesEpoch();
 
-    fixed_function_draw_state_t layoutState;
-    layoutState.current_data.sizes = sizes;
-    layoutState.current_data.sizes_epoch = sfpewNextSizesEpoch();
-    layoutState.compile_vertexattrib(state.vertexpointer_array);
-
+    // Deriving the layout means compiling a pointer array, normalizing it and
+    // assigning compressed attribute indices - and the input used to be a
+    // whole fixed_function_draw_state_t built on the stack for the purpose.
+    // All of it is a pure function of the two size blocks, which a draw loop
+    // repeats unchanged, so it is cached and only rebuilt when they move.
+    auto& layoutCache = state.immediate_layout;
     auto& va = state.normalized_vpa;
-    va = state.vertexpointer_array.normalize();
+    const bool layoutHit =
+        layoutCache.valid &&
+        std::memcmp(&layoutCache.sizes, &sizes, sizeof(sizes)) == 0 &&
+        std::memcmp(&layoutCache.shader_sizes, &shader_sizes, sizeof(shader_sizes)) == 0;
+    if (layoutHit) {
+        state.vertexpointer_array = layoutCache.compiled;
+        va = layoutCache.normalized;
+    } else {
+        fixed_function_draw_state_t layoutState;
+        layoutState.current_data.sizes = sizes;
+        layoutState.current_data.sizes_epoch = sfpewNextSizesEpoch();
+        layoutState.compile_vertexattrib(state.vertexpointer_array);
+
+        va = state.vertexpointer_array.normalize();
+        // generate_compressed_index only reads the size array, but its legacy
+        // declaration is not const-correct. It must see the shader's view
+        // (stream + constant slots) so attribute indices line up.
+        auto mutableSizes = shader_sizes;
+        va.generate_compressed_index(mutableSizes.data);
+
+        layoutCache.valid = true;
+        layoutCache.sizes = sizes;
+        layoutCache.shader_sizes = shader_sizes;
+        layoutCache.compiled = state.vertexpointer_array;
+        layoutCache.normalized = va;
+    }
     gs.fpe_normalized_valid = false; // immediate layout overwrote the cache
-    // generate_compressed_index only reads the size array, but its legacy
-    // declaration is not const-correct. It must see the shader's view
-    // (stream + constant slots) so attribute indices line up.
-    auto mutableSizes = shader_sizes;
-    va.generate_compressed_index(mutableSizes.data);
 
     // GL 2.1: a bound USER program consumes immediate-mode vertices too
     // (OptiFine composite/final passes draw their fullscreen quad through

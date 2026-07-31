@@ -315,6 +315,21 @@ struct fixed_function_state_t {
         bool enable_known[kEnableCount] = {};
         bool enable_value[kEnableCount] = {};
     } backend_state;
+
+    // The vertex layout an immediate-mode draw derives from its size block:
+    // the compiled pointer array, its normalized form and the compressed
+    // attribute indices. Every draw rebuilt all three - including a
+    // stack-constructed fixed_function_draw_state_t just to hold the input -
+    // even though a draw loop feeds the same layout over and over. Keyed on
+    // both size blocks because the shader's view (stream slots plus constant
+    // ones) drives the attribute indices.
+    struct immediate_layout_cache_t {
+        bool valid = false;
+        fixed_function_draw_size_t sizes{};
+        fixed_function_draw_size_t shader_sizes{};
+        vertex_pointer_array_t compiled{};
+        vertex_pointer_array_t normalized{};
+    } immediate_layout;
     GLenum fog_mode = GL_EXP;                        // glFogi(GL_FOG_MODE)
     GLint fog_index = 0;                             // glFogi(GL_FOG_INDEX)
     GLenum fog_coord_src = GL_FRAGMENT_DEPTH;        // glFogi(GL_FOG_COORD_SRC)

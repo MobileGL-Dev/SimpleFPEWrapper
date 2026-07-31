@@ -16,11 +16,16 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+      # The -dev packages are what CMake's find_library(EGL/GLESv2) needs: the
+      # runtime packages ship only libEGL.so.1, so without them every
+      # EGL-backed test target is silently never created and ctest runs 6
+      # tests instead of the full suite.
       - name: Install toolchain and a software GL device
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build clang \
-            libegl1 libgles2 libegl-mesa0 mesa-utils
+            libegl1 libgles2 libegl-mesa0 mesa-utils \
+            libegl-dev libgles-dev
       - name: Configure
         run: |
           if [ "${{ matrix.compiler }}" = "clang" ]; then
@@ -43,10 +48,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+      # See the note in the linux job: the -dev packages are what make the
+      # EGL-backed tests exist at all.
       - name: Install toolchain and a software GL device
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build libegl1 libgles2 libegl-mesa0
+          sudo apt-get install -y ninja-build \
+            libegl1 libgles2 libegl-mesa0 libegl-dev libgles-dev
       - name: Configure (ASan+UBSan, no LTO)
         run: >
           cmake -S . -B build -G Ninja -DSFPEW_LTO=OFF

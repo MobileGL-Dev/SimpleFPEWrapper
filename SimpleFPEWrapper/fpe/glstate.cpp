@@ -279,7 +279,6 @@ program_key_t glstate_t::program_hash() {
     // normalization just to build the shader-program key.
     const auto& va = fpe_state.normalized_vpa;
     const auto& sizes = fpe_state.fpe_draw.current_data.sizes;
-    auto& cache = program_hash_cache;
 
     // Canonical parameter values: a parameter the generator does not read under
     // the current enables must not participate, or an app that sets fog_mode
@@ -301,6 +300,8 @@ program_key_t glstate_t::program_hash() {
     const GLenum canon_cm_mode =
         bools_now.color_material_enable ? fpe_state.color_material_mode : 0;
 
+    for (int way = 0; way < kProgramHashCacheWays; ++way) {
+    const auto& cache = program_hash_cache[way];
     bool matches = cache.valid && cache.enabled_pointers == va.enabled_pointers &&
                    cache.client_active_texture == fpe_state.client_active_texture &&
                    cache.fog_mode == canon_fog_mode &&
@@ -376,6 +377,7 @@ program_key_t glstate_t::program_hash() {
         }
     }
     if (matches) return cache.hash;
+    }
 
     // Two independent hash passes form the 128-bit key.
     struct dual_hash_t {
@@ -448,6 +450,8 @@ program_key_t glstate_t::program_hash() {
         hash.add(&env.alpha_scale, sizeof(env.alpha_scale));
     }
 
+    auto& cache = program_hash_cache[program_hash_cache_next];
+    program_hash_cache_next = (program_hash_cache_next + 1) % kProgramHashCacheWays;
     cache.valid = true;
     cache.enabled_pointers = va.enabled_pointers;
     cache.constant_sizes = sizes;

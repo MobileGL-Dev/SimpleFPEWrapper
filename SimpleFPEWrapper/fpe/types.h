@@ -748,7 +748,15 @@ struct glstate_t {
     unordered_map<program_key_t, GLuint, program_key_hash_t> fpe_vaos;
     program_key_t last_program_key{};
     program_t* last_program = nullptr;
-    program_hash_cache_t program_hash_cache;
+    // Several ways, because applications alternate between a handful of
+    // fixed-function configurations rather than settling on one: toggling
+    // the alpha test around a GUI widget, or lighting between passes, made a
+    // single-entry cache miss on every draw and re-hash the entire
+    // fixed-function state twice over. Round-robin replacement; four ways
+    // covers the alternation depth real renderers show.
+    static constexpr int kProgramHashCacheWays = 4;
+    program_hash_cache_t program_hash_cache[kProgramHashCacheWays];
+    int program_hash_cache_next = 0;
     vertex_attribute_cache_entry_t fpe_vertex_attributes[VERTEX_POINTER_COUNT];
     bool fpe_vertex_binding_valid = false;
     GLuint fpe_vertex_binding_buffer = 0;

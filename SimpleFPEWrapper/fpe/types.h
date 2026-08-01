@@ -248,6 +248,18 @@ struct fixed_function_draw_data_t {
     uint64_t sizes_epoch = 0;
 };
 
+// Where immediate-mode vertices are appended. Null means the collecting
+// state's own vb; non-null points at the pending merge batch, so a run that
+// is going to be merged is built in place instead of being collected once and
+// copied again at glEnd - that copy measured 36ns of a 174ns four-vertex
+// batch. Thread-local because at most one Begin/End can be open per thread.
+struct fixed_function_draw_state_t;
+extern thread_local SFPEW_TLS_HOT sfpew_vertex_buffer_t* g_immediate_collect;
+// Undo direct collection: move the run collected so far back into the state's
+// own vb, truncate the batch to where the run started, and stop collecting.
+// Called when something mid-run makes the run unmergeable after all.
+void sfpewStopBatchCollection(fixed_function_draw_state_t& draw);
+
 // Next value for fixed_function_draw_data_t::sizes_epoch. Values are unique
 // process-wide, so a layout built for one size block can never be mistaken
 // for a different block that happens to be restored into the same slot.
@@ -303,6 +315,10 @@ struct fixed_function_draw_state_t {
     // The current_data.sizes_epoch the spans above were built for. 0 never
     // matches a real stamp, so a default-constructed state always rebuilds.
     uint64_t packed_layout_epoch = 0;
+
+    // Where this run starts inside the buffer it is being collected into.
+    // Only meaningful while g_immediate_collect is non-null.
+    size_t collect_offset = 0;
 
     // Set when set_attribute_size had to repack already-collected vertices
     // (an attribute introduced mid-primitive). The display-list compiler
@@ -979,6 +995,10 @@ inline void fixed_function_draw_state_t::set_attribute_size(int slot, GLint requ
         return;
     }
     if (requested <= stored) return; // grow-only while collecting
+    // The repack rewrites every vertex of THIS run, which it can only do in
+    // the state's own buffer - the batch in front of it holds earlier runs in
+    // the old layout.
+    if (g_immediate_collect != nullptr) sfpewStopBatchCollection(*this);
     repack_for_attribute(slot, requested);
 }
 
@@ -1010,9 +1030,10 @@ inline void fixed_function_draw_state_t::advance() {
     // is a handful of floats, and vector::insert routes those few bytes
     // through memmove, whose call overhead measured worse than the zeroing
     // resize did - and the buffer no longer zeroes on resize anyway.
-    const size_t old_size = vb.size();
-    vb.resize(old_size + packed_floats);
-    GLfloat* output = vb.data() + old_size;
+    auto& out = g_immediate_collect != nullptr ? *g_immediate_collect : vb;
+    const size_t old_size = out.size();
+    out.resize(old_size + packed_floats);
+    GLfloat* output = out.data() + old_size;
     const auto* base = reinterpret_cast<const GLfloat*>(&current_data);
     for (int s = 0; s < packed_span_count; ++s) {
         const auto [src_offset, count] = packed_spans[s];

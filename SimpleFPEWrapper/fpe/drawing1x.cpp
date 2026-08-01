@@ -265,6 +265,22 @@ struct pending_immediate_batch_t {
 
 thread_local pending_immediate_batch_t pendingGlyphBatch;
 
+} // namespace
+
+thread_local SFPEW_TLS_HOT sfpew_vertex_buffer_t* g_immediate_collect = nullptr;
+
+void sfpewStopBatchCollection(fixed_function_draw_state_t& draw) {
+    auto& batch = pendingGlyphBatch;
+    const size_t start = draw.collect_offset;
+    if (start <= batch.vertices.size()) {
+        draw.vb.assign(batch.vertices.begin() + (long)start, batch.vertices.end());
+        batch.vertices.resize(start);
+    }
+    g_immediate_collect = nullptr;
+}
+
+namespace {
+
 // `sizes` describes the interleaved STREAM layout. `constant_sizes`, when
 // non-null, additionally declares slots whose data is NOT in the stream but
 // must still reach the shader as constant attributes (glVertexAttrib4fv from
@@ -506,6 +522,20 @@ void drawImmediateVertices(GLenum primitive, const GLfloat* vertices, size_t flo
 
 // What primitive a small glBegin/glEnd run can be rewritten into so that
 // consecutive runs concatenate into one draw. GL_NONE means "not mergeable".
+// The primitives whose runs concatenate as they are, so a run can be built
+// straight into the batch before its vertex count is known. Everything else
+// (strips, fans, loops) has to be rewritten into independent primitives at
+// glEnd, which needs the finished run.
+GLenum concatenatingTarget(GLenum primitive) {
+    switch (primitive) {
+    case GL_POINTS: return GL_POINTS;
+    case GL_LINES: return GL_LINES;
+    case GL_TRIANGLES: return GL_TRIANGLES;
+    case GL_QUADS: return GL_QUADS;
+    default: return GL_NONE;
+    }
+}
+
 GLenum mergeTargetPrimitive(GLenum primitive, size_t vertexCount) {
     switch (primitive) {
     case GL_TRIANGLES:
@@ -615,6 +645,47 @@ void appendMergedRun(GLenum primitive, const GLfloat* src, size_t count, size_t 
 // and one draw call instead of one of each per run (plans/12). Any entry point
 // outside the vertex family flushes the batch first (sfpewEntryBarrier), so a
 // merged run can never observe state that changed after it was collected.
+// Finish a run that was collected straight into the batch. Returns false when
+// it turned out not to belong there after all, in which case the caller moves
+// it back out and takes the ordinary path.
+bool acceptCollectedRun(fixed_function_draw_state_t& draw) {
+    auto& batch = pendingGlyphBatch;
+    // The batch must still be the one glBegin looked at: an entry point in
+    // the middle of the run could have drained it (the flush stops collection
+    // first, so reaching here with an inactive batch means exactly that).
+    if (!batch.active || g_immediate_collect != &batch.vertices) return false;
+    if (draw.vertex_count == 0) return false;
+    // Large runs draw better on their own than merged, same as elsewhere.
+    if (draw.vertex_count > kImmediateMergeVertexLimit) return false;
+    // The layout must not have moved mid-run (an attribute appearing part way
+    // through takes the repack path, which stops collection itself).
+    if (batch.sizesEpoch != draw.current_data.sizes_epoch) return false;
+    if (mergeTargetPrimitive(draw.primitive, draw.vertex_count) != batch.primitive) return false;
+    // Checked here rather than at glBegin: a lookup, and the answer only
+    // matters once the run is finished.
+    if (batch.textureGeneration != sfpewTextureStateGeneration()) return false;
+    // Wireframe outlines every triangle, so merged quads and fans would show
+    // their diagonals; and selection/feedback has to keep draw order.
+    if (g_glstate_c.render_mode != GL_RENDER) return false;
+    if (sfpewUniformPolygonMode() != GL_FILL && sfpewIsFilledPrimitive(draw.primitive))
+        return false;
+    // Edge flags only matter under a non-FILL polygon mode, which the check
+    // above already excluded; a collected run carries none of its own.
+    if (!draw.edge_flags.empty()) return false;
+
+    // A second run joining means the held one is no longer alone, so the
+    // flush must use the batch primitive rather than the original.
+    batch.unexpanded = false;
+    batch.vertexCount += draw.vertex_count;
+    ++batch.runCount;
+    g_immediate_collect = nullptr;
+    if (batch.runCount >= kImmediateMergeRunLimit ||
+        batch.vertexCount >= kImmediateMergeVertexBudget) {
+        flushPendingImmediateDraws();
+    }
+    return true;
+}
+
 bool queueImmediateRun(const fixed_function_draw_state_t& draw) {
     if (DisplayListManager::isCalling() || draw.vb.empty() || draw.vertex_count == 0 ||
         draw.vb.size() % draw.vertex_count != 0) {
@@ -744,6 +815,14 @@ void sfpewFlushDeferredDrawState() {
 SFPEW_APIENTRY bool sfpewImmediateBatchPendingForTest() { return pendingGlyphBatch.active; }
 
 void flushPendingImmediateDraws() {
+    // A run being built straight into the batch is not part of it yet.
+    // Entry points that are legal inside Begin/End can reach this (glMaterial
+    // under a lit batch, colour material), and drawing the batch with a half
+    // collected run appended to it would draw vertices the application has
+    // not finished describing.
+    if (g_immediate_collect != nullptr)
+        sfpewStopBatchCollection(g_glstate_c.fpe_state.fpe_draw);
+
     auto& batch = pendingGlyphBatch;
     if (!batch.active) return;
     // Deliberately strict: flush is reached from passthrough entries that
@@ -1195,6 +1274,24 @@ void glBegin(GLenum mode) {
     // contract must hold even without a context (draws bail out safely).
     s.primitive = mode;
 
+    // Build this run straight into the pending batch when it can only end up
+    // there anyway: same merge target, same texture state, same vertex
+    // layout. glEnd re-checks what depends on the finished run (the vertex
+    // count, and the layout in case an attribute appeared mid-run) and moves
+    // the run back out if any of it no longer holds.
+    // Only the checks that are a load and a compare happen here. Everything
+    // costlier - the texture generation, the polygon mode, the render mode -
+    // is verified at glEnd, which has to re-check the run anyway; a run that
+    // fails there is simply moved back out. Paying for those three lookups
+    // per batch here cost as much as the copy this avoids.
+    g_immediate_collect = nullptr;
+    auto& batch = pendingGlyphBatch;
+    if (batch.active && batch.primitive == concatenatingTarget(mode) &&
+        batch.sizesEpoch == s.current_data.sizes_epoch && !DisplayListManager::isCalling()) {
+        s.collect_offset = batch.vertices.size();
+        g_immediate_collect = &batch.vertices;
+    }
+
     if (!gs.fpe_ready) {
         if (init_fpe() != 0) return;
     }
@@ -1216,6 +1313,17 @@ void glEnd() {
         gs.set_error(GL_INVALID_OPERATION);
         s.reset();
         return;
+    }
+
+    // A run built straight into the pending batch: everything the merge
+    // decision could not know at glBegin is checked here, and the run is
+    // moved back out if any of it fails.
+    if (g_immediate_collect != nullptr) {
+        if (acceptCollectedRun(s)) {
+            s.reset();
+            return;
+        }
+        sfpewStopBatchCollection(s);
     }
 
     if (queueImmediateRun(s)) {

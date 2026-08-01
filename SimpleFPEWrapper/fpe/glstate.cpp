@@ -336,26 +336,23 @@ program_key_t glstate_t::program_hash() {
     }
 
     const auto& bools = fpe_state.fpe_bools;
-    const auto& previous_bools = cache.bools;
+    // One block compare against the SAME canonical enable block the hash
+    // digests, so the fast path cannot disagree with the hash about which
+    // enables matter. The field-by-field version this replaces silently
+    // omitted texture_gen_enable, the clip planes and the stipples: a
+    // sphere-map texgen toggling with the view (an enchantment glint
+    // entering the frame) then HIT the cache and drew the whole
+    // fixed-function chain with the previous program - lighting broken
+    // from some camera angles and fine from others.
+    fixed_function_bool_t canon_bools_now = bools;
+    // Alpha test is a uniform, not a program input (see the hash below).
+    canon_bools_now.alpha_test_enable = false;
     if (matches) {
-        matches = previous_bools.fog_enable == bools.fog_enable &&
-                  previous_bools.lighting_enable == bools.lighting_enable &&
-                  previous_bools.color_material_enable == bools.color_material_enable &&
-                  previous_bools.normalize_enable == bools.normalize_enable &&
-                  previous_bools.rescale_normal_enable == bools.rescale_normal_enable;
-    }
-    if (matches) {
-        for (int i = 0; i < MAX_LIGHTS; ++i) {
-            if (previous_bools.light_enable[i] != bools.light_enable[i]) {
-                matches = false;
-                break;
-            }
-        }
+        matches = std::memcmp(&cache.bools, &canon_bools_now, sizeof(canon_bools_now)) == 0;
     }
     if (matches) {
         for (int i = 0; i < MAX_TEX; ++i) {
-            if (previous_bools.texture_2d_enable[i] != bools.texture_2d_enable[i] ||
-                cache.texture_env_mode[i] != fpe_state.texture_env_mode[i]) {
+            if (cache.texture_env_mode[i] != fpe_state.texture_env_mode[i]) {
                 matches = false;
                 break;
             }
@@ -476,7 +473,7 @@ program_key_t glstate_t::program_hash() {
     cache.light_model_two_side = canon_lm_two_side;
     cache.color_material_face = canon_cm_face;
     cache.color_material_mode = canon_cm_mode;
-    cache.bools = fpe_state.fpe_bools;
+    cache.bools = canon_bools; // the same canonical block the hash above digested
     for (int i = 0; i < MAX_TEX; ++i) {
         cache.texture_env_mode[i] = fpe_state.texture_env_mode[i];
         cache.combiners[i] = sfpewCombinerSignature(fpe_uniform.texture_env[i]);

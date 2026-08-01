@@ -1217,13 +1217,41 @@ bool sfpewPrepareBgraUpload(GLsizei width, GLsizei height, GLenum type, const vo
     const size_t needed = start + (((size_t)height - 1u) * row_px + (size_t)width) * 4u;
 
     const uint8_t* source = nullptr;
+    GLuint copy_scratch = 0;
     if (pbo != 0) {
         if (g_glFuncs.glMapBufferRange == nullptr || g_glFuncs.glUnmapBuffer == nullptr)
             return false;
         source = static_cast<const uint8_t*>(
             g_glFuncs.glMapBufferRange(GL_PIXEL_UNPACK_BUFFER, (GLintptr)(uintptr_t)pixels,
                                        (GLsizeiptr)needed, GL_MAP_READ_BIT));
-        if (source == nullptr) return false;
+        if (source == nullptr) {
+            // Mobile drivers routinely refuse a READ mapping of a buffer
+            // whose usage hint was *_DRAW (the natural hint for an upload
+            // PBO). Reading it back through a copy into a *_READ scratch is
+            // the path those drivers do serve. This runs once per upload of
+            // a shape the wrapper cannot otherwise reach, not per frame.
+            while (g_glFuncs.glGetError() != GL_NO_ERROR) {} // eat the failed map's error
+            if (g_glFuncs.glCopyBufferSubData == nullptr || g_glFuncs.glGenBuffers == nullptr ||
+                g_glFuncs.glDeleteBuffers == nullptr || g_glFuncs.glBindBuffer == nullptr ||
+                g_glFuncs.glBufferData == nullptr) {
+                return false;
+            }
+            g_glFuncs.glGenBuffers(1, &copy_scratch);
+            g_glFuncs.glBindBuffer(GL_COPY_WRITE_BUFFER, copy_scratch);
+            g_glFuncs.glBufferData(GL_COPY_WRITE_BUFFER, (GLsizeiptr)needed, nullptr,
+                                   GL_STREAM_READ);
+            g_glFuncs.glCopyBufferSubData(GL_PIXEL_UNPACK_BUFFER, GL_COPY_WRITE_BUFFER,
+                                          (GLintptr)(uintptr_t)pixels, 0, (GLsizeiptr)needed);
+            source = static_cast<const uint8_t*>(g_glFuncs.glMapBufferRange(
+                GL_COPY_WRITE_BUFFER, 0, (GLsizeiptr)needed, GL_MAP_READ_BIT));
+            if (source == nullptr) {
+                SFPEW_LOGW("BGRA upload: unpack buffer %d unmappable even via copy; "
+                           "conversion impossible", pbo);
+                g_glFuncs.glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
+                g_glFuncs.glDeleteBuffers(1, &copy_scratch);
+                return false;
+            }
+        }
     } else {
         if (pixels == nullptr) return false;
         source = static_cast<const uint8_t*>(pixels);
@@ -1254,7 +1282,13 @@ bool sfpewPrepareBgraUpload(GLsizei width, GLsizei height, GLenum type, const vo
         }
     }
 
-    if (pbo != 0) {
+    if (copy_scratch != 0) {
+        g_glFuncs.glUnmapBuffer(GL_COPY_WRITE_BUFFER);
+        g_glFuncs.glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
+        g_glFuncs.glDeleteBuffers(1, &copy_scratch);
+        g_glFuncs.glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+        out->rebind_pbo = (GLuint)pbo;
+    } else if (pbo != 0) {
         g_glFuncs.glUnmapBuffer(GL_PIXEL_UNPACK_BUFFER);
         g_glFuncs.glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
         out->rebind_pbo = (GLuint)pbo;
@@ -1313,7 +1347,17 @@ void glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei widt
                 type = GL_UNSIGNED_BYTE;
                 if (internalformat == GL_BGRA) internalformat = GL_RGBA8;
             } else {
-                SFPEW_LOGW("glTexImage2D: unsupported GL_BGRA type 0x%x passed through", type);
+                // Conversion genuinely impossible (exotic type, or a buffer
+                // no mapping path can read). Pass it through in the ONE form
+                // EXT_texture_format_BGRA8888 defines - internalformat and
+                // format both GL_BGRA, type UNSIGNED_BYTE - so a backend
+                // with that extension renders it correctly instead of
+                // byte-copying BGRA bytes into RGBA storage. Without the
+                // extension this errors, exactly like the raw passthrough
+                // did.
+                SFPEW_LOGW("glTexImage2D: GL_BGRA upload (type 0x%x) could not be converted; "
+                           "passing through as EXT_texture_format_BGRA8888", type);
+                internalformat = GL_BGRA;
             }
         }
 

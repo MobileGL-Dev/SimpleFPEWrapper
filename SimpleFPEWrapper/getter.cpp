@@ -266,6 +266,28 @@ void sfpewRememberTextureSize(GLuint texture, GLsizei width, GLsizei height) {
     if (texture != 0) textureSizes[texture] = {width, height};
 }
 
+// Textures whose texels are stored in the application's BGRA order, with the
+// sampler swizzle set to read them back as RGBA. Used when the data cannot be
+// reordered on the way in - it lives in a pixel buffer object, so the wrapper
+// never sees it - which is the one BGRA upload GLES cannot otherwise take.
+thread_local std::unordered_map<GLuint, bool> bgraSwizzledTextures;
+
+// GLES 3.0 sampler swizzle. Applied to the bound texture of `target`.
+void setBgraSwizzle(GLenum target, GLuint texture, bool enable) {
+    if (g_glFuncs.glTexParameteri == nullptr) return;
+    const bool current = texture != 0 && bgraSwizzledTextures.count(texture) != 0;
+    if (current == enable) return;
+    g_glFuncs.glTexParameteri(target, GL_TEXTURE_SWIZZLE_R, enable ? GL_BLUE : GL_RED);
+    g_glFuncs.glTexParameteri(target, GL_TEXTURE_SWIZZLE_B, enable ? GL_RED : GL_BLUE);
+    if (texture == 0) return;
+    if (enable) bgraSwizzledTextures[texture] = true;
+    else bgraSwizzledTextures.erase(texture);
+}
+
+bool isBgraSwizzled(GLuint texture) {
+    return texture != 0 && bgraSwizzledTextures.count(texture) != 0;
+}
+
 void sfpewSetGenerateMipmap(GLenum, GLuint texture, bool enable) {
     if (texture == 0) return;
     if (enable)
@@ -1090,6 +1112,8 @@ void glDeleteTextures(GLsizei n, const GLuint* textures) {
     g_glFuncs.glDeleteTextures(n, textures);
     if (n <= 0 || textures == nullptr) return;
 
+    for (GLsizei i = 0; i < n; ++i) bgraSwizzledTextures.erase(textures[i]);
+
     auto& state = getLogicalTextureBindings();
     for (auto& [key, binding] : state.bindings) {
         for (GLsizei i = 0; i < n; ++i) {
@@ -1203,17 +1227,37 @@ void glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei widt
     sfpewEntryBarrier();
     if (target != GL_PROXY_TEXTURE_2D) {
         thread_local std::vector<uint8_t> bgraScratch;
-        // Desktop GL takes GL_BGRA as-is; only GLES needs the swap.
-        if (format == GL_BGRA && sfpewBackendIsES() && !sfpewUnpackPboBound()) {
-            const void* swapped = swapBgraPixels(width, height, type, pixels, bgraScratch);
-            if (swapped != nullptr || pixels == nullptr) {
+        // Desktop GL takes GL_BGRA as-is; only GLES needs help.
+        const GLuint bound = sfpewLogicalTextureBinding(GL_TEXTURE_2D);
+        if (format == GL_BGRA && sfpewBackendIsES()) {
+            const void* swapped = sfpewUnpackPboBound()
+                                      ? nullptr
+                                      : swapBgraPixels(width, height, type, pixels, bgraScratch);
+            if (swapped != nullptr || (pixels == nullptr && !sfpewUnpackPboBound())) {
+                // Reordered on the way in, so the texels are ordinary RGBA and
+                // the texture must not carry a swizzle from an earlier upload.
                 pixels = swapped;
                 format = GL_RGBA;
                 type = GL_UNSIGNED_BYTE;
                 if (internalformat == GL_BGRA) internalformat = GL_RGBA8;
+                setBgraSwizzle(target, bound, false);
+            } else if (type == GL_UNSIGNED_BYTE || type == GL_UNSIGNED_INT_8_8_8_8 ||
+                       type == GL_UNSIGNED_INT_8_8_8_8_REV) {
+                // The data is in a pixel buffer object, so it never passes
+                // through here to be reordered. Store it as it is and let the
+                // sampler do the reordering instead: this level replaces the
+                // texture's contents, so the mode is this call's to set.
+                format = GL_RGBA;
+                type = GL_UNSIGNED_BYTE;
+                if (internalformat == GL_BGRA) internalformat = GL_RGBA8;
+                setBgraSwizzle(target, bound, true);
             } else {
                 SFPEW_LOGW("glTexImage2D: unsupported GL_BGRA type 0x%x passed through", type);
             }
+        } else if (sfpewBackendIsES() && isBgraSwizzled(bound)) {
+            // A plain upload replaces the level, so the swizzle a previous
+            // BGRA upload left behind would misread it.
+            setBgraSwizzle(target, bound, false);
         }
 
         legacy_format_mapping_t mapping{};

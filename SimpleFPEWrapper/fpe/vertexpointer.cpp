@@ -7,6 +7,7 @@
 // End of Source File Header
 
 #include "vertexpointer.h"
+#include "../log.h"
 #include "fpe.hpp"
 #include "drawing1x.h"
 #include <algorithm>
@@ -251,11 +252,40 @@ void glGetBufferParameteriv(GLenum target, GLenum pname, GLint* params) {
     g_glFuncs.glGetBufferParameteriv(target, pname, params);
 }
 
+namespace {
+// GL 3.2 / ARB_vertex_array_bgra: size may be GL_BGRA, which means four
+// components in B, G, R, A order. The spec allows it only with an unsigned
+// byte or packed 10/10/10/2 type, and the values are always normalized.
+bool isBgraArraySize(GLint size, GLenum type) {
+    if (size != (GLint)GL_BGRA) return false;
+    return type == GL_UNSIGNED_BYTE || type == GL_UNSIGNED_INT_2_10_10_10_REV ||
+           type == GL_INT_2_10_10_10_REV;
+}
+} // namespace
+
 void glVertexAttribPointer(GLuint index, GLint size, GLenum type, GLboolean normalized,
                            GLsizei stride, const void* pointer) {
     if (!sfpewEnsureBackend() || g_glFuncs.glVertexAttribPointer == nullptr) return;
     (void)g_glstate;
     sfpewEntryBarrier();
+    // GL_BGRA reaches a USER program's attribute, whose shader the wrapper
+    // does not get to rewrite - so unlike the fixed-function colour array
+    // (glColorPointer) there is nowhere to put the component reordering.
+    // Desktop GL performs it in the driver; on GLES the array is declared as
+    // four plain components so the draw still happens, with the application's
+    // own shader seeing them in its own order. Said once, because a renderer
+    // that does this does it every frame.
+    if (isBgraArraySize(size, type) && sfpewBackendIsES()) {
+        static bool warned = false;
+        if (!warned) {
+            warned = true;
+            SFPEW_LOGW("glVertexAttribPointer(index %u): GL_BGRA has no GLES equivalent and the "
+                       "component order cannot be applied to an application's own shader; "
+                       "declaring four components instead", index);
+        }
+        size = 4;
+        normalized = GL_TRUE;
+    }
     g_glFuncs.glVertexAttribPointer(index, size, type, normalized, stride, pointer);
 }
 
@@ -335,15 +365,6 @@ bool samePointerSpec(const vertexattribute_t& a, GLint size, GLenum usage, GLenu
                      GLenum normalized, GLsizei stride, const void* pointer, bool bgra = false) {
     return a.size == size && a.usage == usage && a.type == type && a.normalized == normalized &&
            a.stride == stride && a.pointer == pointer && a.bgra == bgra;
-}
-
-// GL 3.2 / ARB_vertex_array_bgra: size may be GL_BGRA, which means four
-// components in B, G, R, A order. The spec allows it only with an unsigned
-// byte or packed 10/10/10/2 type, and the values are always normalized.
-bool isBgraArraySize(GLint size, GLenum type) {
-    if (size != (GLint)GL_BGRA) return false;
-    return type == GL_UNSIGNED_BYTE || type == GL_UNSIGNED_INT_2_10_10_10_REV ||
-           type == GL_INT_2_10_10_10_REV;
 }
 } // namespace
 

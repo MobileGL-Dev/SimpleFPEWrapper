@@ -29,6 +29,10 @@ GLenum sfpewLogicalActiveTexture();
 // directly, GLES has no such format in core and none of its BGRA extensions
 // cover the paths that matter here, so the wrapper converts on the CPU.
 bool sfpewBackendIsES();
+// True when this texture's texels are stored in BGRA order with the sampler
+// swizzle compensating (see the PBO path in glTexImage2D).
+bool isBgraSwizzled(GLuint texture);
+void setBgraSwizzle(GLenum target, GLuint texture, bool enable);
 
 GLuint sfpewLogicalTextureBinding(GLenum target);
 // Changes whenever the active texture unit or any texture binding does.

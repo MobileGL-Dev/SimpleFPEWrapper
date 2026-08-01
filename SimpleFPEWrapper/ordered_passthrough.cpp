@@ -371,6 +371,14 @@ void glTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, G
         format = GL_RED;
     } else if (format == GL_LUMINANCE_ALPHA) {
         format = GL_RG;
+    } else if (format == GL_BGRA && sfpewBackendIsES() &&
+               isBgraSwizzled(sfpewLogicalTextureBinding(GL_TEXTURE_2D))) {
+        // The texture stores its texels in BGRA order and the sampler
+        // compensates (glTexImage2D took that route because the data was in a
+        // pixel buffer object). A sub-image has to match, so this one goes in
+        // as it is - reordering it here would make the swizzle read it wrong.
+        format = GL_RGBA;
+        type = GL_UNSIGNED_BYTE;
     } else if (format == GL_BGRA && sfpewBackendIsES() && pixels != nullptr &&
                !sfpewUnpackPboBound() &&
                (type == GL_UNSIGNED_BYTE || type == GL_UNSIGNED_INT_8_8_8_8 ||

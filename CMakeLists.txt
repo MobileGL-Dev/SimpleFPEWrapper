@@ -136,6 +136,30 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
 
 target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE -Wall -Wextra)
 
+# The git commit this build came from, logged once at backend initialization
+# so a device report always identifies the code it was produced by - version
+# strings alone cannot distinguish two builds made the same day. Configure
+# time is good enough: the hash marks the checkout, and "-dirty" marks
+# uncommitted changes on top of it. Falls back to "unknown" outside a git
+# checkout (tarball builds).
+find_package(Git QUIET)
+set(SFPEW_GIT_COMMIT "unknown")
+if(GIT_FOUND)
+        execute_process(COMMAND ${GIT_EXECUTABLE} -C ${CMAKE_SOURCE_DIR} rev-parse --short=12 HEAD
+                        OUTPUT_VARIABLE SFPEW_GIT_COMMIT_RAW
+                        OUTPUT_STRIP_TRAILING_WHITESPACE
+                        ERROR_QUIET RESULT_VARIABLE SFPEW_GIT_RC)
+        if(SFPEW_GIT_RC EQUAL 0)
+                execute_process(COMMAND ${GIT_EXECUTABLE} -C ${CMAKE_SOURCE_DIR} diff --quiet HEAD
+                                RESULT_VARIABLE SFPEW_GIT_DIRTY ERROR_QUIET)
+                set(SFPEW_GIT_COMMIT "${SFPEW_GIT_COMMIT_RAW}")
+                if(NOT SFPEW_GIT_DIRTY EQUAL 0)
+                        set(SFPEW_GIT_COMMIT "${SFPEW_GIT_COMMIT}-dirty")
+                endif()
+        endif()
+endif()
+target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE SFPEW_GIT_COMMIT="${SFPEW_GIT_COMMIT}")
+
 # A shared library may legally carry undefined symbols, so a link that
 # quietly dropped a static-library member (a bitcode archive the archiver
 # could not index, a missing typeinfo) still produced a .so - and the

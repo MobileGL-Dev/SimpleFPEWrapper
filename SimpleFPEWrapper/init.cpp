@@ -39,6 +39,15 @@ bool InitBackend() noexcept {
             return false;
         } // FIXME: actually we should acquire gl functions after egl initialization
 
+        // One line identifying the build, at the moment the wrapper first
+        // becomes operational: every on-device report starts with "which
+        // commit is this", and a version string cannot answer that.
+#ifndef SFPEW_GIT_COMMIT
+#define SFPEW_GIT_COMMIT "unknown"
+#endif
+        SFPEW_LOGI("SimpleFPEWrapper initialized, commit %s, built %s", SFPEW_GIT_COMMIT,
+                   __DATE__ " " __TIME__);
+
         return true;
     } catch (...) {
         // Never let an exception cross the extern "C" surface above us.

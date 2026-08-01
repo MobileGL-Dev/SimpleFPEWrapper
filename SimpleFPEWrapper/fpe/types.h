@@ -52,6 +52,9 @@ extern thread_local SFPEW_TLS_HOT unsigned g_context_reconcile_counter;
 // Both cases now carry the same bounded staleness, which is what the lazy
 // context model documents.
 extern thread_local SFPEW_TLS_HOT unsigned g_context_reconcile_interval;
+// Entry points that may still use the snapshot before it must be
+// re-established. Zero forces the out-of-line resolve; see sfpewResolveState.
+extern thread_local SFPEW_TLS_HOT unsigned g_resolve_budget;
 // SFPEW_RELAXED_CONTEXT=1: each thread promises to use one context forever.
 extern bool g_sfpew_relaxed_context;
 // Reconciles against libEGL and resets the counter. Out of line: it is the
@@ -931,8 +934,7 @@ struct glstate_t {
 inline void* sfpewCurrentContextInline() {
     // Bounds how long an eglMakeCurrent that bypassed the wrapper can go
     // unnoticed (docs/context-model.md). The bound adapts - see the interval's
-    // declaration - because on glvnd the query itself costs ~425ns, which at a
-    // fixed 256 was 9% of a glGet.
+    // declaration - because on glvnd the query itself costs ~425ns.
     //
     // The `known` test is not redundant: until the first reconcile (or the
     // wrapper's own eglMakeCurrent) there is nothing recorded to trust, and
@@ -945,20 +947,21 @@ inline void* sfpewCurrentContextInline() {
     return sfpewReconcileContext();
 }
 
-// The vertex-data pin: while a Begin/End batch is collecting, every
-// glVertex/glColor/glNormal/glTexCoord stays on the state the glBegin
-// resolved, so they cost a thread-local read instead of a resolve. Three of
-// them run per immediate-mode vertex, which is why this is inline.
-inline glstate_t& sfpewVertexDataState();
-
+// The strict resolve, as one decrement and one branch.
+//
+// The budget is how many more entry points may use the snapshot before the
+// context has to be re-established: it is refilled by the out-of-line resolve
+// (which is where the libEGL reconciliation and the context-switch handling
+// live) and spent one per entry point. Non-zero therefore means "the snapshot
+// was validated recently enough", which is exactly what the chain of
+// thread-local reads it replaces was computing - six of them, on a path every
+// exported entry point runs.
 inline glstate_t& sfpewResolveState() {
-    if (g_sfpew_relaxed_context && tls_snapshot_state != nullptr &&
-        tls_snapshot_context != nullptr) {
+    if (g_resolve_budget != 0u) {
+        --g_resolve_budget;
         return *tls_snapshot_state;
     }
-    if (sfpewCurrentContextInline() == tls_snapshot_context && tls_snapshot_state != nullptr)
-        return *tls_snapshot_state;
-    return glstate_t::get_instance(); // switch, or first resolve on this thread
+    return glstate_t::get_instance();
 }
 
 inline glstate_t& sfpewVertexDataState() {

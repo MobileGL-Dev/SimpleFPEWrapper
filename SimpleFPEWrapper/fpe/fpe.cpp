@@ -33,6 +33,7 @@ thread_local SFPEW_TLS_HOT bool g_authoritative_context_known = false;
 thread_local SFPEW_TLS_HOT unsigned g_context_reconcile_counter = 0;
 // Starts tight so a bypassing app is caught early, then backs off.
 thread_local SFPEW_TLS_HOT unsigned g_context_reconcile_interval = 64u;
+thread_local SFPEW_TLS_HOT unsigned g_resolve_budget = 0u;
 bool g_sfpew_relaxed_context = [] {
     const char* value = getenv("SFPEW_RELAXED_CONTEXT");
     return value != nullptr && value[0] != '\0' && value[0] != '0';
@@ -41,6 +42,10 @@ bool g_sfpew_relaxed_context = [] {
 void sfpewNoteCurrentContext(EGLContext context) {
     g_authoritative_context = context;
     g_authoritative_context_known = true;
+    // The snapshot the resolve budget vouches for belongs to the OUTGOING
+    // context. Spending the rest of it would run entry points against the
+    // wrong per-context state, so the next one re-establishes.
+    g_resolve_budget = 0u;
 }
 
 // The rare half of the resolve, kept out of line so the common half can be
@@ -107,15 +112,27 @@ glstate_t& glstate_t::get_instance() {
     static std::mutex instances_mutex;
     static glstate_t no_context_state; // keeps backend-less calls crash-free
 
+    // Refilling the budget is what lets the inlined fast path be a single
+    // decrement; every return below therefore sets it.
     if (g_sfpew_relaxed_context && tls_snapshot_state != nullptr &&
         tls_snapshot_context != EGL_NO_CONTEXT) {
+        // The app promised one context per thread for the process lifetime,
+        // so the snapshot never needs re-establishing.
+        g_resolve_budget = ~0u;
         return *tls_snapshot_state;
     }
 
-    const EGLContext context = sfpewCurrentContext();
+    // Reconcile outright rather than through the counter-based query: the
+    // budget refilled below already counts the entry points between two
+    // reconciliations, and going through the counter as well would multiply
+    // the two intervals together (64 x 64 entry points between libEGL
+    // queries, and up to 16M once both had backed off).
+    const EGLContext context = (EGLContext)sfpewReconcileContext();
 
-    if (context == tls_snapshot_context && tls_snapshot_state != nullptr)
+    if (context == tls_snapshot_context && tls_snapshot_state != nullptr) {
+        g_resolve_budget = g_context_reconcile_interval;
         return *tls_snapshot_state;
+    }
 
     // The thread switched contexts. If the outgoing snapshot still holds an
     // open Begin/End batch, that batch was abandoned mid-collection: clear it
@@ -136,6 +153,7 @@ glstate_t& glstate_t::get_instance() {
     }
     tls_snapshot_context = context;
     tls_snapshot_state = state;
+    g_resolve_budget = g_context_reconcile_interval;
     return *state;
 }
 

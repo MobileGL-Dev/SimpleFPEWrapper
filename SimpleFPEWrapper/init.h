@@ -175,6 +175,7 @@ SFPEW_APIENTRY void glGetFloatv(GLenum pname, GLfloat* params);
 SFPEW_APIENTRY void glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height,
                                 GLint border, GLenum format, GLenum type, const GLvoid* pixels);
 SFPEW_APIENTRY void glGetTexLevelParameteriv(GLenum target, GLint level, GLenum pname, GLint* params);
+SFPEW_APIENTRY void glGenerateMipmap(GLenum target);
 SFPEW_APIENTRY void glGetTexLevelParameterfv(GLenum target, GLint level, GLenum pname, GLfloat* params);
 // The current EGL context for this thread. Exact (and free) once the app has
 // called eglMakeCurrent through the wrapper; otherwise resolved by asking

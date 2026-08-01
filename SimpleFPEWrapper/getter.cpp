@@ -274,12 +274,197 @@ void sfpewSetGenerateMipmap(GLenum, GLuint texture, bool enable) {
         generateMipmapTextures.erase(texture);
 }
 
+namespace {
+// SFPEW_MANUAL_MIPGEN: unset/1 = backend call then repair (default);
+// 0 = plain backend call; "only" = repair without the backend call, a test
+// hook that simulates the stale-level driver so the blit chain has to
+// produce every level by itself (levels must already be allocated).
+int manualMipmapRepairMode() {
+    static const int mode = [] {
+        const char* v = getenv("SFPEW_MANUAL_MIPGEN");
+        if (v == nullptr) return 1;
+        if (v[0] == '0' && v[1] == '\0') return 0;
+        if (std::strcmp(v, "only") == 0) return 2;
+        return 1;
+    }();
+    return mode;
+}
+
+// The mobile driver was caught leaving the HIGH mip levels of a 2400x1080
+// render target STALE across glGenerateMipmap calls - on-device probes of the
+// Derivative shader pack showed level 4 tracking the freshly rendered base
+// while level 8 still held an image from seconds earlier, on two different GL
+// backend implementations over the same GLES driver. The pack's auto-exposure
+// averages the scene from level 6 of that chain, so stale-bright levels crush
+// the exposure and the screen goes dead dark until the leftover content
+// happens to match the view again. A single mipgen call cannot produce
+// fresh-4/stale-8 (8 derives from 4), so the driver demonstrably stopped
+// partway; rebuild the whole chain ourselves, one LINEAR blit per level.
+//
+// The backend's glGenerateMipmap has ALREADY run when this is called: it
+// allocates any missing levels (a blit cannot) and remains the result for
+// any level this repair cannot reach - stopping early is never worse than
+// the plain call. Depth/integer chains fail the completeness or blit checks
+// on the first level and fall through to that intact result.
+// Scratch for the two-hop blits below. Mesa silently DROPS a
+// glBlitFramebuffer whose source and destination are levels of the same
+// texture (llvmpipe: no GL error, no write), and a conservative mobile
+// driver may do the same, so every level is built source level -> scratch
+// -> destination level. Sized for the largest destination level and
+// reallocated only when the chain's size or internal format changes.
+struct mip_scratch_t {
+    GLuint tex = 0;
+    GLsizei w = 0, h = 0;
+    GLint internalformat = 0;
+};
+thread_local mip_scratch_t mipScratch;
+
+// glTexStorage2D wants a SIZED internal format; legacy chains report the
+// unsized names (or the GL 1.x component counts).
+GLint sizedInternalFormat(GLint internalformat) {
+    switch (internalformat) {
+    case GL_RGBA: case 4: return GL_RGBA8;
+    case GL_RGB: case 3: return GL_RGB8;
+    case GL_RG: return GL_RG8;
+    case GL_RED: return GL_R8;
+    default: return internalformat;
+    }
+}
+
+bool ensureMipScratch(GLsizei w, GLsizei h, GLint internalformat) {
+    if (g_glFuncs.glTexStorage2D == nullptr || g_glFuncs.glGenTextures == nullptr ||
+        g_glFuncs.glDeleteTextures == nullptr || g_glFuncs.glBindTexture == nullptr)
+        return false;
+    auto& s = mipScratch;
+    if (s.tex != 0 && s.w == w && s.h == h && s.internalformat == internalformat) return true;
+    if (s.tex != 0) {
+        g_glFuncs.glDeleteTextures(1, &s.tex);
+        s = {};
+    }
+    GLint prev = 0;
+    g_glFuncs.glGetIntegerv(0x8069 /* GL_TEXTURE_BINDING_2D */, &prev);
+    g_glFuncs.glGenTextures(1, &s.tex);
+    if (s.tex == 0) return false;
+    g_glFuncs.glBindTexture(GL_TEXTURE_2D, s.tex);
+    while (g_glFuncs.glGetError() != GL_NO_ERROR) {}
+    g_glFuncs.glTexStorage2D(GL_TEXTURE_2D, 1, (GLenum)internalformat, w, h);
+    const bool ok = g_glFuncs.glGetError() == GL_NO_ERROR;
+    g_glFuncs.glBindTexture(GL_TEXTURE_2D, (GLuint)prev);
+    if (!ok) {
+        g_glFuncs.glDeleteTextures(1, &s.tex);
+        s = {};
+        return false;
+    }
+    s.w = w;
+    s.h = h;
+    s.internalformat = internalformat;
+    return true;
+}
+
+void repairMipmapChain2D() {
+    if (g_glFuncs.glBlitFramebuffer == nullptr || g_glFuncs.glGenFramebuffers == nullptr ||
+        g_glFuncs.glFramebufferTexture2D == nullptr ||
+        g_glFuncs.glCheckFramebufferStatus == nullptr || g_glFuncs.glBindFramebuffer == nullptr ||
+        g_glFuncs.glGetIntegerv == nullptr || g_glFuncs.glGetError == nullptr ||
+        g_glFuncs.glGetTexLevelParameteriv == nullptr)
+        return;
+    const GLuint texture = sfpewLogicalTextureBinding(GL_TEXTURE_2D);
+    if (texture == 0) return;
+
+    GLsizei width = 0, height = 0;
+    const auto size_it = textureSizes.find(texture);
+    if (size_it != textureSizes.end()) {
+        width = size_it->second.width;
+        height = size_it->second.height;
+    } else {
+        GLint w = 0, h = 0;
+        g_glFuncs.glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &w);
+        g_glFuncs.glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &h);
+        width = w;
+        height = h;
+    }
+    if (width <= 1 && height <= 1) return;
+
+    while (g_glFuncs.glGetError() != GL_NO_ERROR) {}
+
+    GLint internalformat = 0;
+    g_glFuncs.glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_INTERNAL_FORMAT,
+                                       &internalformat);
+    if (internalformat == 0) return;
+    if (!ensureMipScratch(std::max<GLsizei>(width >> 1, 1), std::max<GLsizei>(height >> 1, 1),
+                          sizedInternalFormat(internalformat)))
+        return;
+
+    GLint prev_read = 0, prev_draw = 0;
+    g_glFuncs.glGetIntegerv(0x8CAA /* GL_READ_FRAMEBUFFER_BINDING */, &prev_read);
+    g_glFuncs.glGetIntegerv(0x8CA6 /* GL_DRAW_FRAMEBUFFER_BINDING */, &prev_draw);
+    // Scissor clips glBlitFramebuffer writes; the repair must cover the level.
+    const bool scissor =
+        g_glFuncs.glIsEnabled != nullptr && g_glFuncs.glIsEnabled(GL_SCISSOR_TEST) == GL_TRUE;
+    if (scissor && g_glFuncs.glDisable != nullptr) g_glFuncs.glDisable(GL_SCISSOR_TEST);
+
+    static thread_local GLuint blit_fbos[2] = {0, 0};
+    if (blit_fbos[0] == 0) g_glFuncs.glGenFramebuffers(2, blit_fbos);
+    if (blit_fbos[0] != 0 && blit_fbos[1] != 0) {
+        // Fresh FBOs read from and draw to COLOR_ATTACHMENT0 by default.
+        g_glFuncs.glBindFramebuffer(0x8CA8 /* GL_READ_FRAMEBUFFER */, blit_fbos[0]);
+        g_glFuncs.glBindFramebuffer(0x8CA9 /* GL_DRAW_FRAMEBUFFER */, blit_fbos[1]);
+        GLsizei pw = width > 0 ? width : 1, ph = height > 0 ? height : 1;
+        for (GLint level = 1; pw > 1 || ph > 1; ++level) {
+            const GLsizei lw = std::max<GLsizei>(width >> level, 1);
+            const GLsizei lh = std::max<GLsizei>(height >> level, 1);
+            // Hop 1: previous level, downsampled into the scratch corner.
+            g_glFuncs.glFramebufferTexture2D(0x8CA8, 0x8CE0 /* GL_COLOR_ATTACHMENT0 */,
+                                             GL_TEXTURE_2D, texture, level - 1);
+            g_glFuncs.glFramebufferTexture2D(0x8CA9, 0x8CE0, GL_TEXTURE_2D, mipScratch.tex, 0);
+            if (g_glFuncs.glCheckFramebufferStatus(0x8CA8) != GL_FRAMEBUFFER_COMPLETE ||
+                g_glFuncs.glCheckFramebufferStatus(0x8CA9) != GL_FRAMEBUFFER_COMPLETE)
+                break;
+            g_glFuncs.glBlitFramebuffer(0, 0, pw, ph, 0, 0, lw, lh, GL_COLOR_BUFFER_BIT,
+                                        GL_LINEAR);
+            if (g_glFuncs.glGetError() != GL_NO_ERROR) break;
+            // Hop 2: scratch corner into the destination level, 1:1.
+            g_glFuncs.glFramebufferTexture2D(0x8CA8, 0x8CE0, GL_TEXTURE_2D, mipScratch.tex, 0);
+            g_glFuncs.glFramebufferTexture2D(0x8CA9, 0x8CE0, GL_TEXTURE_2D, texture, level);
+            if (g_glFuncs.glCheckFramebufferStatus(0x8CA8) != GL_FRAMEBUFFER_COMPLETE ||
+                g_glFuncs.glCheckFramebufferStatus(0x8CA9) != GL_FRAMEBUFFER_COMPLETE)
+                break;
+            g_glFuncs.glBlitFramebuffer(0, 0, lw, lh, 0, 0, lw, lh, GL_COLOR_BUFFER_BIT,
+                                        GL_NEAREST);
+            if (g_glFuncs.glGetError() != GL_NO_ERROR) break;
+            pw = lw;
+            ph = lh;
+        }
+        g_glFuncs.glFramebufferTexture2D(0x8CA8, 0x8CE0, GL_TEXTURE_2D, 0, 0);
+        g_glFuncs.glFramebufferTexture2D(0x8CA9, 0x8CE0, GL_TEXTURE_2D, 0, 0);
+        g_glFuncs.glBindFramebuffer(0x8CA8, (GLuint)prev_read);
+        g_glFuncs.glBindFramebuffer(0x8CA9, (GLuint)prev_draw);
+    }
+    if (scissor && g_glFuncs.glEnable != nullptr) g_glFuncs.glEnable(GL_SCISSOR_TEST);
+    while (g_glFuncs.glGetError() != GL_NO_ERROR) {}
+}
+} // namespace
+
 void sfpewMaybeGenerateMipmap(GLenum target) {
     if (target == GL_TEXTURE_1D) target = GL_TEXTURE_2D;
     if (target != GL_TEXTURE_2D || g_glFuncs.glGenerateMipmap == nullptr) return;
     const GLuint bound = sfpewLogicalTextureBinding(GL_TEXTURE_2D);
-    if (bound != 0 && generateMipmapTextures.count(bound) != 0)
+    if (bound != 0 && generateMipmapTextures.count(bound) != 0) {
         g_glFuncs.glGenerateMipmap(GL_TEXTURE_2D);
+        if (manualMipmapRepairMode() != 0) repairMipmapChain2D();
+    }
+}
+
+// GL 3.0 / ES 2.0 core. Not a passthrough: after the backend call the 2D
+// chain is rebuilt level by level (see repairMipmapChain2D above). The flush
+// keeps any batched immediate-mode drawing ordered before the mipgen reads
+// its base level; texture/FBO state is read directly and restored.
+void glGenerateMipmap(GLenum target) {
+    if (!sfpewEnsureBackend() || g_glFuncs.glGenerateMipmap == nullptr) return;
+    sfpewTextureStateBarrier();
+    const int mode = manualMipmapRepairMode();
+    if (mode != 2) g_glFuncs.glGenerateMipmap(target);
+    if (target == GL_TEXTURE_2D && mode != 0) repairMipmapChain2D();
 }
 
 GLenum sfpewLogicalActiveTexture() {

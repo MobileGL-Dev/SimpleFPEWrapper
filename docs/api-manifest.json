@@ -1,6 +1,6 @@
 {
  "source": "lookup.cpp",
- "count": 531,
+ "count": 532,
  "entries": {
   "eglSwapBuffersWithDamageKHR": {
    "status": "alias",
@@ -638,8 +638,12 @@
    "status": "backend-alias",
    "target": "glGenRenderbuffers"
   },
+  "glGenerateMipmap": {
+   "status": "resolvable",
+   "target": "glGenerateMipmap"
+  },
   "glGenerateMipmapEXT": {
-   "status": "backend-alias",
+   "status": "alias",
    "target": "glGenerateMipmap"
   },
   "glGetActiveAttribARB": {

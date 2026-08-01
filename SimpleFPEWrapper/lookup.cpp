@@ -159,7 +159,10 @@ SFPEW_APIENTRY __eglMustCastToProperFunctionPointerType eglGetProcAddress(const 
     GETPROC_BACKEND_ALIAS(glIsRenderbufferEXT, glIsRenderbuffer)
     GETPROC_BACKEND_ALIAS(glBindRenderbufferEXT, glBindRenderbuffer)
     GETPROC_BACKEND_ALIAS(glGetRenderbufferParameterivEXT, glGetRenderbufferParameteriv)
-    GETPROC_BACKEND_ALIAS(glGenerateMipmapEXT, glGenerateMipmap)
+    // Wrapped, not backend-aliased: the wrapper rebuilds the 2D mip chain
+    // after the backend call (mobile drivers leave high levels stale).
+    GETPROC(glGenerateMipmap, name)
+    GETPROC_WRAPPER_ALIAS(glGenerateMipmapEXT, glGenerateMipmap)
     GETPROC_BACKEND_ALIAS(glBlitFramebufferEXT, glBlitFramebuffer)
     GETPROC_BACKEND_ALIAS(glDrawBuffersARB, glDrawBuffers)
     GETPROC_BACKEND_ALIAS(glDrawBuffersATI, glDrawBuffers)

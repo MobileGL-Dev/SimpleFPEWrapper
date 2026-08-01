@@ -448,7 +448,7 @@
     },
     "glGetTexLevelParameteriv": {
       "availability": "GL 1.0 / ES 3.1",
-      "call_sites": 2
+      "call_sites": 5
     },
     "glMapBufferOES": {
       "availability": "vendor/extension suffix: never core",

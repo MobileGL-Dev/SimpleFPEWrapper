@@ -452,6 +452,21 @@ if(NOT ANDROID)
                         add_test(NAME smoke_texgen_toggle COMMAND smoke_texgen_toggle)
                         set_tests_properties(smoke_texgen_toggle PROPERTIES SKIP_RETURN_CODE 77)
 
+                        add_executable(smoke_manual_mipgen tests/smoke_manual_mipgen.c)
+                        target_compile_definitions(smoke_manual_mipgen PRIVATE
+                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
+                        target_link_libraries(smoke_manual_mipgen PRIVATE dl ${SFPEW_TEST_EGL})
+                        add_dependencies(smoke_manual_mipgen ${CMAKE_PROJECT_NAME})
+                        add_test(NAME smoke_manual_mipgen COMMAND smoke_manual_mipgen)
+                        set_tests_properties(smoke_manual_mipgen PROPERTIES SKIP_RETURN_CODE 77)
+                        # The blit chain alone must produce every level: the
+                        # "only" hook skips the backend mipgen, simulating the
+                        # driver that leaves high levels stale.
+                        add_test(NAME smoke_manual_mipgen_only COMMAND smoke_manual_mipgen)
+                        set_tests_properties(smoke_manual_mipgen_only PROPERTIES
+                                SKIP_RETURN_CODE 77
+                                ENVIRONMENT "SFPEW_MANUAL_MIPGEN=only")
+
                         add_executable(smoke_bgra_texture tests/smoke_bgra_texture.c)
                         target_compile_definitions(smoke_bgra_texture PRIVATE
                                 WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")

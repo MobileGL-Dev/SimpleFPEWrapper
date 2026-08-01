@@ -18,6 +18,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <limits>
@@ -777,6 +778,13 @@ void nanscanAfterUserDraw(GLuint program, GLsizei vertex_count) {
     // All eight colortex attachments: Optifine keeps colortex0-7 attached at
     // fixed points and selects with glDrawBuffers, so the scene HDR chain
     // (colortex4 in the Derivative pack) is only visible from attachment 4.
+    // Per attachment, log centre AND texel (0,0) - the pack's Grade pass reads
+    // its exposure from colortex5 texel (0,0) alpha, and run 3 showed exactly
+    // that buffer collapsing ~300x during the symptom while the scene input
+    // (colortex4) stayed bright. For attachments 4 and 5 also read mip levels
+    // 4 and 8 through a scratch FBO: the exposure is averaged in Temporal.vert
+    // from the colortex4 mip pyramid, so wrong device-side mips are the prime
+    // suspect for the collapse.
     const GLint cx = viewport[0] + viewport[2] / 2 - 1;
     const GLint cy = viewport[1] + viewport[3] / 2 - 1;
     for (int attachment = 0; attachment < 8; ++attachment) {
@@ -795,14 +803,60 @@ void nanscanAfterUserDraw(GLuint program, GLsizei vertex_count) {
         bool bad = false;
         for (float v : px)
             if (v != v || v > 1e20f || v < -1e20f) bad = true;
+        if (!bad && !trace) continue;
+
+        float t00[4] = {0, 0, 0, 0};
+        g_glFuncs.glReadPixels(viewport[0], viewport[1], 1, 1, GL_RGBA, GL_FLOAT, t00);
+
+        char extra[192] = "";
+        if ((attachment == 4 || attachment == 5) &&
+            g_glFuncs.glGetFramebufferAttachmentParameteriv != nullptr &&
+            g_glFuncs.glGenFramebuffers != nullptr && g_glFuncs.glFramebufferTexture2D != nullptr &&
+            g_glFuncs.glCheckFramebufferStatus != nullptr) {
+            GLint obj_type = 0, obj_name = 0;
+            g_glFuncs.glGetFramebufferAttachmentParameteriv(
+                0x8CA8 /* GL_READ_FRAMEBUFFER */, (GLenum)(0x8CE0 + attachment),
+                0x8CD0 /* ATTACHMENT_OBJECT_TYPE */, &obj_type);
+            g_glFuncs.glGetFramebufferAttachmentParameteriv(
+                0x8CA8, (GLenum)(0x8CE0 + attachment), 0x8CD1 /* ATTACHMENT_OBJECT_NAME */,
+                &obj_name);
+            if (obj_type == 0x1702 /* GL_TEXTURE */ && obj_name != 0) {
+                static thread_local GLuint scratch_fbo = 0;
+                if (scratch_fbo == 0) g_glFuncs.glGenFramebuffers(1, &scratch_fbo);
+                if (scratch_fbo != 0) {
+                    g_glFuncs.glBindFramebuffer(0x8CA8, scratch_fbo);
+                    float m4[4] = {0, 0, 0, 0}, m8[4] = {0, 0, 0, 0};
+                    const struct { int level; float* out; } mip_probes[2] = {{4, m4}, {8, m8}};
+                    for (const auto& p : mip_probes) {
+                        g_glFuncs.glFramebufferTexture2D(0x8CA8, 0x8CE0, GL_TEXTURE_2D,
+                                                         (GLuint)obj_name, p.level);
+                        if (g_glFuncs.glCheckFramebufferStatus(0x8CA8) !=
+                            0x8CD5 /* GL_FRAMEBUFFER_COMPLETE */)
+                            continue;
+                        const GLint mw = viewport[2] >> p.level, mh = viewport[3] >> p.level;
+                        g_glFuncs.glReadPixels(mw > 1 ? mw / 2 : 0, mh > 1 ? mh / 2 : 0, 1, 1,
+                                               GL_RGBA, GL_FLOAT, p.out);
+                    }
+                    g_glFuncs.glFramebufferTexture2D(0x8CA8, 0x8CE0, GL_TEXTURE_2D, 0, 0);
+                    g_glFuncs.glBindFramebuffer(0x8CA8, (GLuint)draw_fbo);
+                    g_glFuncs.glReadBuffer((GLenum)(0x8CE0 + attachment));
+                    while (g_glFuncs.glGetError() != GL_NO_ERROR) {}
+                    std::snprintf(extra, sizeof extra, " m4=(%g,%g,%g) m8=(%g,%g,%g)", m4[0],
+                                  m4[1], m4[2], m8[0], m8[1], m8[2]);
+                }
+            }
+        }
+
         if (bad) {
-            SFPEW_LOGE("NANSCAN frame=%u prog=%u fbo=%d att=%d vp=%dx%d BAD centre=(%g,%g,%g,%g)",
-                       frame, program, draw_fbo, attachment, viewport[2], viewport[3], px[0],
-                       px[1], px[2], px[3]);
-        } else if (trace) {
-            SFPEW_LOGI("NANSCAN frame=%u prog=%u fbo=%d att=%d vp=%dx%d centre=(%g,%g,%g,%g)",
-                       frame, program, draw_fbo, attachment, viewport[2], viewport[3], px[0],
-                       px[1], px[2], px[3]);
+            SFPEW_LOGE(
+                "NANSCAN frame=%u prog=%u fbo=%d att=%d vp=%dx%d BAD centre=(%g,%g,%g,%g) t00=(%g,%g,%g,%g)%s",
+                frame, program, draw_fbo, attachment, viewport[2], viewport[3], px[0], px[1],
+                px[2], px[3], t00[0], t00[1], t00[2], t00[3], extra);
+        } else {
+            SFPEW_LOGI(
+                "NANSCAN frame=%u prog=%u fbo=%d att=%d vp=%dx%d centre=(%g,%g,%g,%g) t00=(%g,%g,%g,%g)%s",
+                frame, program, draw_fbo, attachment, viewport[2], viewport[3], px[0], px[1],
+                px[2], px[3], t00[0], t00[1], t00[2], t00[3], extra);
         }
     }
 

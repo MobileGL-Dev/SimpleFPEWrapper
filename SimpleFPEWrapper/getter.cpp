@@ -1221,9 +1221,20 @@ bool sfpewPrepareBgraUpload(GLsizei width, GLsizei height, GLenum type, const vo
     if (pbo != 0) {
         if (g_glFuncs.glMapBufferRange == nullptr || g_glFuncs.glUnmapBuffer == nullptr)
             return false;
-        source = static_cast<const uint8_t*>(
-            g_glFuncs.glMapBufferRange(GL_PIXEL_UNPACK_BUFFER, (GLintptr)(uintptr_t)pixels,
-                                       (GLsizeiptr)needed, GL_MAP_READ_BIT));
+        // SFPEW_TEST_FORCE_BGRA_COPY=1: pretend the direct mapping failed,
+        // exercising the copy path below on drivers whose direct mapping
+        // succeeds. The copy path exists FOR drivers where it does not
+        // (mobile refuses READ mappings of *_DRAW buffers), so without this
+        // it would only ever run on the machines that need it least.
+        static const bool force_copy_path = [] {
+            const char* v = getenv("SFPEW_TEST_FORCE_BGRA_COPY");
+            return v != nullptr && v[0] != '\0' && v[0] != '0';
+        }();
+        source = force_copy_path
+                     ? nullptr
+                     : static_cast<const uint8_t*>(g_glFuncs.glMapBufferRange(
+                           GL_PIXEL_UNPACK_BUFFER, (GLintptr)(uintptr_t)pixels,
+                           (GLsizeiptr)needed, GL_MAP_READ_BIT));
         if (source == nullptr) {
             // Mobile drivers routinely refuse a READ mapping of a buffer
             // whose usage hint was *_DRAW (the natural hint for an upload

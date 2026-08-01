@@ -108,9 +108,10 @@ void glReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format
     if (!sfpewEnsureBackend() || g_glFuncs.glReadPixels == nullptr) return;
     sfpewEntryBarrier();
     // Desktop apps read GL_BGRA, which GLES3 core does not offer: read RGBA
-    // and swap in place (tight rows, the common screenshot/AWT case).
-    if (format == GL_BGRA && type == GL_UNSIGNED_BYTE && pixels != nullptr && width > 0 && height > 0 &&
-        !sfpewPackPboBound()) {
+    // and swap in place (tight rows, the common screenshot/AWT case). A
+    // desktop GL backend reads it directly.
+    if (format == GL_BGRA && sfpewBackendIsES() && type == GL_UNSIGNED_BYTE && pixels != nullptr &&
+        width > 0 && height > 0 && !sfpewPackPboBound()) {
         g_glFuncs.glReadPixels(x, y, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
         auto* bytes = static_cast<uint8_t*>(pixels);
         const size_t count = (size_t)width * (size_t)height * 4u;
@@ -370,7 +371,8 @@ void glTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, G
         format = GL_RED;
     } else if (format == GL_LUMINANCE_ALPHA) {
         format = GL_RG;
-    } else if (format == GL_BGRA && pixels != nullptr && !sfpewUnpackPboBound() &&
+    } else if (format == GL_BGRA && sfpewBackendIsES() && pixels != nullptr &&
+               !sfpewUnpackPboBound() &&
                (type == GL_UNSIGNED_BYTE || type == GL_UNSIGNED_INT_8_8_8_8 ||
                 type == GL_UNSIGNED_INT_8_8_8_8_REV)) {
         thread_local std::vector<uint8_t> scratch;

@@ -327,7 +327,8 @@ program_key_t glstate_t::program_hash() {
             const auto& previous = cache.vertices[i];
             if (previous.usage != attribute.usage ||
                 (enabled && (previous.size != attribute.size || previous.type != attribute.type ||
-                             previous.normalized != attribute.normalized))) {
+                             previous.normalized != attribute.normalized ||
+                             previous.bgra != attribute.bgra))) {
                 matches = false;
                 break;
             }
@@ -407,6 +408,9 @@ program_key_t glstate_t::program_hash() {
         if (enabled) {
             hash.add(&attr.type, sizeof(attr.type));
             hash.add(&attr.normalized, sizeof(attr.normalized));
+            // A BGRA array makes the generated shader swizzle, so it must not
+            // share a program with an otherwise identical RGBA one.
+            hash.add(&attr.bgra, sizeof(attr.bgra));
         } else {
             const GLenum type = GL_FLOAT;
             hash.add(&type, sizeof(type));
@@ -460,6 +464,7 @@ program_key_t glstate_t::program_hash() {
         cache.vertices[i].usage = va.attributes[i].usage;
         cache.vertices[i].type = va.attributes[i].type;
         cache.vertices[i].normalized = va.attributes[i].normalized;
+        cache.vertices[i].bgra = va.attributes[i].bgra;
     }
     cache.client_active_texture = fpe_state.client_active_texture;
     cache.fog_mode = canon_fog_mode;
@@ -517,6 +522,16 @@ void glstate_t::save_vao(const program_key_t& key, const GLuint vao) {
     // LOG()
     fpe_vaos[key] = vao;
 }
+
+namespace {
+// What to hand the driver for this array's component count. Desktop GL takes
+// GL_BGRA and reorders the components itself; GLES has no such format, so it
+// gets a plain four-component array and the generated shader does the
+// reordering (fpe_shadergen).
+GLint backendAttribSize(const vertexattribute_t& attribute) {
+    return attribute.bgra && !sfpewBackendIsES() ? (GLint)GL_BGRA : attribute.size;
+}
+} // namespace
 
 bool glstate_t::send_vertex_attributes(const vertex_pointer_array_t& va, GLuint array_buffer,
                                        GLintptr binding_offset) {
@@ -588,7 +603,8 @@ bool glstate_t::send_vertex_attributes(const vertex_pointer_array_t& va, GLuint 
                     cached.type != vp.type || cached.normalized != vp.normalized ||
                     cached.pointer != vp.pointer) {
                     const auto relative_offset = static_cast<GLuint>(reinterpret_cast<uintptr_t>(vp.pointer));
-                    g_glFuncs.glVertexAttribFormat(index, vp.size, vp.type, vp.normalized, relative_offset);
+                    g_glFuncs.glVertexAttribFormat(index, backendAttribSize(vp), vp.type,
+                                                   vp.normalized, relative_offset);
                     g_glFuncs.glVertexAttribBinding(index, 0);
                     cached.pointer_valid = true;
                     cached.separate_binding = true;
@@ -604,7 +620,8 @@ bool glstate_t::send_vertex_attributes(const vertex_pointer_array_t& va, GLuint 
                 if (!cached.pointer_valid || cached.separate_binding || cached.array_buffer != array_buffer ||
                     cached.size != vp.size || cached.type != vp.type || cached.normalized != vp.normalized ||
                     cached.stride != vp.stride || cached.pointer != effective_pointer) {
-                    g_glFuncs.glVertexAttribPointer(index, vp.size, vp.type, vp.normalized, vp.stride,
+                    g_glFuncs.glVertexAttribPointer(index, backendAttribSize(vp), vp.type,
+                                                    vp.normalized, vp.stride,
                                                     effective_pointer);
                     cached.pointer_valid = true;
                     cached.separate_binding = false;

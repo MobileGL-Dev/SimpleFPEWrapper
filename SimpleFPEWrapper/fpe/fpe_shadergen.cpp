@@ -1352,6 +1352,13 @@ void add_vs_inout(const fixed_function_state_t& state, scratch_t& scratch, std::
                 scratch.vs_body += std::format("    {} = TexMat{} * {};\n", out_name, texid, in_name);
                 // LOG_D("has_texcoord[%d] = true", texid)
                 scratch.has_texcoord[texid] = true;
+            } else if (vpa.attributes[i].bgra && sfpewBackendIsES()) {
+                // The array was declared GL_BGRA and the backend has no such
+                // format, so it was uploaded as four plain components in the
+                // application's order. Undo that order here - the one place
+                // the wrapper can, without touching data the application owns
+                // (it may live in a buffer object it still writes to).
+                scratch.vs_body += std::format("    {} = {}.bgra;\n", out_name, in_name);
             } else {
                 scratch.vs_body += std::format("    {} = {};\n", out_name, in_name);
             }

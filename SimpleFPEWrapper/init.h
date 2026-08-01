@@ -22,6 +22,14 @@ extern SFPEW::External::BackendGLFunctionsTable g_glFuncs;
 bool sfpewEnsureBackend() noexcept;
 
 GLenum sfpewLogicalActiveTexture();
+// True when the backend is OpenGL ES rather than desktop GL. Cached after the
+// first successful query, so it is safe on any hot path.
+//
+// It decides how BGRA pixel data is handled: desktop GL takes GL_BGRA
+// directly, GLES has no such format in core and none of its BGRA extensions
+// cover the paths that matter here, so the wrapper converts on the CPU.
+bool sfpewBackendIsES();
+
 GLuint sfpewLogicalTextureBinding(GLenum target);
 // Changes whenever the active texture unit or any texture binding does.
 uint64_t sfpewTextureStateGeneration();

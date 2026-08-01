@@ -332,9 +332,18 @@ namespace {
 // declaration that did not change. The buffer binding is remembered
 // separately (rememberClientArrayBufferBinding) either way.
 bool samePointerSpec(const vertexattribute_t& a, GLint size, GLenum usage, GLenum type,
-                     GLenum normalized, GLsizei stride, const void* pointer) {
+                     GLenum normalized, GLsizei stride, const void* pointer, bool bgra = false) {
     return a.size == size && a.usage == usage && a.type == type && a.normalized == normalized &&
-           a.stride == stride && a.pointer == pointer;
+           a.stride == stride && a.pointer == pointer && a.bgra == bgra;
+}
+
+// GL 3.2 / ARB_vertex_array_bgra: size may be GL_BGRA, which means four
+// components in B, G, R, A order. The spec allows it only with an unsigned
+// byte or packed 10/10/10/2 type, and the values are always normalized.
+bool isBgraArraySize(GLint size, GLenum type) {
+    if (size != (GLint)GL_BGRA) return false;
+    return type == GL_UNSIGNED_BYTE || type == GL_UNSIGNED_INT_2_10_10_10_REV ||
+           type == GL_INT_2_10_10_10_REV;
 }
 } // namespace
 
@@ -445,8 +454,13 @@ void glColorPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* point
     sfpewClientStateBarrier();
     // LOG_D("glColorPointer, size = %d, type = %s, stride = %d, pointer = 0x%x", size, glEnumToString(type), stride,
     // pointer)
+    // A GL_BGRA array is four components with a component ORDER, not a
+    // component count: everything downstream works with size 4 and the order
+    // is applied at the two places that can express it (see vertexattribute_t).
+    const bool bgra = isBgraArraySize(size, type);
+    if (bgra) size = 4;
     const auto& cur = gs.fpe_state.vertexpointer_array.attributes[vp2idx(GL_COLOR_ARRAY)];
-    if (samePointerSpec(cur, size, GL_COLOR_ARRAY, type, GL_TRUE, stride, pointer)) {
+    if (samePointerSpec(cur, size, GL_COLOR_ARRAY, type, GL_TRUE, stride, pointer, bgra)) {
         rememberClientArrayBufferBinding(vp2idx(GL_COLOR_ARRAY));
         return;
     }
@@ -457,6 +471,7 @@ void glColorPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* point
         .normalized = GL_TRUE,
         .stride = stride,
         .pointer = pointer,
+        .bgra = bgra,
         //            .varying = true
     };
     rememberClientArrayBufferBinding(vp2idx(GL_COLOR_ARRAY));

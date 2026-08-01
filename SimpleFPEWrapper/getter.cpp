@@ -287,6 +287,19 @@ GLenum sfpewLogicalActiveTexture() {
     return getLogicalActiveTexture(state);
 }
 
+bool sfpewBackendIsES() {
+    // -1 until a context has answered; never cached from a failed query, so an
+    // early call cannot pin the wrong answer for the process lifetime.
+    static int cached = -1;
+    if (cached < 0) {
+        const GLubyte* raw =
+            g_glFuncs.glGetString != nullptr ? g_glFuncs.glGetString(GL_VERSION) : nullptr;
+        if (raw == nullptr) return false;
+        cached = std::strstr((const char*)raw, "OpenGL ES") != nullptr ? 1 : 0;
+    }
+    return cached != 0;
+}
+
 uint64_t sfpewTextureStateGeneration() { return getLogicalTextureBindings().generation; }
 
 GLuint sfpewLogicalTextureBinding(GLenum target) {
@@ -1190,7 +1203,8 @@ void glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei widt
     sfpewEntryBarrier();
     if (target != GL_PROXY_TEXTURE_2D) {
         thread_local std::vector<uint8_t> bgraScratch;
-        if (format == GL_BGRA && !sfpewUnpackPboBound()) {
+        // Desktop GL takes GL_BGRA as-is; only GLES needs the swap.
+        if (format == GL_BGRA && sfpewBackendIsES() && !sfpewUnpackPboBound()) {
             const void* swapped = swapBgraPixels(width, height, type, pixels, bgraScratch);
             if (swapped != nullptr || pixels == nullptr) {
                 pixels = swapped;

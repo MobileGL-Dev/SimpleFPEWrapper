@@ -420,6 +420,14 @@ if(NOT ANDROID)
                         add_test(NAME smoke_uniform_cache COMMAND smoke_uniform_cache)
                         set_tests_properties(smoke_uniform_cache PROPERTIES SKIP_RETURN_CODE 77)
 
+                        add_executable(smoke_bgra_color_array tests/smoke_bgra_color_array.c)
+                        target_compile_definitions(smoke_bgra_color_array PRIVATE
+                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
+                        target_link_libraries(smoke_bgra_color_array PRIVATE dl ${SFPEW_TEST_EGL})
+                        add_dependencies(smoke_bgra_color_array ${CMAKE_PROJECT_NAME})
+                        add_test(NAME smoke_bgra_color_array COMMAND smoke_bgra_color_array)
+                        set_tests_properties(smoke_bgra_color_array PROPERTIES SKIP_RETURN_CODE 77)
+
                         add_executable(smoke_mixed_translation_link tests/smoke_mixed_translation_link.c)
                         target_compile_definitions(smoke_mixed_translation_link PRIVATE
                                 WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")

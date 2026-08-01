@@ -122,6 +122,12 @@ struct vertexattribute_t {
     GLenum normalized;
     GLsizei stride;
     const void* pointer;
+    // The array was declared with size GL_BGRA (GL 3.2 / ARB_vertex_array_bgra):
+    // four normalized unsigned bytes in B, G, R, A order. `size` holds 4 so
+    // every stride and offset calculation stays ordinary; the component order
+    // is applied where it belongs - passed to the driver on desktop GL, and
+    // swizzled in the generated shader on GLES, which has no such format.
+    bool bgra;
     //    glm::vec4 value;
     //    bool varying = true;
 };
@@ -688,6 +694,9 @@ struct program_vertex_signature_t {
     GLenum usage = 0;
     GLenum type = 0;
     GLenum normalized = 0;
+    // Part of the signature: a BGRA array makes the generated shader swizzle,
+    // so it must not share a program with an otherwise identical RGBA one.
+    bool bgra = false;
 };
 
 // 128-bit program cache key: two independently seeded XXHash64 passes over

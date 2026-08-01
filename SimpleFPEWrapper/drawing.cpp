@@ -15,8 +15,10 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <memory>
@@ -699,6 +701,107 @@ struct captured_display_list_batch_cache_t {
     std::array<captured_display_list_batch_t, kCapturedDisplayListBatchCacheSize> entries;
 };
 
+// SFPEW_NANSCAN: after every small offscreen draw made with a user program
+// (shader-pack composite quads), read the centre 2x2 of the bound render
+// target back and report NaN/Inf/absurd values. The shader-pack "dead dark
+// from some view angles" report replays CORRECTLY on desktop - the recorded
+// GLES stream of a bad frame is structurally identical to a good frame's and
+// every captured input is healthy - so whatever breaks does it inside the
+// device's execution of a pass, which only an on-device probe can see.
+// SFPEW_NANSCAN=1 logs anomalies; SFPEW_NANSCAN=trace also logs each scanned
+// pass's centre value every 32nd frame, giving a per-pass value trail to hold
+// against the RenderDoc replay numbers.
+int nanscanMode() {
+    static const int mode = [] {
+        const char* v = getenv("SFPEW_NANSCAN");
+        if (v == nullptr || *v == '\0' || (v[0] == '0' && v[1] == '\0')) return 0;
+        return std::strcmp(v, "trace") == 0 ? 2 : 1;
+    }();
+    return mode;
+}
+
+std::atomic<uint32_t> g_nanscan_frame{0};
+
+void nanscanAfterUserDraw(GLuint program, GLsizei vertex_count) {
+    const int mode = nanscanMode();
+    if (mode == 0 || vertex_count > 8) return;
+    if (g_glFuncs.glGetIntegerv == nullptr || g_glFuncs.glReadPixels == nullptr ||
+        g_glFuncs.glBindFramebuffer == nullptr || g_glFuncs.glGetError == nullptr ||
+        g_glFuncs.glReadBuffer == nullptr || g_glFuncs.glPixelStorei == nullptr)
+        return;
+    const uint32_t frame = g_nanscan_frame.load(std::memory_order_relaxed);
+    const bool trace = mode == 2 && (frame & 31u) == 0u;
+
+    GLint draw_fbo = 0;
+    g_glFuncs.glGetIntegerv(0x8CA6 /* GL_DRAW_FRAMEBUFFER_BINDING */, &draw_fbo);
+    if (draw_fbo == 0) return; // only the offscreen shader-pack chain
+    GLint viewport[4] = {0, 0, 0, 0};
+    g_glFuncs.glGetIntegerv(0x0BA2 /* GL_VIEWPORT */, viewport);
+    if (viewport[2] < 4 || viewport[3] < 4) return;
+
+    while (g_glFuncs.glGetError() != GL_NO_ERROR) {} // start clean
+
+    GLint read_fbo = 0, pack_buffer = 0;
+    g_glFuncs.glGetIntegerv(0x8CAA /* GL_READ_FRAMEBUFFER_BINDING */, &read_fbo);
+    g_glFuncs.glGetIntegerv(0x88ED /* GL_PIXEL_PACK_BUFFER_BINDING */, &pack_buffer);
+    if (pack_buffer != 0 && g_glFuncs.glBindBuffer != nullptr)
+        g_glFuncs.glBindBuffer(0x88EB /* GL_PIXEL_PACK_BUFFER */, 0);
+    if (read_fbo != draw_fbo)
+        g_glFuncs.glBindFramebuffer(0x8CA8 /* GL_READ_FRAMEBUFFER */, (GLuint)draw_fbo);
+
+    GLint read_buffer = 0;
+    g_glFuncs.glGetIntegerv(0x0C02 /* GL_READ_BUFFER */, &read_buffer);
+    GLint pack_align = 4, pack_row = 0, pack_skip_rows = 0, pack_skip_pixels = 0;
+    g_glFuncs.glGetIntegerv(0x0D05 /* GL_PACK_ALIGNMENT */, &pack_align);
+    g_glFuncs.glGetIntegerv(0x0D02 /* GL_PACK_ROW_LENGTH */, &pack_row);
+    g_glFuncs.glGetIntegerv(0x0D03 /* GL_PACK_SKIP_ROWS */, &pack_skip_rows);
+    g_glFuncs.glGetIntegerv(0x0D04 /* GL_PACK_SKIP_PIXELS */, &pack_skip_pixels);
+    g_glFuncs.glPixelStorei(0x0D05, 4);
+    g_glFuncs.glPixelStorei(0x0D02, 0);
+    g_glFuncs.glPixelStorei(0x0D03, 0);
+    g_glFuncs.glPixelStorei(0x0D04, 0);
+
+    const GLint cx = viewport[0] + viewport[2] / 2 - 1;
+    const GLint cy = viewport[1] + viewport[3] / 2 - 1;
+    for (int attachment = 0; attachment < 2; ++attachment) {
+        g_glFuncs.glReadBuffer((GLenum)(0x8CE0 /* GL_COLOR_ATTACHMENT0 */ + attachment));
+        if (g_glFuncs.glGetError() != GL_NO_ERROR) break; // no such attachment
+        float px[2 * 2 * 4] = {0};
+        g_glFuncs.glReadPixels(cx, cy, 2, 2, GL_RGBA, GL_FLOAT, px);
+        if (g_glFuncs.glGetError() != GL_NO_ERROR) {
+            // Not a float attachment (or the driver refuses RGBA/FLOAT).
+            // A UNORM buffer cannot hold NaN anyway; note it once in trace.
+            if (trace)
+                SFPEW_LOGI("NANSCAN frame=%u prog=%u fbo=%d att=%d vp=%dx%d (non-float readback)",
+                           frame, program, draw_fbo, attachment, viewport[2], viewport[3]);
+            continue;
+        }
+        bool bad = false;
+        for (float v : px)
+            if (v != v || v > 1e20f || v < -1e20f) bad = true;
+        if (bad) {
+            SFPEW_LOGE("NANSCAN frame=%u prog=%u fbo=%d att=%d vp=%dx%d BAD centre=(%g,%g,%g,%g)",
+                       frame, program, draw_fbo, attachment, viewport[2], viewport[3], px[0],
+                       px[1], px[2], px[3]);
+        } else if (trace) {
+            SFPEW_LOGI("NANSCAN frame=%u prog=%u fbo=%d att=%d vp=%dx%d centre=(%g,%g,%g,%g)",
+                       frame, program, draw_fbo, attachment, viewport[2], viewport[3], px[0],
+                       px[1], px[2], px[3]);
+        }
+    }
+
+    g_glFuncs.glReadBuffer((GLenum)read_buffer);
+    if (read_fbo != draw_fbo)
+        g_glFuncs.glBindFramebuffer(0x8CA8 /* GL_READ_FRAMEBUFFER */, (GLuint)read_fbo);
+    if (pack_buffer != 0 && g_glFuncs.glBindBuffer != nullptr)
+        g_glFuncs.glBindBuffer(0x88EB /* GL_PIXEL_PACK_BUFFER */, (GLuint)pack_buffer);
+    g_glFuncs.glPixelStorei(0x0D05, pack_align);
+    g_glFuncs.glPixelStorei(0x0D02, pack_row);
+    g_glFuncs.glPixelStorei(0x0D03, pack_skip_rows);
+    g_glFuncs.glPixelStorei(0x0D04, pack_skip_pixels);
+    while (g_glFuncs.glGetError() != GL_NO_ERROR) {}
+}
+
 // GL_QUADS/GL_QUAD_STRIP/GL_POLYGON for a draw that keeps the APP's vertex
 // state. Sodium binds its own program and its own VAO with generic attributes,
 // then issues glDrawArrays(GL_QUADS, ...) - legal in GL 2.1, but mode 7 does not
@@ -813,12 +916,17 @@ void drawArraysNow(GLenum mode, GLint first, GLsizei count, bool forceFixedFunct
             if ((vertex_array.enabled_pointers & vertex_array_mask) && first >= 0 && count > 0 &&
                 sfpewUserProgramFixedFunctionDrawArrays((GLuint)current_program, mode, first,
                                                         count)) {
+                nanscanAfterUserDraw((GLuint)current_program, count);
                 return;
             }
             sfpewFeedUserProgramUniforms((GLuint)current_program);
         }
-        if (passthroughLegacyDrawArrays(mode, first, count)) return;
+        if (passthroughLegacyDrawArrays(mode, first, count)) {
+            if (current_program != 0) nanscanAfterUserDraw((GLuint)current_program, count);
+            return;
+        }
         g_glFuncs.glDrawArrays(mode, first, count);
+        if (current_program != 0) nanscanAfterUserDraw((GLuint)current_program, count);
         return;
     }
 
@@ -1125,12 +1233,17 @@ void drawElementsNow(GLenum mode, GLsizei count, GLenum type, const GLvoid* indi
         if (current_program != 0) {
             if ((vertex_array.enabled_pointers & vertex_array_mask) &&
                 userProgramDrawElements((GLuint)current_program, mode, count, type, indices)) {
+                nanscanAfterUserDraw((GLuint)current_program, count);
                 return;
             }
             sfpewFeedUserProgramUniforms((GLuint)current_program);
         }
-        if (passthroughLegacyDrawElements(mode, count, type, indices)) return;
+        if (passthroughLegacyDrawElements(mode, count, type, indices)) {
+            if (current_program != 0) nanscanAfterUserDraw((GLuint)current_program, count);
+            return;
+        }
         if (g_glFuncs.glDrawElements != nullptr) g_glFuncs.glDrawElements(mode, count, type, indices);
+        if (current_program != 0) nanscanAfterUserDraw((GLuint)current_program, count);
         return;
     }
 
@@ -1693,6 +1806,13 @@ GLenum nativeMultiDrawMode(GLenum mode) {
 }
 
 } // namespace
+
+// Called from the eglSwapBuffers wrappers so SFPEW_NANSCAN log lines carry a
+// frame number to group by. A relaxed increment; costs nothing when the scan
+// is off.
+void sfpewNanScanNoteFrame() {
+    g_nanscan_frame.fetch_add(1, std::memory_order_relaxed);
+}
 
 // GL 1.4 core. Forwards to the backend's multi-draw when nothing needs doing per
 // sub-draw, otherwise loops over the single-draw path so legacy modes and the

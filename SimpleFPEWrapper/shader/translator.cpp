@@ -527,6 +527,14 @@ const std::unordered_map<std::string, std::string>& legacyIdentifierReplacements
         {"mat4x2", "fpe_id_mat4x2"}, {"mat4x3", "fpe_id_mat4x3"}, {"mat4x4", "fpe_id_mat4x4"},
         {"lowp", "fpe_id_lowp"},     {"mediump", "fpe_id_mediump"},
         {"highp", "fpe_id_highp"},   {"precision", "fpe_id_precision"},
+        // Keywords GLSL grew after 1.20 that legacy sources use as plain
+        // identifiers. `sample` (a 4.00 qualifier) appears as a variable
+        // name in real shader packs - caught on device by the translation
+        // failure "syntax error, unexpected SAMPLE".
+        {"sample", "fpe_id_sample"},   {"patch", "fpe_id_patch"},
+        {"subroutine", "fpe_id_subroutine"},
+        {"smooth", "fpe_id_smooth_kw"}, {"flat", "fpe_id_flat_kw"},
+        {"noperspective", "fpe_id_noperspective"},
     };
     return map;
 }

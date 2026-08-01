@@ -20,7 +20,7 @@
 //   CMPBENCH_LIB=<path to .so>   library under test (required)
 //   CMPBENCH_CTX=egl|glx         how to obtain the backing context
 //   CMPBENCH_SCALE=<float>       iteration scale (default 1.0)
-//   CMPBENCH_ONLY=<substring>    run only matching phases
+//   CMPBENCH_ONLY=<a,b,c>        run only matching phases, in bench order
 //   CMPBENCH_VIEWPORT=<n>        square viewport; 1 (default) removes
 //                                fragment cost so only CPU overhead shows
 //   CMPBENCH_TSV=1               emit "phase<TAB>value<TAB>unit" for scripts
@@ -224,7 +224,27 @@ static void* sym(const char* n) {
 
 static int missing = 0;
 static const char* only = NULL;
-static int phase_on(const char* name) { return only == NULL || strstr(name, only) != NULL; }
+// CMPBENCH_ONLY takes a comma-separated list of substrings, so a run can
+// reproduce a specific phase ORDER. Phase cost is not independent of what ran
+// before it - a library may carry over grown buffers or warmed state - and
+// telling that apart from a real difference means being able to hold the
+// predecessor set fixed. gl4es, for one, runs tiny Begin/End batches 3x
+// faster once the large-batch phase has grown its render list.
+static int phase_on(const char* name) {
+    if (only == NULL) return 1;
+    for (const char* item = only; *item != '\0';) {
+        const char* comma = strchr(item, ',');
+        const size_t length = comma != NULL ? (size_t)(comma - item) : strlen(item);
+        if (length > 0) {
+            for (const char* at = name; *at != '\0'; ++at) {
+                if (strncmp(at, item, length) == 0) return 1;
+            }
+        }
+        if (comma == NULL) break;
+        item = comma + 1;
+    }
+    return 0;
+}
 
 // One result line. Human form by default; CMPBENCH_TSV=1 switches to
 // "phase<TAB>value<TAB>unit" so a driver script can diff two runs without

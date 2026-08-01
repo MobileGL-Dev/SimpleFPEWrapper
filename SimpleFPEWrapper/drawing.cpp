@@ -715,9 +715,22 @@ int nanscanMode() {
     static const int mode = [] {
         const char* v = getenv("SFPEW_NANSCAN");
         if (v == nullptr || *v == '\0' || (v[0] == '0' && v[1] == '\0')) return 0;
-        return std::strcmp(v, "trace") == 0 ? 2 : 1;
+        return std::strncmp(v, "trace", 5) == 0 ? 2 : 1;
     }();
     return mode;
+}
+
+// trace sample interval in frames: SFPEW_NANSCAN=trace:N (default 32).
+uint32_t nanscanInterval() {
+    static const uint32_t interval = [] {
+        const char* v = getenv("SFPEW_NANSCAN");
+        if (v != nullptr && std::strncmp(v, "trace:", 6) == 0) {
+            const long n = std::strtol(v + 6, nullptr, 10);
+            if (n >= 1 && n <= 100000) return (uint32_t)n;
+        }
+        return 32u;
+    }();
+    return interval;
 }
 
 std::atomic<uint32_t> g_nanscan_frame{0};
@@ -730,7 +743,7 @@ void nanscanAfterUserDraw(GLuint program, GLsizei vertex_count) {
         g_glFuncs.glReadBuffer == nullptr || g_glFuncs.glPixelStorei == nullptr)
         return;
     const uint32_t frame = g_nanscan_frame.load(std::memory_order_relaxed);
-    const bool trace = mode == 2 && (frame & 31u) == 0u;
+    const bool trace = mode == 2 && frame % nanscanInterval() == 0u;
 
     GLint draw_fbo = 0;
     g_glFuncs.glGetIntegerv(0x8CA6 /* GL_DRAW_FRAMEBUFFER_BINDING */, &draw_fbo);
@@ -761,9 +774,12 @@ void nanscanAfterUserDraw(GLuint program, GLsizei vertex_count) {
     g_glFuncs.glPixelStorei(0x0D03, 0);
     g_glFuncs.glPixelStorei(0x0D04, 0);
 
+    // All eight colortex attachments: Optifine keeps colortex0-7 attached at
+    // fixed points and selects with glDrawBuffers, so the scene HDR chain
+    // (colortex4 in the Derivative pack) is only visible from attachment 4.
     const GLint cx = viewport[0] + viewport[2] / 2 - 1;
     const GLint cy = viewport[1] + viewport[3] / 2 - 1;
-    for (int attachment = 0; attachment < 2; ++attachment) {
+    for (int attachment = 0; attachment < 8; ++attachment) {
         g_glFuncs.glReadBuffer((GLenum)(0x8CE0 /* GL_COLOR_ATTACHMENT0 */ + attachment));
         if (g_glFuncs.glGetError() != GL_NO_ERROR) break; // no such attachment
         float px[2 * 2 * 4] = {0};

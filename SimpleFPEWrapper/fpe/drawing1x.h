@@ -118,6 +118,13 @@ void mglTexCoord(std::array<Type, N> uv, GLint texid) {
     state.current_data.texcoord[texid] = mglDefaultedVec4<N>(uv);
 }
 
+// Colour material is a per-vertex side effect that mutates uniform material
+// state, so it has to stay ordered with the batch - but it is off for almost
+// every draw. Kept out of line so glColor4f can inline the part that always
+// runs: with the whole thing in one function the compiler declined to inline
+// it, and every immediate-mode vertex paid a call.
+void sfpewApplyColorMaterial(glstate_t& gs, const glm::vec4& colour);
+
 template <typename Type, GLint N>
 void mglColor(std::array<Type, N> color) {
     auto& gs = sfpewVertexDataState();
@@ -126,41 +133,8 @@ void mglColor(std::array<Type, N> color) {
     // Desktop GL defines alpha=1 for every glColor3* entry point.
     auto& cur = state.current_data.color;
     cur = mglDefaultedVec4<N>(color);
-
-    if (gs.fpe_state.fpe_bools.color_material_enable) {
-        // Vertex colors are copied into the pending batch, so ordinary color
-        // changes do not affect older glyphs. Color-material also mutates
-        // uniform material state, which must remain ordered with the batch.
-        flushPendingImmediateDraws();
-        const auto apply = [&](material_t& material) {
-            switch (gs.fpe_state.color_material_mode) {
-            case GL_AMBIENT:
-                material.ambient = cur;
-                break;
-            case GL_DIFFUSE:
-                material.diffuse = cur;
-                break;
-            case GL_SPECULAR:
-                material.specular = cur;
-                break;
-            case GL_EMISSION:
-                material.emission = cur;
-                break;
-            case GL_AMBIENT_AND_DIFFUSE:
-                material.ambient = cur;
-                material.diffuse = cur;
-                break;
-            default:
-                break;
-            }
-        };
-        if (gs.fpe_state.color_material_face == GL_FRONT ||
-            gs.fpe_state.color_material_face == GL_FRONT_AND_BACK)
-            apply(gs.fpe_uniform.materials[0]);
-        if (gs.fpe_state.color_material_face == GL_BACK ||
-            gs.fpe_state.color_material_face == GL_FRONT_AND_BACK)
-            apply(gs.fpe_uniform.materials[1]);
-    }
+    if (__builtin_expect(gs.fpe_state.fpe_bools.color_material_enable, 0))
+        sfpewApplyColorMaterial(gs, cur);
 }
 
 template <typename Type, GLint N>

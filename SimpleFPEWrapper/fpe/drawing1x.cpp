@@ -1133,6 +1133,34 @@ void sfpewCompileImmediateRuns(DisplayList& commands) {
     std::swap(saved_draw.vertex_count, draw.vertex_count);
 }
 
+// See the declaration in drawing1x.h: the cold half of glColor* under
+// GL_COLOR_MATERIAL.
+void sfpewApplyColorMaterial(glstate_t& gs, const glm::vec4& colour) {
+    // Vertex colours are copied into the pending batch, so ordinary colour
+    // changes do not affect older glyphs. Colour material also mutates
+    // uniform material state, which must remain ordered with the batch.
+    flushPendingImmediateDraws();
+    const auto apply = [&](material_t& material) {
+        switch (gs.fpe_state.color_material_mode) {
+        case GL_AMBIENT: material.ambient = colour; break;
+        case GL_DIFFUSE: material.diffuse = colour; break;
+        case GL_SPECULAR: material.specular = colour; break;
+        case GL_EMISSION: material.emission = colour; break;
+        case GL_AMBIENT_AND_DIFFUSE:
+            material.ambient = colour;
+            material.diffuse = colour;
+            break;
+        default: break;
+        }
+    };
+    if (gs.fpe_state.color_material_face == GL_FRONT ||
+        gs.fpe_state.color_material_face == GL_FRONT_AND_BACK)
+        apply(gs.fpe_uniform.materials[0]);
+    if (gs.fpe_state.color_material_face == GL_BACK ||
+        gs.fpe_state.color_material_face == GL_FRONT_AND_BACK)
+        apply(gs.fpe_uniform.materials[1]);
+}
+
 void glBegin(GLenum mode) {
     // Entry strict resolve: pins the Begin/End batch (and every vertex-data
     // call inside it) to this context via the thread-local snapshot.

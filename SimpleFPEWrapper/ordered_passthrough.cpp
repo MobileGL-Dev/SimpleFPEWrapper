@@ -362,6 +362,13 @@ void glTexParameteriv(GLenum target, GLenum pname, const GLint* params) {
 void glTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width,
                      GLsizei height, GLenum format, GLenum type, const GLvoid* pixels) {
     if (!sfpewEnsureBackend() || g_glFuncs.glTexSubImage2D == nullptr) return;
+    struct bgra_upload_guard_t {
+        sfpew_bgra_upload_t state{};
+        bool active = false;
+        ~bgra_upload_guard_t() {
+            if (active) sfpewFinishBgraUpload(state);
+        }
+    } bgraUpload;
     (void)g_glstate; // entry strict resolve; mipmap tracking reads the binding shadow
     sfpewEntryBarrier();
     // Legacy formats must match the RED/RG storage glTexImage2D allocated
@@ -371,31 +378,19 @@ void glTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, G
         format = GL_RED;
     } else if (format == GL_LUMINANCE_ALPHA) {
         format = GL_RG;
-    } else if (format == GL_BGRA && sfpewBackendIsES() &&
-               isBgraSwizzled(sfpewLogicalTextureBinding(GL_TEXTURE_2D))) {
-        // The texture stores its texels in BGRA order and the sampler
-        // compensates (glTexImage2D took that route because the data was in a
-        // pixel buffer object). A sub-image has to match, so this one goes in
-        // as it is - reordering it here would make the swizzle read it wrong.
-        format = GL_RGBA;
-        type = GL_UNSIGNED_BYTE;
-    } else if (format == GL_BGRA && sfpewBackendIsES() && pixels != nullptr &&
-               !sfpewUnpackPboBound() &&
-               (type == GL_UNSIGNED_BYTE || type == GL_UNSIGNED_INT_8_8_8_8 ||
-                type == GL_UNSIGNED_INT_8_8_8_8_REV)) {
-        thread_local std::vector<uint8_t> scratch;
-        const size_t count = (size_t)width * (size_t)height * 4u;
-        scratch.resize(count);
-        const auto* src = static_cast<const uint8_t*>(pixels);
-        for (size_t px = 0; px < count; px += 4) {
-            scratch[px + 0] = src[px + 2];
-            scratch[px + 1] = src[px + 1];
-            scratch[px + 2] = src[px + 0];
-            scratch[px + 3] = src[px + 3];
+    } else if (format == GL_BGRA && sfpewBackendIsES()) {
+        // Same conversion as glTexImage2D: reorders from client memory or a
+        // mapped pixel unpack buffer, honouring row length and skips, into a
+        // tight RGBA rectangle - which is what atlas stitching uploads and
+        // the old tight-row-only swap silently corrupted.
+        if (sfpewPrepareBgraUpload(width, height, type, pixels, &bgraUpload.state)) {
+            bgraUpload.active = true;
+            pixels = bgraUpload.state.pixels;
+            format = GL_RGBA;
+            type = GL_UNSIGNED_BYTE;
+        } else {
+            SFPEW_LOGW("glTexSubImage2D: unsupported GL_BGRA type 0x%x passed through", type);
         }
-        pixels = scratch.data();
-        format = GL_RGBA;
-        type = GL_UNSIGNED_BYTE;
     }
     g_glFuncs.glTexSubImage2D(target, level, xoffset, yoffset, width, height, format, type, pixels);
     sfpewMaybeGenerateMipmap(target);

@@ -29,10 +29,21 @@ GLenum sfpewLogicalActiveTexture();
 // directly, GLES has no such format in core and none of its BGRA extensions
 // cover the paths that matter here, so the wrapper converts on the CPU.
 bool sfpewBackendIsES();
-// True when this texture's texels are stored in BGRA order with the sampler
-// swizzle compensating (see the PBO path in glTexImage2D).
-bool isBgraSwizzled(GLuint texture);
-void setBgraSwizzle(GLenum target, GLuint texture, bool enable);
+
+// A GL_BGRA upload converted for a GLES backend: `pixels` is tightly packed
+// RGBA (thread-local scratch), and the unpack state / pixel unpack buffer
+// that had to be neutralized for the tight result is recorded here so
+// sfpewFinishBgraUpload can restore it after the backend call.
+struct sfpew_bgra_upload_t {
+    const void* pixels = nullptr;
+    GLuint rebind_pbo = 0;
+    GLint row_length = 0;
+    GLint skip_rows = 0;
+    GLint skip_pixels = 0;
+};
+bool sfpewPrepareBgraUpload(GLsizei width, GLsizei height, GLenum type, const void* pixels,
+                            sfpew_bgra_upload_t* out);
+void sfpewFinishBgraUpload(const sfpew_bgra_upload_t& upload);
 
 GLuint sfpewLogicalTextureBinding(GLenum target);
 // Changes whenever the active texture unit or any texture binding does.

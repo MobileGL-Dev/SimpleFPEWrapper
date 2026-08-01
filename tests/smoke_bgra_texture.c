@@ -6,20 +6,13 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 // End of Source File Header
 
-// GL_BGRA texture data, through both routes the wrapper has for it on a GLES
-// backend:
-//
-//   plain pointer  the bytes pass through the wrapper, which reorders them
-//                  and stores ordinary RGBA texels
-//   pixel buffer   the bytes never pass through the wrapper at all, so the
-//                  texels are stored in the application's order and the
-//                  sampler swizzle reorders them at read time
-//
-// Both must sample as the colour the application described, and a texture
-// must be able to move between the two: an upload of the other kind replaces
-// the level, so the swizzle from a previous upload has to go with it. That
-// last part is what a per-texture mode gets wrong when it is only ever set
-// and never cleared, which is why the ordinary upload here comes last.
+// GL_BGRA texture data on a GLES backend, through every source the wrapper
+// has to take it from: client memory, a pixel unpack buffer (mapped for
+// reading - the bytes never pass through the wrapper otherwise), and a
+// sub-rectangle of a wider image described with GL_UNPACK_ROW_LENGTH and the
+// skip offsets, which is how Minecraft stitches its atlases. Every route
+// reorders into tight RGBA before the backend sees it, so a texture can mix
+// BGRA and plain uploads freely.
 //
 // Probe colours keep R != B - a channel swap has to be visible - and the
 // quad is drawn with the texture modulating a white vertex colour.
@@ -52,6 +45,8 @@ typedef long GLsizeiptr;
 #define GL_VERTEX_ARRAY 0x8074
 #define GL_TEXTURE_COORD_ARRAY 0x8078
 #define GL_PIXEL_UNPACK_BUFFER 0x88EC
+#define GL_UNPACK_ROW_LENGTH 0x0CF2
+#define GL_UNPACK_SKIP_PIXELS 0x0CF4
 #define GL_STATIC_DRAW 0x88E4
 #define GL_NO_ERROR 0
 
@@ -75,6 +70,9 @@ static void (*fGenBuffers)(GLsizei, GLuint*);
 static void (*fBindBuffer)(GLenum, GLuint);
 static void (*fBufferData)(GLenum, GLsizeiptr, const void*, GLenum);
 static void (*fColor4f)(GLfloat, GLfloat, GLfloat, GLfloat);
+static void (*fTexSubImage2D)(GLenum, GLint, GLint, GLint, GLsizei, GLsizei, GLenum, GLenum,
+                              const void*);
+static void (*fPixelStorei)(GLenum, GLint);
 
 static int failures;
 
@@ -129,6 +127,7 @@ int main(void) {
     R(fBindTexture,"glBindTexture") R(fTexImage2D,"glTexImage2D")
     R(fTexParameteri,"glTexParameteri") R(fGenBuffers,"glGenBuffers")
     R(fBindBuffer,"glBindBuffer") R(fBufferData,"glBufferData") R(fColor4f,"glColor4f")
+    R(fTexSubImage2D,"glTexSubImage2D") R(fPixelStorei,"glPixelStorei")
 #undef R
 
     // 2x2 texels. Read as B,G,R,A this is red; read as R,G,B,A it is blue.
@@ -176,6 +175,38 @@ int main(void) {
     // ...and back again, so the mode is not one-way.
     fTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 2, 2, 0, GL_BGRA, GL_UNSIGNED_BYTE, texels);
     drawAndExpect(1, 0, 0, "switching back to GL_BGRA takes effect");
+
+    // Route 3: allocate empty, then fill through a pixel-buffer sub-image -
+    // the shape OptiFine's async uploads take, and one that used to fall
+    // through to the driver as raw GL_BGRA (GL_INVALID_OPERATION, black).
+    fTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 2, 2, 0, GL_BGRA, GL_UNSIGNED_BYTE, NULL);
+    fBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
+    fTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 2, 2, GL_BGRA, GL_UNSIGNED_BYTE, (const void*)0);
+    fBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+    drawAndExpect(1, 0, 0, "pixel-buffer sub-image into an empty texture");
+
+    // Route 4: a sub-rectangle out of a wider client image, described with
+    // GL_UNPACK_ROW_LENGTH and the skip offsets - how Minecraft stitches its
+    // atlases. The tight-row-only swap this replaced read the source as if
+    // the rectangle were contiguous, corrupting every such upload.
+    static const GLubyte wide[4 * 4 * 4] = {
+        // row 0: blue blue red red   (as BGRA bytes)
+        255,0,0,255, 255,0,0,255, 0,0,255,255, 0,0,255,255,
+        // row 1: same
+        255,0,0,255, 255,0,0,255, 0,0,255,255, 0,0,255,255,
+        // rows 2-3: blue
+        255,0,0,255, 255,0,0,255, 255,0,0,255, 255,0,0,255,
+        255,0,0,255, 255,0,0,255, 255,0,0,255, 255,0,0,255,
+    };
+    fTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 2, 2, 0, GL_BGRA, GL_UNSIGNED_BYTE, NULL);
+    fPixelStorei(GL_UNPACK_ROW_LENGTH, 4);
+    fPixelStorei(GL_UNPACK_SKIP_PIXELS, 2);
+    fTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 2, 2, GL_BGRA, GL_UNSIGNED_BYTE, wide);
+    fPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+    fPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
+    // Only the red 2x2 at columns 2-3, rows 0-1 was selected; the probe reads
+    // the texture centre, so a correct upload shows red everywhere.
+    drawAndExpect(1, 0, 0, "row-length + skip sub-rectangle keeps its bytes straight");
 
     const GLenum err = fGetError();
     if (err != GL_NO_ERROR) {

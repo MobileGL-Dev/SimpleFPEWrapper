@@ -266,28 +266,6 @@ void sfpewRememberTextureSize(GLuint texture, GLsizei width, GLsizei height) {
     if (texture != 0) textureSizes[texture] = {width, height};
 }
 
-// Textures whose texels are stored in the application's BGRA order, with the
-// sampler swizzle set to read them back as RGBA. Used when the data cannot be
-// reordered on the way in - it lives in a pixel buffer object, so the wrapper
-// never sees it - which is the one BGRA upload GLES cannot otherwise take.
-thread_local std::unordered_map<GLuint, bool> bgraSwizzledTextures;
-
-// GLES 3.0 sampler swizzle. Applied to the bound texture of `target`.
-void setBgraSwizzle(GLenum target, GLuint texture, bool enable) {
-    if (g_glFuncs.glTexParameteri == nullptr) return;
-    const bool current = texture != 0 && bgraSwizzledTextures.count(texture) != 0;
-    if (current == enable) return;
-    g_glFuncs.glTexParameteri(target, GL_TEXTURE_SWIZZLE_R, enable ? GL_BLUE : GL_RED);
-    g_glFuncs.glTexParameteri(target, GL_TEXTURE_SWIZZLE_B, enable ? GL_RED : GL_BLUE);
-    if (texture == 0) return;
-    if (enable) bgraSwizzledTextures[texture] = true;
-    else bgraSwizzledTextures.erase(texture);
-}
-
-bool isBgraSwizzled(GLuint texture) {
-    return texture != 0 && bgraSwizzledTextures.count(texture) != 0;
-}
-
 void sfpewSetGenerateMipmap(GLenum, GLuint texture, bool enable) {
     if (texture == 0) return;
     if (enable)
@@ -1112,8 +1090,6 @@ void glDeleteTextures(GLsizei n, const GLuint* textures) {
     g_glFuncs.glDeleteTextures(n, textures);
     if (n <= 0 || textures == nullptr) return;
 
-    for (GLsizei i = 0; i < n; ++i) bgraSwizzledTextures.erase(textures[i]);
-
     auto& state = getLogicalTextureBindings();
     for (auto& [key, binding] : state.bindings) {
         for (GLsizei i = 0; i < n; ++i) {
@@ -1200,64 +1176,145 @@ GLenum swizzleTargetFor(GLenum target) {
 // GL_BGRA uploads: GLES3 has no core BGRA path; swap on the CPU.
 // Tightly-packed rows are assumed (the common LWJGL/awt case); exotic
 // unpack state falls back to passthrough with a log line.
-const void* swapBgraPixels(GLsizei width, GLsizei height, GLenum type, const GLvoid* pixels,
-                           std::vector<uint8_t>& scratch) {
-    if (pixels == nullptr) return nullptr;
-    if (type != GL_UNSIGNED_BYTE && type != GL_UNSIGNED_INT_8_8_8_8 && type != GL_UNSIGNED_INT_8_8_8_8_REV) {
-        return nullptr;
+} // namespace
+
+// Reorder a GL_BGRA upload into tightly packed RGBA bytes, reading the source
+// the way the backend would have: through the bound pixel unpack buffer when
+// one is bound (mapped for reading - the bytes never pass through the wrapper
+// otherwise), and honouring GL_UNPACK_ROW_LENGTH / SKIP_ROWS / SKIP_PIXELS.
+// The tight-row shortcut this replaces broke every sub-rectangle upload out
+// of a larger image, which is exactly how Minecraft stitches its atlases.
+//
+// On success the unpack state that would misread the TIGHT result is cleared
+// and any unpack buffer is unbound; sfpewFinishBgraUpload restores both after
+// the caller's backend upload. Alignment needs no handling: both source and
+// result rows are whole 4-byte pixels.
+bool sfpewPrepareBgraUpload(GLsizei width, GLsizei height, GLenum type, const void* pixels,
+                            sfpew_bgra_upload_t* out) {
+    *out = {};
+    if (width <= 0 || height <= 0) return false;
+    if (type != GL_UNSIGNED_BYTE && type != GL_UNSIGNED_INT_8_8_8_8 &&
+        type != GL_UNSIGNED_INT_8_8_8_8_REV) {
+        return false;
     }
-    const size_t count = (size_t)width * (size_t)height * 4u;
-    scratch.resize(count);
-    const auto* src = static_cast<const uint8_t*>(pixels);
-    for (size_t px = 0; px < count; px += 4) {
-        scratch[px + 0] = src[px + 2];
-        scratch[px + 1] = src[px + 1];
-        scratch[px + 2] = src[px + 0];
-        scratch[px + 3] = src[px + 3];
+    if (g_glFuncs.glGetIntegerv == nullptr || g_glFuncs.glPixelStorei == nullptr) return false;
+
+    GLint row_length = 0, skip_rows = 0, skip_pixels = 0, pbo = 0;
+    g_glFuncs.glGetIntegerv(GL_UNPACK_ROW_LENGTH, &row_length);
+    g_glFuncs.glGetIntegerv(GL_UNPACK_SKIP_ROWS, &skip_rows);
+    g_glFuncs.glGetIntegerv(GL_UNPACK_SKIP_PIXELS, &skip_pixels);
+    g_glFuncs.glGetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, &pbo);
+    if (row_length < 0 || skip_rows < 0 || skip_pixels < 0) return false;
+
+    const size_t row_px = row_length > 0 ? (size_t)row_length : (size_t)width;
+    if (row_px < (size_t)width + (size_t)skip_pixels &&
+        !(row_length > 0 && (size_t)row_length >= (size_t)width)) {
+        // A row the caller described as narrower than the rectangle it is
+        // uploading; let the backend produce whatever error it would have.
+        if (row_length > 0) return false;
     }
-    return scratch.data();
+    const size_t start = ((size_t)skip_rows * row_px + (size_t)skip_pixels) * 4u;
+    const size_t needed = start + (((size_t)height - 1u) * row_px + (size_t)width) * 4u;
+
+    const uint8_t* source = nullptr;
+    if (pbo != 0) {
+        if (g_glFuncs.glMapBufferRange == nullptr || g_glFuncs.glUnmapBuffer == nullptr)
+            return false;
+        source = static_cast<const uint8_t*>(
+            g_glFuncs.glMapBufferRange(GL_PIXEL_UNPACK_BUFFER, (GLintptr)(uintptr_t)pixels,
+                                       (GLsizeiptr)needed, GL_MAP_READ_BIT));
+        if (source == nullptr) return false;
+    } else {
+        if (pixels == nullptr) return false;
+        source = static_cast<const uint8_t*>(pixels);
+    }
+
+    thread_local std::vector<uint8_t> scratch;
+    scratch.resize((size_t)width * (size_t)height * 4u);
+    for (size_t row = 0; row < (size_t)height; ++row) {
+        const uint8_t* in = source + start + row * row_px * 4u;
+        uint8_t* line = scratch.data() + row * (size_t)width * 4u;
+        if (type == GL_UNSIGNED_INT_8_8_8_8) {
+            // Big-endian component packing: bytes in memory are A,R,G,B on a
+            // little-endian host.
+            for (size_t px = 0; px < (size_t)width * 4u; px += 4) {
+                line[px + 0] = in[px + 1];
+                line[px + 1] = in[px + 2];
+                line[px + 2] = in[px + 3];
+                line[px + 3] = in[px + 0];
+            }
+        } else {
+            // GL_UNSIGNED_BYTE and _REV both lay the bytes out B,G,R,A.
+            for (size_t px = 0; px < (size_t)width * 4u; px += 4) {
+                line[px + 0] = in[px + 2];
+                line[px + 1] = in[px + 1];
+                line[px + 2] = in[px + 0];
+                line[px + 3] = in[px + 3];
+            }
+        }
+    }
+
+    if (pbo != 0) {
+        g_glFuncs.glUnmapBuffer(GL_PIXEL_UNPACK_BUFFER);
+        g_glFuncs.glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+        out->rebind_pbo = (GLuint)pbo;
+    }
+    if (row_length != 0) g_glFuncs.glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+    if (skip_rows != 0) g_glFuncs.glPixelStorei(GL_UNPACK_SKIP_ROWS, 0);
+    if (skip_pixels != 0) g_glFuncs.glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
+    out->row_length = row_length;
+    out->skip_rows = skip_rows;
+    out->skip_pixels = skip_pixels;
+    out->pixels = scratch.data();
+    return true;
 }
 
-} // namespace
+void sfpewFinishBgraUpload(const sfpew_bgra_upload_t& upload) {
+    if (g_glFuncs.glPixelStorei != nullptr) {
+        if (upload.row_length != 0) g_glFuncs.glPixelStorei(GL_UNPACK_ROW_LENGTH, upload.row_length);
+        if (upload.skip_rows != 0) g_glFuncs.glPixelStorei(GL_UNPACK_SKIP_ROWS, upload.skip_rows);
+        if (upload.skip_pixels != 0)
+            g_glFuncs.glPixelStorei(GL_UNPACK_SKIP_PIXELS, upload.skip_pixels);
+    }
+    if (upload.rebind_pbo != 0 && g_glFuncs.glBindBuffer != nullptr)
+        g_glFuncs.glBindBuffer(GL_PIXEL_UNPACK_BUFFER, upload.rebind_pbo);
+}
 
 void glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height, GLint border,
                   GLenum format, GLenum type, const GLvoid* pixels) {
     if (!sfpewEnsureBackend() || g_glFuncs.glTexImage2D == nullptr || g_glFuncs.glGetIntegerv == nullptr) return;
+    // Restores unpack state and any unbound pixel buffer once the upload
+    // below - whichever return path it takes - is done.
+    struct bgra_upload_guard_t {
+        sfpew_bgra_upload_t state{};
+        bool active = false;
+        ~bgra_upload_guard_t() {
+            if (active) sfpewFinishBgraUpload(state);
+        }
+    } bgraUpload;
     (void)g_glstate; // entry strict resolve; the binding/proxy shadows read the snapshot
     sfpewEntryBarrier();
     if (target != GL_PROXY_TEXTURE_2D) {
-        thread_local std::vector<uint8_t> bgraScratch;
-        // Desktop GL takes GL_BGRA as-is; only GLES needs help.
-        const GLuint bound = sfpewLogicalTextureBinding(GL_TEXTURE_2D);
+        // Desktop GL takes GL_BGRA as-is; on GLES every BGRA source - client
+        // memory or a pixel unpack buffer - is reordered into tight RGBA by
+        // sfpewPrepareBgraUpload, which also neutralizes the unpack state the
+        // tight result would be misread under. The guard restores both after
+        // the backend call below.
         if (format == GL_BGRA && sfpewBackendIsES()) {
-            const void* swapped = sfpewUnpackPboBound()
-                                      ? nullptr
-                                      : swapBgraPixels(width, height, type, pixels, bgraScratch);
-            if (swapped != nullptr || (pixels == nullptr && !sfpewUnpackPboBound())) {
-                // Reordered on the way in, so the texels are ordinary RGBA and
-                // the texture must not carry a swizzle from an earlier upload.
-                pixels = swapped;
+            if (pixels == nullptr && !sfpewUnpackPboBound()) {
+                // Pure allocation: nothing to reorder.
                 format = GL_RGBA;
                 type = GL_UNSIGNED_BYTE;
                 if (internalformat == GL_BGRA) internalformat = GL_RGBA8;
-                setBgraSwizzle(target, bound, false);
-            } else if (type == GL_UNSIGNED_BYTE || type == GL_UNSIGNED_INT_8_8_8_8 ||
-                       type == GL_UNSIGNED_INT_8_8_8_8_REV) {
-                // The data is in a pixel buffer object, so it never passes
-                // through here to be reordered. Store it as it is and let the
-                // sampler do the reordering instead: this level replaces the
-                // texture's contents, so the mode is this call's to set.
+            } else if (sfpewPrepareBgraUpload(width, height, type, pixels, &bgraUpload.state)) {
+                bgraUpload.active = true;
+                pixels = bgraUpload.state.pixels;
                 format = GL_RGBA;
                 type = GL_UNSIGNED_BYTE;
                 if (internalformat == GL_BGRA) internalformat = GL_RGBA8;
-                setBgraSwizzle(target, bound, true);
             } else {
                 SFPEW_LOGW("glTexImage2D: unsupported GL_BGRA type 0x%x passed through", type);
             }
-        } else if (sfpewBackendIsES() && isBgraSwizzled(bound)) {
-            // A plain upload replaces the level, so the swizzle a previous
-            // BGRA upload left behind would misread it.
-            setBgraSwizzle(target, bound, false);
         }
 
         legacy_format_mapping_t mapping{};

@@ -28,21 +28,8 @@ void fixed_function_draw_state_t::reset() {
     repacked = false;
 }
 
-void fixed_function_draw_state_t::set_attribute_size(int slot, GLint requested) {
+void fixed_function_draw_state_t::repack_for_attribute(int slot, GLint requested) {
     GLint& stored = current_data.sizes.data[slot];
-    if (primitive == kNoPrimitive || vertex_count == 0) {
-        // Only a real change earns a new stamp: every vertex re-declares the
-        // sizes of the attributes it sets, and stamping those no-op writes
-        // would rebuild the packing layout for the first vertex of every
-        // single Begin/End batch.
-        if (stored != requested) {
-            stored = requested;
-            current_data.sizes_epoch = sfpewNextSizesEpoch();
-        }
-        return;
-    }
-    if (requested <= stored) return; // grow-only while collecting
-
     // Repack every collected vertex from the old layout to the new one.
     // advance() only ever packs slots 0-2 (vertex/normal/color) and 7+
     // (texcoords), in ascending slot order.
@@ -135,45 +122,6 @@ void fixed_function_draw_state_t::rebuild_packed_layout() {
     packed_layout_epoch = current_data.sizes_epoch;
 }
 
-void fixed_function_draw_state_t::advance() {
-    ++vertex_count;
-
-    // Edge flags, collected only once they can change the picture. While
-    // every vertex so far has had the default GL_TRUE the vector stays
-    // empty, which the wireframe expansion reads as "all boundary"; the
-    // first cleared flag backfills the run's history and switches tracking
-    // on. Cost until then is this one compare against a hot byte.
-    if (!edge_flags.empty()) {
-        edge_flags.push_back(current_data.edge_flag);
-    } else if (current_data.edge_flag == GL_FALSE) {
-        edge_flags.assign(vertex_count - 1u, 1u);
-        edge_flags.push_back(0u);
-    }
-
-    // One integer compare per vertex. The stamp changes only when a write
-    // actually changes the size block, so a steady layout - every vertex of
-    // every batch in a draw loop - costs this compare and nothing else. It
-    // also revalidates after wholesale sizes overwrites (attrib-stack
-    // restore, immediate-draw guards), which take a fresh stamp.
-    if (packed_span_count < 0 || packed_layout_epoch != current_data.sizes_epoch) {
-        rebuild_packed_layout();
-    }
-
-    // resize() + a scalar copy loop, deliberately: an immediate-mode vertex
-    // is a handful of floats, and vector::insert routes those few bytes
-    // through memmove, whose call overhead measured worse than the zeroing
-    // resize does (tinybatch 0.37 -> 0.42 us/batch when this used insert).
-    const size_t old_size = vb.size();
-    vb.resize(old_size + packed_floats);
-    GLfloat* output = vb.data() + old_size;
-    const auto* base = reinterpret_cast<const GLfloat*>(&current_data);
-    for (int s = 0; s < packed_span_count; ++s) {
-        const auto [src_offset, count] = packed_spans[s];
-        const GLfloat* src = base + src_offset;
-        for (uint16_t c = 0; c < count; ++c) output[c] = src[c];
-        output += count;
-    }
-}
 
 
 void fixed_function_draw_state_t::compile_vertexattrib(vertex_pointer_array_t& va) const {

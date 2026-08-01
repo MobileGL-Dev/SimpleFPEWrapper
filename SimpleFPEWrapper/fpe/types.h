@@ -313,9 +313,15 @@ struct fixed_function_draw_state_t {
     void reset();
 
     // Put one vertex into vb, from current draw state
-    void advance();
+    // Hot: defined inline below. Both call an out-of-line half for the rare
+    // case, because every immediate-mode vertex runs these and the compiler
+    // was emitting calls for the whole thing.
+    inline void advance();
 
     void rebuild_packed_layout();
+    // The mid-primitive attribute introduction, which has to repack every
+    // vertex collected so far. Cold by construction.
+    void repack_for_attribute(int slot, GLint requested);
 
     // Declare attribute `slot` as size `requested` for the primitive being
     // collected. First attribute use after vertices were already collected
@@ -323,7 +329,7 @@ struct fixed_function_draw_state_t {
     // first glColor* after the first glVertex*). Grow-only within a
     // primitive; call BEFORE overwriting the attribute's current value -
     // already-collected vertices are backfilled with the OLD current value.
-    void set_attribute_size(int slot, GLint requested);
+    inline void set_attribute_size(int slot, GLint requested);
 
     void compile_vertexattrib(vertex_pointer_array_t& va) const;
 };
@@ -956,6 +962,66 @@ inline void* sfpewCurrentContextInline() {
 // was validated recently enough", which is exactly what the chain of
 // thread-local reads it replaces was computing - six of them, on a path every
 // exported entry point runs.
+// Declaring an attribute's component count for the primitive being collected.
+// The two early exits are what every vertex after the first takes; only an
+// attribute appearing mid-primitive needs the repack, which stays out of line.
+inline void fixed_function_draw_state_t::set_attribute_size(int slot, GLint requested) {
+    GLint& stored = current_data.sizes.data[slot];
+    if (primitive == kNoPrimitive || vertex_count == 0) {
+        // Only a real change earns a new stamp: every vertex re-declares the
+        // sizes of the attributes it sets, and stamping those no-op writes
+        // would rebuild the packing layout for the first vertex of every
+        // single Begin/End batch.
+        if (stored != requested) {
+            stored = requested;
+            current_data.sizes_epoch = sfpewNextSizesEpoch();
+        }
+        return;
+    }
+    if (requested <= stored) return; // grow-only while collecting
+    repack_for_attribute(slot, requested);
+}
+
+// Put one vertex into vb, from the current draw state.
+inline void fixed_function_draw_state_t::advance() {
+    ++vertex_count;
+
+    // Edge flags, collected only once they can change the picture. While
+    // every vertex so far has had the default GL_TRUE the vector stays
+    // empty, which the wireframe expansion reads as "all boundary"; the
+    // first cleared flag backfills the run's history and switches tracking
+    // on. Cost until then is this one compare against a hot byte.
+    if (__builtin_expect(!edge_flags.empty(), 0)) {
+        edge_flags.push_back(current_data.edge_flag);
+    } else if (__builtin_expect(current_data.edge_flag == 0, 0)) {
+        edge_flags.assign(vertex_count - 1u, 1u);
+        edge_flags.push_back(0u);
+    }
+
+    // One integer compare per vertex. The stamp changes only when a write
+    // actually changes the size block, so a steady layout - every vertex of
+    // every batch in a draw loop - costs this compare and nothing else.
+    if (__builtin_expect(packed_span_count < 0 || packed_layout_epoch != current_data.sizes_epoch,
+                         0)) {
+        rebuild_packed_layout();
+    }
+
+    // resize() + a scalar copy loop, deliberately: an immediate-mode vertex
+    // is a handful of floats, and vector::insert routes those few bytes
+    // through memmove, whose call overhead measured worse than the zeroing
+    // resize did - and the buffer no longer zeroes on resize anyway.
+    const size_t old_size = vb.size();
+    vb.resize(old_size + packed_floats);
+    GLfloat* output = vb.data() + old_size;
+    const auto* base = reinterpret_cast<const GLfloat*>(&current_data);
+    for (int s = 0; s < packed_span_count; ++s) {
+        const auto [src_offset, count] = packed_spans[s];
+        const GLfloat* src = base + src_offset;
+        for (uint16_t c = 0; c < count; ++c) output[c] = src[c];
+        output += count;
+    }
+}
+
 inline glstate_t& sfpewResolveState() {
     if (g_resolve_budget != 0u) {
         --g_resolve_budget;

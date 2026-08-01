@@ -126,7 +126,7 @@ void mglTexCoord(std::array<Type, N> uv, GLint texid) {
 void sfpewApplyColorMaterial(glstate_t& gs, const glm::vec4& colour);
 
 template <typename Type, GLint N>
-void mglColor(std::array<Type, N> color) {
+__attribute__((always_inline)) inline void mglColor(std::array<Type, N> color) {
     auto& gs = sfpewVertexDataState();
     auto& state = gs.fpe_state.fpe_draw;
     state.set_attribute_size(2, N);

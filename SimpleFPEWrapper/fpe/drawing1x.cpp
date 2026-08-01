@@ -415,6 +415,7 @@ void drawImmediateVertices(GLenum primitive, const GLfloat* vertices, size_t flo
                 sfpewConvertLegacyDrawMode(&draw_mode, &converted);
                 if (converted > 0) g_glFuncs.glDrawArrays(draw_mode, 0, converted);
             }
+            sfpewNanScanAfterUserDraw((GLuint)user_program, userDrawCount);
             return;
         }
     }

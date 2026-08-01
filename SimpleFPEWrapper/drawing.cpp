@@ -1814,6 +1814,15 @@ void sfpewNanScanNoteFrame() {
     g_nanscan_frame.fetch_add(1, std::memory_order_relaxed);
 }
 
+// The immediate-mode flush (drawing1x) draws shader-pack composite quads with
+// the user program itself - glBegin/glEnd is how Optifine 1.12 issues them -
+// so that path needs the same post-draw probe as the array/element entries
+// here. First device run proved it: only four programs ever reached the scan,
+// the whole composite chain was flowing through the immediate path unseen.
+void sfpewNanScanAfterUserDraw(GLuint program, GLsizei vertex_count) {
+    nanscanAfterUserDraw(program, vertex_count);
+}
+
 // GL 1.4 core. Forwards to the backend's multi-draw when nothing needs doing per
 // sub-draw, otherwise loops over the single-draw path so legacy modes and the
 // fixed-function/user-program plumbing still apply to each one.

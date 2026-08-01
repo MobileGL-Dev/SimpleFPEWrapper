@@ -300,6 +300,36 @@ bool sfpewBackendIsES() {
     return cached != 0;
 }
 
+// Whether the backend accepts GL_BGRA pixel and vertex formats natively.
+// GLES never does (the policy this wrapper is built around). A DESKTOP
+// version string normally means it does - but not when the "desktop GL" is
+// itself a translation layer that forwards to GLES: MobileGlues reports a
+// desktop version yet rewrites GL_BGRA to GL_RGBA without reordering the
+// bytes, which shipped exactly that red/blue swap on device. Its version
+// string carries "MobileGlues", so it is recognized and treated like GLES.
+//
+// The conservative direction is CONVERT: RGBA bytes are correct for every
+// backend, native BGRA only for some. An unanswerable query (no current
+// context yet) therefore reports "does not take BGRA" and is not cached.
+bool sfpewBackendTakesBgra() {
+    static int cached = -1;
+    if (cached < 0) {
+        const GLubyte* raw =
+            g_glFuncs.glGetString != nullptr ? g_glFuncs.glGetString(GL_VERSION) : nullptr;
+        if (raw == nullptr) return false;
+        const char* version = (const char*)raw;
+        const bool es = std::strstr(version, "OpenGL ES") != nullptr;
+        const bool translator = std::strstr(version, "MobileGlues") != nullptr;
+        cached = (!es && !translator) ? 1 : 0;
+        // Once, with the evidence: which backend this is and what was
+        // decided for it. The device round that motivated this feature
+        // would have been one log line instead of an rdc excavation.
+        SFPEW_LOGI("backend \"%s\": BGRA uploads %s", version,
+                   cached != 0 ? "passed through natively" : "converted to RGBA");
+    }
+    return cached != 0;
+}
+
 uint64_t sfpewTextureStateGeneration() { return getLogicalTextureBindings().generation; }
 
 GLuint sfpewLogicalTextureBinding(GLenum target) {
@@ -1345,7 +1375,7 @@ void glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei widt
         // sfpewPrepareBgraUpload, which also neutralizes the unpack state the
         // tight result would be misread under. The guard restores both after
         // the backend call below.
-        if (format == GL_BGRA && sfpewBackendIsES()) {
+        if (format == GL_BGRA && !sfpewBackendTakesBgra()) {
             if (pixels == nullptr && !sfpewUnpackPboBound()) {
                 // Pure allocation: nothing to reorder.
                 format = GL_RGBA;

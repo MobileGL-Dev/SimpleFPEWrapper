@@ -275,7 +275,7 @@ void glVertexAttribPointer(GLuint index, GLint size, GLenum type, GLboolean norm
     // four plain components so the draw still happens, with the application's
     // own shader seeing them in its own order. Said once, because a renderer
     // that does this does it every frame.
-    if (isBgraArraySize(size, type) && sfpewBackendIsES()) {
+    if (isBgraArraySize(size, type) && !sfpewBackendTakesBgra()) {
         static bool warned = false;
         if (!warned) {
             warned = true;

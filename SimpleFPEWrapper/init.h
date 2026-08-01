@@ -29,6 +29,10 @@ GLenum sfpewLogicalActiveTexture();
 // directly, GLES has no such format in core and none of its BGRA extensions
 // cover the paths that matter here, so the wrapper converts on the CPU.
 bool sfpewBackendIsES();
+// True when the backend takes GL_BGRA natively: desktop GL, excluding
+// GLES-backed translation layers (MobileGlues) that only pretend to.
+// Conservative: unknown answers "no", and the wrapper converts.
+bool sfpewBackendTakesBgra();
 
 // A GL_BGRA upload converted for a GLES backend: `pixels` is tightly packed
 // RGBA (thread-local scratch), and the unpack state / pixel unpack buffer

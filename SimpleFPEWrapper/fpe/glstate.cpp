@@ -529,7 +529,7 @@ namespace {
 // gets a plain four-component array and the generated shader does the
 // reordering (fpe_shadergen).
 GLint backendAttribSize(const vertexattribute_t& attribute) {
-    return attribute.bgra && !sfpewBackendIsES() ? (GLint)GL_BGRA : attribute.size;
+    return attribute.bgra && sfpewBackendTakesBgra() ? (GLint)GL_BGRA : attribute.size;
 }
 } // namespace
 

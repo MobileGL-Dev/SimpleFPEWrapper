@@ -100,6 +100,37 @@ constexpr size_t kDisplayListArenaCapacity = 64u * 1024u * 1024u;
 // SFPEW_LISTLOG=1 prints a per-frame summary plus a detailed line for the
 // first few occurrences of each failure. Off by default and behind a single
 // bool test, so nothing here costs anything in a normal run.
+// Two bisection switches for the device. Everything the accounting can see
+// is healthy - the wrapper submits every list the game asks for - so what
+// remains is geometry that is submitted and does not land, and the two ways
+// that can happen both involve state shared between lists.
+//
+// SFPEW_NO_LIST_BATCH=1 stops merging a glCallLists group into one
+// multi-draw, replaying each list on its own instead. That takes the
+// per-list baseVertex out of the picture.
+//
+// SFPEW_NO_LIST_ARENA=1 gives every captured list its own vertex buffer
+// instead of a slice of one 64 MiB arena, so no list can be affected by
+// another's offset or by arena reuse.
+//
+// Both cost performance and neither changes what is drawn, so a symptom that
+// disappears under one of them names its own cause.
+bool listBatchDisabled() {
+    static const bool disabled = [] {
+        const char* v = getenv("SFPEW_NO_LIST_BATCH");
+        return v != nullptr && v[0] != '\0' && !(v[0] == '0' && v[1] == '\0');
+    }();
+    return disabled;
+}
+
+bool listArenaDisabled() {
+    static const bool disabled = [] {
+        const char* v = getenv("SFPEW_NO_LIST_ARENA");
+        return v != nullptr && v[0] != '\0' && !(v[0] == '0' && v[1] == '\0');
+    }();
+    return disabled;
+}
+
 bool listLogEnabled() {
     static const bool enabled = [] {
         const char* v = getenv("SFPEW_LISTLOG");
@@ -122,8 +153,10 @@ FILE* listLogFile() {
             return nullptr;
         }
         setvbuf(opened, nullptr, _IOLBF, 0);
-        fprintf(opened, "SFPEW display-list accounting, commit %s, built %s\n", SFPEW_GIT_COMMIT,
-                __DATE__ " " __TIME__);
+        fprintf(opened, "SFPEW display-list accounting, commit %s, built %s%s%s\n",
+                SFPEW_GIT_COMMIT, __DATE__ " " __TIME__,
+                listBatchDisabled() ? " [NO_LIST_BATCH]" : "",
+                listArenaDisabled() ? " [NO_LIST_ARENA]" : "");
         fflush(opened);
         SFPEW_LOGI("LISTLOG writing to %s", path);
         return opened;
@@ -645,7 +678,7 @@ private:
         }
         arenaAllocation = {};
 
-        if (vertexBuffer == 0 &&
+        if (vertexBuffer == 0 && !listArenaDisabled() &&
             displayListVertexArena.allocate(vertexData.data(), vertexData.size(),
                                             static_cast<size_t>(layout.stride), &arenaAllocation)) {
             *drawFirst = static_cast<GLint>(arenaAllocation.offset / static_cast<size_t>(layout.stride));
@@ -1539,6 +1572,7 @@ void drawElementsNow(GLenum mode, GLsizei count, GLenum type, const GLvoid* indi
 } // namespace
 
 bool tryExecuteCapturedDisplayLists(const GLuint* listIds, size_t listCount) {
+    if (listBatchDisabled()) return false;
     ++g_listLog.batchTry;
     if (listIds == nullptr || listCount < 2 || g_glFuncs.glMultiDrawArrays == nullptr ||
         g_glstate_c.fpe_uniform.transformation.matrix_mode != GL_MODELVIEW) {

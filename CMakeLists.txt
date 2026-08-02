@@ -244,6 +244,14 @@ if(NOT ANDROID)
                         add_test(NAME smoke_list_immediate COMMAND smoke_list_immediate)
                         set_tests_properties(smoke_list_immediate PROPERTIES SKIP_RETURN_CODE 77)
 
+                        add_executable(smoke_version tests/smoke_version.c)
+                        target_compile_definitions(smoke_version PRIVATE
+                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
+                        target_link_libraries(smoke_version PRIVATE dl ${SFPEW_TEST_EGL})
+                        add_dependencies(smoke_version ${CMAKE_PROJECT_NAME})
+                        add_test(NAME smoke_version COMMAND smoke_version)
+                        set_tests_properties(smoke_version PROPERTIES SKIP_RETURN_CODE 77)
+
                         add_executable(smoke_gl3_core tests/smoke_gl3_core.c)
                         target_compile_definitions(smoke_gl3_core PRIVATE
                                 WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")

@@ -66,11 +66,15 @@ backend is reported as its desktop equivalent (ES 3.0 → 3.3, ES 3.1 → 4.3,
 ES 3.2 → 4.5) with the backend's real string preserved in the suffix:
 
 ```
-GL_VERSION: 4.5 SFPEW (OpenGL ES 3.2 NVIDIA 610.43.03)
+GL_VERSION: 4.5 SFPEW 26.08-dev, GIT@1b61a9ff8d07 (OpenGL ES 3.2 NVIDIA 610.43.03)
 ```
 
+The wrapper's own version and the commit it was built from sit between the two
+(see `version.h`); `GL_RENDERER` repeats the version after the backend's
+renderer name.
+
 For a desktop backend the function returns false and the version is reported
-verbatim. Nothing else in the wrapper reads this result — it does not gate a
+verbatim, with the wrapper named and versioned in the suffix instead. Nothing else in the wrapper reads this result — it does not gate a
 feature, pick a shader path, or change a draw path.
 
 ## Enforcement

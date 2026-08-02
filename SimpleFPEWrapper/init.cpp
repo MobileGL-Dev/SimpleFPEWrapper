@@ -9,6 +9,7 @@
 #include "init.h"
 #include "fpe/fpe.hpp"
 #include "log.h"
+#include "version.h"
 
 #include <cstdlib>
 
@@ -41,12 +42,10 @@ bool InitBackend() noexcept {
 
         // One line identifying the build, at the moment the wrapper first
         // becomes operational: every on-device report starts with "which
-        // commit is this", and a version string cannot answer that.
-#ifndef SFPEW_GIT_COMMIT
-#define SFPEW_GIT_COMMIT "unknown"
-#endif
-        SFPEW_LOGI("SimpleFPEWrapper initialized, commit %s, built %s", SFPEW_GIT_COMMIT,
-                   __DATE__ " " __TIME__);
+        // commit is this", and the version alone cannot answer that.
+        SFPEW_LOGI("%s %s (%s build) initialized, commit %s, built %s", kSfpewProjectFullName,
+                   sfpewVersionString(), sfpewVersionTypeName(kSfpewVersion.type),
+                   SFPEW_GIT_COMMIT, __DATE__ " " __TIME__);
 
         return true;
     } catch (...) {

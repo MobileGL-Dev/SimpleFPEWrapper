@@ -9,6 +9,7 @@
 #include "GL/gl.h"
 #include "init.h"
 #include "log.h"
+#include "version.h"
 #include <glm/gtc/type_ptr.hpp>
 #include <cstdint>
 #include <algorithm>
@@ -1150,12 +1151,14 @@ const GLubyte* glGetString(GLenum name) {
             if (!backend) return nullptr;
             int major = 0, minor = 0;
             if (sfpewDesktopGLVersion(&major, &minor)) {
-                // Desktop-parseable level first, backend identity after it.
-                cachedVersionString = std::to_string(major) + "." + std::to_string(minor) +
-                                      " SFPEW (" + (const char*)backend + ")";
+                // Desktop-parseable level first, then who is answering and
+                // out of which build, backend identity last.
+                cachedVersionString = std::to_string(major) + "." + std::to_string(minor) + " " +
+                                      kSfpewProjectName + " " + sfpewVersionAndCommit() + " (" +
+                                      (const char*)backend + ")";
             } else {
-                cachedVersionString =
-                    std::string((const char*)backend) + " (with Simple FPE Wrapper)";
+                cachedVersionString = std::string((const char*)backend) + " (with " +
+                                      kSfpewProjectFullName + " " + sfpewVersionString() + ")";
             }
         }
         return (const GLubyte*)cachedVersionString.c_str();
@@ -1201,7 +1204,8 @@ const GLubyte* glGetString(GLenum name) {
         if (cachedRendererString.empty()) {
             const GLubyte* backend = g_glFuncs.glGetString(GL_RENDERER);
             if (!backend) return nullptr;
-            cachedRendererString = std::string((const char*)backend) + " (SFPEW)";
+            cachedRendererString = std::string((const char*)backend) + " (" + kSfpewProjectName +
+                                   " " + sfpewVersionString() + ")";
         }
         return (const GLubyte*)cachedRendererString.c_str();
     }

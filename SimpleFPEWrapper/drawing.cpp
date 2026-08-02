@@ -136,6 +136,7 @@ GLuint identityIndexBuffer(GLsizei vertices, GLenum* type) {
     return buffer;
 }
 
+#if SFPEW_LIST_DEBUG
 // ---- SFPEW_LISTLOG: display-list geometry accounting -------------------
 // Minecraft's terrain lives entirely in display lists, and every way this
 // wrapper can lose a chunk is silent by construction: a draw whose client
@@ -277,13 +278,6 @@ struct list_log_counters_t {
 list_log_counters_t g_listLog;
 constexpr unsigned kListLogDetailLimit = 12;
 
-struct display_list_vertex_allocation_t {
-    GLuint buffer = 0;
-    size_t offset = 0;
-    size_t size = 0;
-    uint64_t generation = 0;
-};
-
 // Counts an arena rejection and names the reason for the first few.
 bool listLogArenaFail(const char* reason, size_t size) {
     ++g_listLog.arenaFail;
@@ -292,6 +286,31 @@ bool listLogArenaFail(const char* reason, size_t size) {
     }
     return false;
 }
+
+// Counts a tally step only in a build that has the accounting.
+#define SFPEW_LISTLOG_TALLY(statement)                                                             \
+    do {                                                                                           \
+        statement;                                                                                 \
+    } while (0)
+#else
+// Without the accounting these fold away entirely; an arena rejection is
+// still a plain false, and the bisection switches read as permanently off.
+inline bool listLogEnabled() { return false; }
+inline bool listBatchDisabled() { return false; }
+inline bool listArenaDisabled() { return false; }
+inline bool listBatchLoopOnly() { return false; }
+inline bool listLogArenaFail(const char*, size_t) { return false; }
+#define SFPEW_LISTLOG_TALLY(statement)                                                             \
+    do {                                                                                           \
+    } while (0)
+#endif
+
+struct display_list_vertex_allocation_t {
+    GLuint buffer = 0;
+    size_t offset = 0;
+    size_t size = 0;
+    uint64_t generation = 0;
+};
 
 class display_list_vertex_arena_t {
     struct block_t {
@@ -337,11 +356,14 @@ public:
         // Upload through GL_COPY_WRITE_BUFFER: not part of vertex-array state,
         // so no binding guard is needed and no shadow can observe it.
         g_glFuncs.glBindBuffer(GL_COPY_WRITE_BUFFER, buffer);
+#if SFPEW_LIST_DEBUG
         if (listLogEnabled() && g_glFuncs.glGetError != nullptr) {
             while (g_glFuncs.glGetError() != GL_NO_ERROR) {}
         }
+#endif
         g_glFuncs.glBufferSubData(GL_COPY_WRITE_BUFFER, static_cast<GLintptr>(offset),
                                   static_cast<GLsizeiptr>(size), data);
+#if SFPEW_LIST_DEBUG
         if (listLogEnabled() && g_glFuncs.glGetError != nullptr) {
             const GLenum err = g_glFuncs.glGetError();
             if (err != GL_NO_ERROR && g_listLog.detailsArena++ < kListLogDetailLimit) {
@@ -350,8 +372,9 @@ public:
                            err, buffer, offset, size, tail, kDisplayListArenaCapacity);
             }
         }
+#endif
         g_glFuncs.glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
-        ++g_listLog.arenaOk;
+        SFPEW_LISTLOG_TALLY(++g_listLog.arenaOk);
         allocation->buffer = buffer;
         allocation->offset = offset;
         allocation->size = size;
@@ -439,13 +462,18 @@ private:
         const GLenum reserveError =
             g_glFuncs.glGetError != nullptr ? g_glFuncs.glGetError() : (GLenum)GL_NO_ERROR;
         if (reserveError != GL_NO_ERROR) {
-            listLogLine(true, "LISTLOG arena reservation of %zu bytes REFUSED (err=0x%x); captured "
+            // Worth one line in any build: it changes how every captured list
+            // is stored for the rest of the run.
+            SFPEW_LOGW("display-list arena reservation of %zu bytes REFUSED (err=0x%x); captured "
                        "display lists fall back to one buffer each",
                        kDisplayListArenaCapacity, reserveError);
-        } else if (listLogEnabled()) {
-            listLogLine(false, "LISTLOG arena reserved %zu bytes as buffer %u", kDisplayListArenaCapacity,
-                       buffer);
         }
+#if SFPEW_LIST_DEBUG
+        else if (listLogEnabled()) {
+            listLogLine(false, "LISTLOG arena reserved %zu bytes as buffer %u",
+                        kDisplayListArenaCapacity, buffer);
+        }
+#endif
         g_glFuncs.glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
         storageReady = true;
         return true;
@@ -680,8 +708,8 @@ public:
 
     void execute() const override {
         if (!valid) return;
-        ++g_listLog.replayDraws;
-        g_listLog.vertsDrawn += (unsigned long long)count;
+        SFPEW_LISTLOG_TALLY(++g_listLog.replayDraws);
+        SFPEW_LISTLOG_TALLY(g_listLog.vertsDrawn += (unsigned long long)count);
 
         wrapper_client_state_guard_t wrapperState;
 
@@ -752,31 +780,38 @@ private:
         if (vertexBuffer == 0) {
             if ((!g_glstate_c.fpe_ready && init_fpe() != 0) || g_glFuncs.glGenBuffers == nullptr ||
                 g_glFuncs.glBufferData == nullptr) {
-                ++g_listLog.staticFail;
+                SFPEW_LISTLOG_TALLY(++g_listLog.staticFail);
+#if SFPEW_LIST_DEBUG
                 if (listLogEnabled() && g_listLog.detailsArena++ < kListLogDetailLimit)
                     listLogLine(true, "LISTLOG static buffer unavailable (no glGenBuffers/glBufferData)");
+#endif
                 return false;
             }
             g_glFuncs.glGenBuffers(1, &vertexBuffer);
             sfpewNoteInternalBuffer(vertexBuffer);
             if (vertexBuffer == 0) {
-                ++g_listLog.staticFail;
+                SFPEW_LISTLOG_TALLY(++g_listLog.staticFail);
+#if SFPEW_LIST_DEBUG
                 if (listLogEnabled() && g_listLog.detailsArena++ < kListLogDetailLimit)
                     listLogLine(true, "LISTLOG glGenBuffers returned 0 for a %zu byte list block",
                                vertexData.size());
+#endif
                 return false;
             }
-            ++g_listLog.dedicated;
+            SFPEW_LISTLOG_TALLY(++g_listLog.dedicated);
         }
 
         if (!vertexBufferUploaded) {
             array_buffer_binding_guard_t bindingState;
             g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer);
+#if SFPEW_LIST_DEBUG
             if (listLogEnabled() && g_glFuncs.glGetError != nullptr) {
                 while (g_glFuncs.glGetError() != GL_NO_ERROR) {}
             }
+#endif
             g_glFuncs.glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(vertexData.size()),
                                    vertexData.data(), GL_STATIC_DRAW);
+#if SFPEW_LIST_DEBUG
             if (listLogEnabled() && g_glFuncs.glGetError != nullptr) {
                 const GLenum err = g_glFuncs.glGetError();
                 if (err != GL_NO_ERROR && g_listLog.detailsArena++ < kListLogDetailLimit) {
@@ -784,6 +819,7 @@ private:
                                vertexBuffer, err, vertexData.size());
                 }
             }
+#endif
             vertexBufferUploaded = true;
         }
         *selectedBuffer = vertexBuffer;
@@ -1056,7 +1092,7 @@ bool passthroughLegacyDrawArrays(GLenum mode, GLint first, GLsizei count) {
 
 void drawArraysNow(GLenum mode, GLint first, GLsizei count, bool forceFixedFunction,
                    GLint arrayBufferOverride) {
-    ++g_listLog.drawsTotal;
+    SFPEW_LISTLOG_TALLY(++g_listLog.drawsTotal);
     // A zero-vertex draw is legal and simply draws nothing - only a NEGATIVE
     // count is an error. Returning here keeps it away from the client-array
     // upload sizing in commit_fpe_state_on_draw, which assumes at least one
@@ -1639,16 +1675,18 @@ void drawElementsNow(GLenum mode, GLsizei count, GLenum type, const GLvoid* indi
 
 bool tryExecuteCapturedDisplayLists(const GLuint* listIds, size_t listCount) {
     if (listBatchDisabled()) return false;
-    ++g_listLog.batchTry;
+    SFPEW_LISTLOG_TALLY(++g_listLog.batchTry);
     if (listIds == nullptr || listCount < 2 ||
         (g_glFuncs.glMultiDrawArrays == nullptr &&
          g_glFuncs.glMultiDrawElementsBaseVertex == nullptr) ||
         g_glstate_c.fpe_uniform.transformation.matrix_mode != GL_MODELVIEW) {
+#if SFPEW_LIST_DEBUG
         if (listLogEnabled() && g_listLog.detailsBatch++ < kListLogDetailLimit) {
             listLogLine(false, "LISTLOG batch declined: count=%zu multiDraw=%s matrixMode=0x%x",
                        listCount, g_glFuncs.glMultiDrawArrays ? "yes" : "NO",
                        g_glstate_c.fpe_uniform.transformation.matrix_mode);
         }
+#endif
         return false;
     }
 
@@ -1787,30 +1825,36 @@ bool tryExecuteCapturedDisplayLists(const GLuint* listIds, size_t listCount) {
         GLint first = 0;
         if (!batch->draws[i]->bindStaticVertexBuffer(&buffer, &first) ||
             buffer != batch->commonBuffer) {
+#if SFPEW_LIST_DEBUG
             if (listLogEnabled() && g_listLog.detailsBatch++ < kListLogDetailLimit) {
                 listLogLine(true,
                             "LISTLOG batch list %u no longer shares the group's buffer "
                             "(buffer=%u want=%u); replaying the group one list at a time",
                             batch->listIds[i], buffer, batch->commonBuffer);
             }
+#endif
             batch->valid = false;
             return false;
         }
         if (first != batch->firsts[i]) {
+#if SFPEW_LIST_DEBUG
             if (listLogEnabled() && g_listLog.detailsBatch++ < kListLogDetailLimit) {
                 listLogLine(true,
                             "LISTLOG batch list %u moved: cached first=%d now %d (stride=%d) - "
                             "the cached group would have drawn the wrong vertices",
                             batch->listIds[i], batch->firsts[i], first, batch->prototype->layout.stride);
             }
+#endif
             batch->firsts[i] = first;
         }
     }
 
-    ++g_listLog.batchOk;
-    g_listLog.drawnLists += (unsigned)listCount;
+    SFPEW_LISTLOG_TALLY(++g_listLog.batchOk);
+    SFPEW_LISTLOG_TALLY(g_listLog.drawnLists += (unsigned)listCount);
+#if SFPEW_LIST_DEBUG
     for (const GLsizei vertices : batch->vertexCounts)
         g_listLog.vertsDrawn += (unsigned long long)vertices;
+#endif
     const auto* prototype = batch->prototype;
     const GLuint commonBuffer = batch->commonBuffer;
 
@@ -1889,6 +1933,7 @@ bool tryExecuteCapturedDisplayLists(const GLuint* listIds, size_t listCount) {
         executed = true;
     }
 
+#if SFPEW_LIST_DEBUG
     if (listLogEnabled() && executed && g_listLog.detailsBatch++ < kListLogDetailLimit) {
         listLogLine(false,
                     "LISTLOG batch %s mode=0x%x n=%zu maxVerts=%d buffer=%u stride=%d "
@@ -1902,6 +1947,7 @@ bool tryExecuteCapturedDisplayLists(const GLuint* listIds, size_t listCount) {
                     batch->vertexCounts.size() > 1 ? batch->vertexCounts[1] : -1,
                     batch->vertexCounts.size() > 2 ? batch->vertexCounts[2] : -1);
     }
+#endif
     modelView = savedModelView;
     return executed;
 }
@@ -1929,11 +1975,12 @@ void glDrawArrays(GLenum mode, GLint first, GLsizei count) {
             auto captured = std::make_unique<captured_draw_arrays_cmd_t>(
                 mode, first, count, vertexArray, g_glstate_c.fpe_state.client_active_texture);
             if (captured->isValid()) {
-                ++g_listLog.captureOk;
-                g_listLog.vertsCompiled += (unsigned long long)count;
+                SFPEW_LISTLOG_TALLY(++g_listLog.captureOk);
+                SFPEW_LISTLOG_TALLY(g_listLog.vertsCompiled += (unsigned long long)count);
                 command = std::move(captured);
             } else {
-                ++g_listLog.captureFail;
+                SFPEW_LISTLOG_TALLY(++g_listLog.captureFail);
+#if SFPEW_LIST_DEBUG
                 if (listLogEnabled() && g_listLog.detailsCapture++ < kListLogDetailLimit) {
                     const auto& vp = vertexArray.attributes[captured->failAttribute >= 0
                                                                 ? captured->failAttribute
@@ -1950,9 +1997,11 @@ void glDrawArrays(GLenum mode, GLint first, GLsizei count) {
                                captured->failBuffer, captured->failBufferSize,
                                captured->failSourceEnd);
                 }
+#endif
             }
         } else {
-            ++g_listLog.preconditionSkip;
+            SFPEW_LISTLOG_TALLY(++g_listLog.preconditionSkip);
+#if SFPEW_LIST_DEBUG
             if (listLogEnabled() && g_listLog.detailsPrecondition++ < kListLogDetailLimit) {
                 listLogLine(true, "LISTLOG DROP not capturable: list=%u mode=0x%x first=%d count=%d "
                            "program=%d enabled=0x%x (GL_VERTEX_ARRAY %s)",
@@ -1960,6 +2009,7 @@ void glDrawArrays(GLenum mode, GLint first, GLsizei count) {
                            vertexArray.enabled_pointers,
                            (vertexArray.enabled_pointers & vertexArrayMask) ? "on" : "OFF");
             }
+#endif
         }
 
         // Never retain the caller's raw client-array pointers in a display
@@ -2110,6 +2160,7 @@ GLenum nativeMultiDrawMode(GLenum mode) {
 
 } // namespace
 
+#if SFPEW_LIST_DEBUG
 // One line per frame with everything that could have lost geometry, so a
 // device log shows at a glance whether chunks are being dropped at capture,
 // at replay, or never called at all. Called from the swap wrappers.
@@ -2250,6 +2301,7 @@ void sfpewListLogCalled(GLuint list, int found, size_t commands) {
     }
     if (commands == 0) ++g_listLog.callsEmpty;
 }
+#endif
 
 // GL 1.4 core. Forwards to the backend's multi-draw when nothing needs doing per
 // sub-draw, otherwise loops over the single-draw path so legacy modes and the

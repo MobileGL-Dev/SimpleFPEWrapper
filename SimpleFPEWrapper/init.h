@@ -52,8 +52,18 @@ bool sfpewPrepareBgraUpload(GLsizei width, GLsizei height, GLenum type, const vo
                             sfpew_bgra_upload_t* out);
 void sfpewFinishBgraUpload(const sfpew_bgra_upload_t& upload);
 
-// SFPEW_LISTLOG display-list geometry accounting (drawing.cpp). All no-ops
-// unless the environment variable is set.
+// Display-list geometry accounting: a per-frame tally of every way chunk
+// geometry can go missing, plus switches that take the batched replay apart
+// one path at a time. It exists for device investigations and is compiled
+// out of a normal build - cmake -DSFPEW_LIST_DEBUG=ON puts it in, and even
+// then nothing happens until SFPEW_LISTLOG is set in the environment. What
+// stays in every build is the handful of one-time notices at startup: the
+// backend's BGRA and multi-draw decisions, and a refused arena reservation.
+#ifndef SFPEW_LIST_DEBUG
+#define SFPEW_LIST_DEBUG 0
+#endif
+
+#if SFPEW_LIST_DEBUG
 void sfpewListLogFrame();
 void sfpewListLogCompiled(GLuint list, size_t commands);
 void sfpewListLogCalled(GLuint list, int found, size_t commands);
@@ -67,6 +77,20 @@ void sfpewListLogDrawIssued();
 void sfpewListLogDrewOne();
 void sfpewListLogMatrixQuery(const char* which, unsigned slot, size_t stackDepth,
                              const GLfloat* matrix);
+#else
+inline void sfpewListLogFrame() {}
+inline void sfpewListLogCompiled(GLuint, size_t) {}
+inline void sfpewListLogCalled(GLuint, int, size_t) {}
+inline void sfpewListLogRequested(unsigned) {}
+inline void sfpewListLogRequestedIds(const GLuint*, unsigned) {}
+inline void sfpewListLogGenerated(unsigned) {}
+inline void sfpewListLogDeleted(unsigned) {}
+inline void sfpewListLogRecording(GLuint) {}
+inline void sfpewListLogSingleCall() {}
+inline void sfpewListLogDrawIssued() {}
+inline void sfpewListLogDrewOne() {}
+inline void sfpewListLogMatrixQuery(const char*, unsigned, size_t, const GLfloat*) {}
+#endif
 
 GLuint sfpewLogicalTextureBinding(GLenum target);
 // Changes whenever the active texture unit or any texture binding does.

@@ -136,6 +136,14 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
 
 target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE -Wall -Wextra)
 
+# Display-list geometry accounting and the switches that bisect the batched
+# replay. Investigation scaffolding: out of a normal build entirely, and even
+# when compiled in it stays dormant until SFPEW_LISTLOG is set at runtime.
+option(SFPEW_LIST_DEBUG "Compile the display-list accounting and its bisection switches" OFF)
+if(SFPEW_LIST_DEBUG)
+        target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE SFPEW_LIST_DEBUG=1)
+endif()
+
 # The git commit this build came from, logged once at backend initialization
 # so a device report always identifies the code it was produced by - version
 # strings alone cannot distinguish two builds made the same day. Configure

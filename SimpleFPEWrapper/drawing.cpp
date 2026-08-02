@@ -805,8 +805,17 @@ void nanscanAfterUserDraw(GLuint program, GLsizei vertex_count) {
             if (v != v || v > 1e20f || v < -1e20f) bad = true;
         if (!bad && !trace) continue;
 
-        float t00[4] = {0, 0, 0, 0};
-        g_glFuncs.glReadPixels(viewport[0], viewport[1], 1, 1, GL_RGBA, GL_FLOAT, t00);
+        // Three absolute corner-adjacent texels: run 6 showed texel (0,0) of
+        // EVERY colortex going exactly (0,0,0,0) mid-session while centres
+        // stayed healthy - the pack stores its exposure in colortex5 texel
+        // (0,0), so an uncovered corner pixel blacks the whole screen. The
+        // triplet separates a one-pixel corner gap from a shifted edge from a
+        // failed readback (error code logged).
+        float t00[4] = {0, 0, 0, 0}, t11[4] = {0, 0, 0, 0}, t44[4] = {0, 0, 0, 0};
+        g_glFuncs.glReadPixels(0, 0, 1, 1, GL_RGBA, GL_FLOAT, t00);
+        const GLenum t00_err = g_glFuncs.glGetError();
+        g_glFuncs.glReadPixels(1, 1, 1, 1, GL_RGBA, GL_FLOAT, t11);
+        g_glFuncs.glReadPixels(4, 4, 1, 1, GL_RGBA, GL_FLOAT, t44);
 
         char extra[192] = "";
         if ((attachment == 4 || attachment == 5) &&
@@ -849,14 +858,16 @@ void nanscanAfterUserDraw(GLuint program, GLsizei vertex_count) {
 
         if (bad) {
             SFPEW_LOGE(
-                "NANSCAN frame=%u prog=%u fbo=%d att=%d vp=%dx%d BAD centre=(%g,%g,%g,%g) t00=(%g,%g,%g,%g)%s",
-                frame, program, draw_fbo, attachment, viewport[2], viewport[3], px[0], px[1],
-                px[2], px[3], t00[0], t00[1], t00[2], t00[3], extra);
+                "NANSCAN frame=%u prog=%u fbo=%d att=%d vp=(%d,%d,%dx%d) BAD centre=(%g,%g,%g,%g) t00=(%g,%g,%g,%g)e%x t11=(%g,%g,%g) t44=(%g,%g,%g)%s",
+                frame, program, draw_fbo, attachment, viewport[0], viewport[1], viewport[2],
+                viewport[3], px[0], px[1], px[2], px[3], t00[0], t00[1], t00[2], t00[3], t00_err,
+                t11[0], t11[1], t11[2], t44[0], t44[1], t44[2], extra);
         } else {
             SFPEW_LOGI(
-                "NANSCAN frame=%u prog=%u fbo=%d att=%d vp=%dx%d centre=(%g,%g,%g,%g) t00=(%g,%g,%g,%g)%s",
-                frame, program, draw_fbo, attachment, viewport[2], viewport[3], px[0], px[1],
-                px[2], px[3], t00[0], t00[1], t00[2], t00[3], extra);
+                "NANSCAN frame=%u prog=%u fbo=%d att=%d vp=(%d,%d,%dx%d) centre=(%g,%g,%g,%g) t00=(%g,%g,%g,%g)e%x t11=(%g,%g,%g) t44=(%g,%g,%g)%s",
+                frame, program, draw_fbo, attachment, viewport[0], viewport[1], viewport[2],
+                viewport[3], px[0], px[1], px[2], px[3], t00[0], t00[1], t00[2], t00[3], t00_err,
+                t11[0], t11[1], t11[2], t44[0], t44[1], t44[2], extra);
         }
     }
 

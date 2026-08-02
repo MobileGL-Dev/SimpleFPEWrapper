@@ -49,6 +49,12 @@ bool sfpewPrepareBgraUpload(GLsizei width, GLsizei height, GLenum type, const vo
                             sfpew_bgra_upload_t* out);
 void sfpewFinishBgraUpload(const sfpew_bgra_upload_t& upload);
 
+// SFPEW_LISTLOG display-list geometry accounting (drawing.cpp). All no-ops
+// unless the environment variable is set.
+void sfpewListLogFrame();
+void sfpewListLogCompiled(GLuint list, size_t commands);
+void sfpewListLogCalled(GLuint list, int found, size_t commands);
+
 GLuint sfpewLogicalTextureBinding(GLenum target);
 // Changes whenever the active texture unit or any texture binding does.
 uint64_t sfpewTextureStateGeneration();

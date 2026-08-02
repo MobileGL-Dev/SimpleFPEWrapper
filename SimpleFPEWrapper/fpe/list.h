@@ -9,6 +9,7 @@
 #pragma once
 
 #include <GL/gl.h>
+#include "../init.h" // sfpewListLog*: display-list geometry accounting
 #include "../log.h"
 #include <glm/mat4x4.hpp>
 #include <glm/vec3.hpp>
@@ -355,6 +356,7 @@ public:
         if (it != lists.end()) {
             sfpewCompileImmediateRuns(it->second);
             optimizeDisplayListCommands(it->second);
+            sfpewListLogCompiled(currentListID, it->second.size());
         }
         bumpMutationGeneration();
         currentListID = 0;
@@ -362,6 +364,7 @@ public:
     }
 
     static int isRecording() { return currentListID != 0 ? 1 : 0; }
+
 
     static int isCalling() { return callingDepth != 0; }
 
@@ -421,6 +424,8 @@ public:
 
     static void callList(GLuint listID) {
         auto it = lists.find(listID);
+        sfpewListLogCalled(listID, it != lists.end() ? 1 : 0,
+                           it != lists.end() ? it->second.size() : 0u);
         if (it == lists.end()) return;
 
         if (callingDepth >= kMaxListNesting) {

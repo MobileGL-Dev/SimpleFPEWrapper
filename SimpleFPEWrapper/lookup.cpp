@@ -842,6 +842,7 @@ EGLBoolean sfpewEglMakeCurrent(EGLDisplay dpy, EGLSurface draw, EGLSurface read,
 EGLBoolean sfpewEglSwapBuffers(EGLDisplay dpy, EGLSurface surface) {
     if (!sfpewEnsureBackend() || g_eglFuncs.eglSwapBuffers == nullptr) return EGL_FALSE;
     sfpewEntryBarrier();
+    sfpewListLogFrame();
     return g_eglFuncs.eglSwapBuffers(dpy, surface);
 }
 
@@ -849,6 +850,7 @@ EGLBoolean sfpewEglSwapBuffersWithDamageEXT(EGLDisplay dpy, EGLSurface surface, 
                                             EGLint n_rects) {
     if (!sfpewEnsureBackend()) return EGL_FALSE;
     sfpewEntryBarrier();
+    sfpewListLogFrame();
     if (g_eglFuncs.eglSwapBuffersWithDamageEXT != nullptr)
         return g_eglFuncs.eglSwapBuffersWithDamageEXT(dpy, surface, rects, n_rects);
     // The damage rectangles are only a hint; a plain swap is a conforming

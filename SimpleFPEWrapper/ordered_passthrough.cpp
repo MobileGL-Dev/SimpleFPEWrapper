@@ -101,7 +101,17 @@ GLint sfpewLogicalProgram() {
         if (g_glFuncs.name != nullptr) g_glFuncs.name arguments;                                                      \
     }
 
-RECORDED_PASSTHROUGH(glClear, (GLbitfield mask), (mask))
+// glClear is the one call every frame starts with, so it is also where the
+// SFPEW_LISTLOG summary is flushed: a launcher that drives eglSwapBuffers
+// around the wrapper would otherwise never reach a frame boundary the
+// wrapper can see. The summary itself skips a boundary with nothing to say.
+void glClear(GLbitfield mask) {
+    if (!sfpewEnsureBackend()) return;
+    sfpewEntryBarrier();
+    LIST_RECORD(glClear, {}, mask)
+    sfpewListLogFrame();
+    if (g_glFuncs.glClear != nullptr) g_glFuncs.glClear(mask);
+}
 // glDrawElements lives in drawing.cpp: it is FPE-converted, not passthrough.
 void glReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type,
                   GLvoid* pixels) {

@@ -85,12 +85,58 @@ struct array_buffer_binding_guard_t {
 
 constexpr size_t kDisplayListArenaCapacity = 64u * 1024u * 1024u;
 
+// ---- SFPEW_LISTLOG: display-list geometry accounting -------------------
+// Minecraft's terrain lives entirely in display lists, and every way this
+// wrapper can lose a chunk is silent by construction: a draw whose client
+// arrays cannot be snapshotted is dropped from the list rather than replayed
+// from stale memory, an arena allocation that the driver refused still
+// reports success, and a list that compiled to nothing simply draws nothing.
+// The symptom is identical in all three cases - geometry that never appears -
+// so the only way to tell them apart is to count them.
+//
+// SFPEW_LISTLOG=1 prints a per-frame summary plus a detailed line for the
+// first few occurrences of each failure. Off by default and behind a single
+// bool test, so nothing here costs anything in a normal run.
+bool listLogEnabled() {
+    static const bool enabled = [] {
+        const char* v = getenv("SFPEW_LISTLOG");
+        return v != nullptr && v[0] != '\0' && !(v[0] == '0' && v[1] == '\0');
+    }();
+    return enabled;
+}
+
+struct list_log_counters_t {
+    // Per frame
+    unsigned calls = 0;          // lists invoked by glCallList(s)
+    unsigned callsMissing = 0;   // invoked ids with no list object
+    unsigned callsEmpty = 0;     // invoked lists that hold no commands
+    unsigned replayDraws = 0;    // captured draws actually executed
+    unsigned batchTry = 0, batchOk = 0;
+    unsigned captureOk = 0, captureFail = 0, preconditionSkip = 0;
+    unsigned arenaOk = 0, arenaFail = 0, dedicated = 0, staticFail = 0;
+    unsigned compiled = 0, compiledEmpty = 0;
+    // Whole run, for the "first N" detail lines
+    unsigned detailsCapture = 0, detailsPrecondition = 0, detailsArena = 0, detailsEmpty = 0,
+             detailsBatch = 0, detailsMissing = 0;
+};
+list_log_counters_t g_listLog;
+constexpr unsigned kListLogDetailLimit = 12;
+
 struct display_list_vertex_allocation_t {
     GLuint buffer = 0;
     size_t offset = 0;
     size_t size = 0;
     uint64_t generation = 0;
 };
+
+// Counts an arena rejection and names the reason for the first few.
+bool listLogArenaFail(const char* reason, size_t size) {
+    ++g_listLog.arenaFail;
+    if (listLogEnabled() && g_listLog.detailsArena++ < kListLogDetailLimit) {
+        SFPEW_LOGW("LISTLOG arena allocate REJECTED (%s) size=%zu", reason, size);
+    }
+    return false;
+}
 
 class display_list_vertex_arena_t {
     struct block_t {
@@ -113,9 +159,9 @@ public:
         // Runs under a recording/draw entry whose strict resolve refreshed
         // the snapshot (docs/context-model.md).
         const EGLContext currentContext = (EGLContext)glstate_t::cached_context();
-        if (currentContext == EGL_NO_CONTEXT) return false;
+        if (currentContext == EGL_NO_CONTEXT) return listLogArenaFail("no-current-context", size);
         if (context != currentContext) resetForContext(currentContext);
-        if (!ensureStorage()) return false;
+        if (!ensureStorage()) return listLogArenaFail("storage-unavailable", size);
 
         reapRetired(false);
 
@@ -128,7 +174,7 @@ public:
                 reapRetired(true);
                 if (!allocateFreeBlock(size, stride, &offset) &&
                     !allocateTail(size, stride, &offset)) {
-                    return false;
+                    return listLogArenaFail("arena-full", size);
                 }
             }
         }
@@ -136,9 +182,21 @@ public:
         // Upload through GL_COPY_WRITE_BUFFER: not part of vertex-array state,
         // so no binding guard is needed and no shadow can observe it.
         g_glFuncs.glBindBuffer(GL_COPY_WRITE_BUFFER, buffer);
+        if (listLogEnabled() && g_glFuncs.glGetError != nullptr) {
+            while (g_glFuncs.glGetError() != GL_NO_ERROR) {}
+        }
         g_glFuncs.glBufferSubData(GL_COPY_WRITE_BUFFER, static_cast<GLintptr>(offset),
                                   static_cast<GLsizeiptr>(size), data);
+        if (listLogEnabled() && g_glFuncs.glGetError != nullptr) {
+            const GLenum err = g_glFuncs.glGetError();
+            if (err != GL_NO_ERROR && g_listLog.detailsArena++ < kListLogDetailLimit) {
+                SFPEW_LOGW("LISTLOG arena SubData FAILED err=0x%x buffer=%u offset=%zu size=%zu "
+                           "tail=%zu cap=%zu",
+                           err, buffer, offset, size, tail, kDisplayListArenaCapacity);
+            }
+        }
         g_glFuncs.glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
+        ++g_listLog.arenaOk;
         allocation->buffer = buffer;
         allocation->offset = offset;
         allocation->size = size;
@@ -217,9 +275,22 @@ private:
         // Some drivers report GL_OUT_OF_MEMORY only via glGetError; a failed
         // allocation surfaces later as a failed SubData/draw, and the captured
         // draw's dedicated-buffer fallback covers that.
+        if (g_glFuncs.glGetError != nullptr) {
+            while (g_glFuncs.glGetError() != GL_NO_ERROR) {}
+        }
         g_glFuncs.glBufferData(GL_COPY_WRITE_BUFFER,
                                static_cast<GLsizeiptr>(kDisplayListArenaCapacity), nullptr,
                                GL_STATIC_DRAW);
+        const GLenum reserveError =
+            g_glFuncs.glGetError != nullptr ? g_glFuncs.glGetError() : (GLenum)GL_NO_ERROR;
+        if (reserveError != GL_NO_ERROR) {
+            SFPEW_LOGW("LISTLOG arena reservation of %zu bytes REFUSED (err=0x%x); captured "
+                       "display lists fall back to one buffer each",
+                       kDisplayListArenaCapacity, reserveError);
+        } else if (listLogEnabled()) {
+            SFPEW_LOGI("LISTLOG arena reserved %zu bytes as buffer %u", kDisplayListArenaCapacity,
+                       buffer);
+        }
         g_glFuncs.glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
         storageReady = true;
         return true;
@@ -373,6 +444,14 @@ public:
     }
 
     bool isValid() const { return valid; }
+    // Why capture() gave up, for SFPEW_LISTLOG. Never read on a hot path.
+    const char* failReason = "unknown";
+    int failAttribute = -1;
+    GLint failSize = 0, failStride = 0, failBufferSize = 0;
+    GLenum failType = 0;
+    uintptr_t failPointer = 0;
+    GLuint failBuffer = 0;
+    size_t failSourceEnd = 0;
     bool isCapturedDraw() const override { return true; }
     bool bakePositionTranslation(const glm::vec3& translation) override {
         if (!valid || arenaAllocation.buffer != 0 || vertexBuffer != 0 || vertexBufferUploaded) {
@@ -446,6 +525,7 @@ public:
 
     void execute() const override {
         if (!valid) return;
+        ++g_listLog.replayDraws;
 
         wrapper_client_state_guard_t wrapperState;
 
@@ -516,18 +596,38 @@ private:
         if (vertexBuffer == 0) {
             if ((!g_glstate_c.fpe_ready && init_fpe() != 0) || g_glFuncs.glGenBuffers == nullptr ||
                 g_glFuncs.glBufferData == nullptr) {
+                ++g_listLog.staticFail;
+                if (listLogEnabled() && g_listLog.detailsArena++ < kListLogDetailLimit)
+                    SFPEW_LOGW("LISTLOG static buffer unavailable (no glGenBuffers/glBufferData)");
                 return false;
             }
             g_glFuncs.glGenBuffers(1, &vertexBuffer);
             sfpewNoteInternalBuffer(vertexBuffer);
-            if (vertexBuffer == 0) return false;
+            if (vertexBuffer == 0) {
+                ++g_listLog.staticFail;
+                if (listLogEnabled() && g_listLog.detailsArena++ < kListLogDetailLimit)
+                    SFPEW_LOGW("LISTLOG glGenBuffers returned 0 for a %zu byte list block",
+                               vertexData.size());
+                return false;
+            }
+            ++g_listLog.dedicated;
         }
 
         if (!vertexBufferUploaded) {
             array_buffer_binding_guard_t bindingState;
             g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer);
+            if (listLogEnabled() && g_glFuncs.glGetError != nullptr) {
+                while (g_glFuncs.glGetError() != GL_NO_ERROR) {}
+            }
             g_glFuncs.glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(vertexData.size()),
                                    vertexData.data(), GL_STATIC_DRAW);
+            if (listLogEnabled() && g_glFuncs.glGetError != nullptr) {
+                const GLenum err = g_glFuncs.glGetError();
+                if (err != GL_NO_ERROR && g_listLog.detailsArena++ < kListLogDetailLimit) {
+                    SFPEW_LOGW("LISTLOG dedicated buffer %u upload FAILED err=0x%x size=%zu",
+                               vertexBuffer, err, vertexData.size());
+                }
+            }
             vertexBufferUploaded = true;
         }
         *selectedBuffer = vertexBuffer;
@@ -537,6 +637,7 @@ private:
 
     bool capture(GLint first, const vertex_pointer_array_t& source) {
         if (first < 0 || count <= 0) {
+            failReason = "first<0 or count<=0";
             return false;
         }
 
@@ -556,12 +657,19 @@ private:
             const size_t componentBytes = componentSize(sourceAttribute.type);
             if (sourceAttribute.size < 1 || sourceAttribute.size > 4 || componentBytes == 0 ||
                 sourceAttribute.stride < 0) {
+                failReason = "bad attribute size/type/stride";
+                failAttribute = i;
+                failSize = sourceAttribute.size;
+                failType = sourceAttribute.type;
+                failStride = sourceAttribute.stride;
                 return false;
             }
 
             size_t elementBytes = 0;
             if (!checkedMultiply(static_cast<size_t>(sourceAttribute.size), componentBytes, &elementBytes) ||
                 !alignSize(packedStride, componentBytes, &packedStride)) {
+                failReason = "packed-stride overflow";
+                failAttribute = i;
                 return false;
             }
 
@@ -576,6 +684,8 @@ private:
 
             packedOffsets[i] = packedStride;
             if (!checkedAdd(packedStride, elementBytes, &packedStride)) {
+                failReason = "packed-offset overflow";
+                failAttribute = i;
                 return false;
             }
             if (componentBytes > largestAlignment) largestAlignment = componentBytes;
@@ -585,11 +695,13 @@ private:
 
         if (!alignSize(packedStride, largestAlignment, &packedStride) || packedStride == 0 ||
             packedStride > static_cast<size_t>(std::numeric_limits<GLsizei>::max())) {
+            failReason = "final stride invalid";
             return false;
         }
 
         size_t allocationSize = 0;
         if (!checkedMultiply(static_cast<size_t>(count), packedStride, &allocationSize)) {
+            failReason = "vertex block size overflow";
             return false;
         }
         vertexData.resize(allocationSize);
@@ -605,7 +717,15 @@ private:
         for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
             const auto& attribute = attributes[i];
             if (!attribute.enabled) continue;
-            if (!copyAttribute(attribute, first, packedStride)) return false;
+            if (!copyAttribute(attribute, first, packedStride)) {
+                failAttribute = i;
+                failSize = layout.attributes[i].size;
+                failType = layout.attributes[i].type;
+                failStride = layout.attributes[i].stride;
+                failPointer = attribute.sourcePointer;
+                failBuffer = attribute.sourceBuffer;
+                return false;
+            }
         }
         return true;
     }
@@ -631,11 +751,15 @@ private:
             // Low values are buffer offsets, not dereferenceable client
             // addresses. They cannot be captured without the buffer binding
             // that was active at gl*Pointer time.
-            if (attribute.sourcePointer < 4096) return false;
+            if (attribute.sourcePointer < 4096) {
+                failReason = "client pointer below 4096 (looks like a buffer offset)";
+                return false;
+            }
             source = reinterpret_cast<const uint8_t*>(firstByte);
         } else {
             if (g_glFuncs.glGetBufferParameteriv == nullptr || g_glFuncs.glMapBufferRange == nullptr ||
                 g_glFuncs.glUnmapBuffer == nullptr) {
+                failReason = "backend has no buffer mapping";
                 return false;
             }
 
@@ -643,11 +767,16 @@ private:
             GLint bufferSize = 0;
             g_glFuncs.glGetBufferParameteriv(GL_ARRAY_BUFFER, GL_BUFFER_SIZE, &bufferSize);
             if (bufferSize <= 0 || sourceEnd > static_cast<size_t>(bufferSize)) {
+                failReason = "source VBO too small for the draw range";
+                failBufferSize = bufferSize;
+                failSourceEnd = sourceEnd;
                 return false;
             }
 
             mappedBuffer = g_glFuncs.glMapBufferRange(GL_ARRAY_BUFFER, 0, bufferSize, GL_MAP_READ_BIT);
             if (mappedBuffer == nullptr) {
+                failReason = "glMapBufferRange(READ) refused by the driver";
+                failBufferSize = bufferSize;
                 return false;
             }
             source = static_cast<const uint8_t*>(mappedBuffer) + firstByte;
@@ -660,7 +789,10 @@ private:
                         attribute.elementSize);
         }
 
-        if (mappedBuffer != nullptr && g_glFuncs.glUnmapBuffer(GL_ARRAY_BUFFER) == GL_FALSE) return false;
+        if (mappedBuffer != nullptr && g_glFuncs.glUnmapBuffer(GL_ARRAY_BUFFER) == GL_FALSE) {
+            failReason = "glUnmapBuffer reported data loss";
+            return false;
+        }
         return true;
     }
 
@@ -1346,8 +1478,14 @@ void drawElementsNow(GLenum mode, GLsizei count, GLenum type, const GLvoid* indi
 } // namespace
 
 bool tryExecuteCapturedDisplayLists(const GLuint* listIds, size_t listCount) {
+    ++g_listLog.batchTry;
     if (listIds == nullptr || listCount < 2 || g_glFuncs.glMultiDrawArrays == nullptr ||
         g_glstate_c.fpe_uniform.transformation.matrix_mode != GL_MODELVIEW) {
+        if (listLogEnabled() && g_listLog.detailsBatch++ < kListLogDetailLimit) {
+            SFPEW_LOGI("LISTLOG batch declined: count=%zu multiDraw=%s matrixMode=0x%x",
+                       listCount, g_glFuncs.glMultiDrawArrays ? "yes" : "NO",
+                       g_glstate_c.fpe_uniform.transformation.matrix_mode);
+        }
         return false;
     }
 
@@ -1469,6 +1607,7 @@ bool tryExecuteCapturedDisplayLists(const GLuint* listIds, size_t listCount) {
         batch = &candidate;
     }
 
+    ++g_listLog.batchOk;
     const auto* prototype = batch->prototype;
     const GLuint commonBuffer = batch->commonBuffer;
 
@@ -1543,7 +1682,37 @@ void glDrawArrays(GLenum mode, GLint first, GLsizei count) {
             (vertexArray.enabled_pointers & vertexArrayMask) != 0) {
             auto captured = std::make_unique<captured_draw_arrays_cmd_t>(
                 mode, first, count, vertexArray, g_glstate_c.fpe_state.client_active_texture);
-            if (captured->isValid()) command = std::move(captured);
+            if (captured->isValid()) {
+                ++g_listLog.captureOk;
+                command = std::move(captured);
+            } else {
+                ++g_listLog.captureFail;
+                if (listLogEnabled() && g_listLog.detailsCapture++ < kListLogDetailLimit) {
+                    const auto& vp = vertexArray.attributes[captured->failAttribute >= 0
+                                                                ? captured->failAttribute
+                                                                : 0];
+                    SFPEW_LOGW("LISTLOG DROP capture failed: list=%u mode=0x%x first=%d count=%d "
+                               "enabled=0x%x stride=%d | reason=%s attr=%d size=%d type=0x%x "
+                               "attrStride=%d ptr=%p buf=%u bufSize=%d needEnd=%zu",
+                               DisplayListManager::currentList(), mode, first, count,
+                               vertexArray.enabled_pointers, vertexArray.stride,
+                               captured->failReason, captured->failAttribute, captured->failSize,
+                               captured->failType, captured->failStride,
+                               captured->failPointer != 0 ? (const void*)captured->failPointer
+                                                          : vp.pointer,
+                               captured->failBuffer, captured->failBufferSize,
+                               captured->failSourceEnd);
+                }
+            }
+        } else {
+            ++g_listLog.preconditionSkip;
+            if (listLogEnabled() && g_listLog.detailsPrecondition++ < kListLogDetailLimit) {
+                SFPEW_LOGW("LISTLOG DROP not capturable: list=%u mode=0x%x first=%d count=%d "
+                           "program=%d enabled=0x%x (GL_VERTEX_ARRAY %s)",
+                           DisplayListManager::currentList(), mode, first, count, currentProgram,
+                           vertexArray.enabled_pointers,
+                           (vertexArray.enabled_pointers & vertexArrayMask) ? "on" : "OFF");
+            }
         }
 
         // Never retain the caller's raw client-array pointers in a display
@@ -1693,6 +1862,57 @@ GLenum nativeMultiDrawMode(GLenum mode) {
 }
 
 } // namespace
+
+// One line per frame with everything that could have lost geometry, so a
+// device log shows at a glance whether chunks are being dropped at capture,
+// at replay, or never called at all. Called from the swap wrappers.
+void sfpewListLogFrame() {
+    if (!listLogEnabled()) return;
+    static unsigned frame = 0;
+    auto& c = g_listLog;
+    // Nothing happened since the last summary; the caller is one of several
+    // frame boundaries (swap, clear, periodic) and only the first should print.
+    if (c.calls == 0 && c.compiled == 0 && c.replayDraws == 0) return;
+    const bool interesting = c.callsMissing || c.callsEmpty || c.captureFail ||
+                             c.preconditionSkip || c.arenaFail || c.staticFail || c.compiledEmpty;
+    // Every frame while something is wrong, otherwise one in sixty.
+    if (interesting || (frame % 60) == 0) {
+        SFPEW_LOGI("LISTLOG frame=%u calls=%u(missing=%u empty=%u) replayDraws=%u batch=%u/%u "
+                   "compiled=%u(empty=%u) capture=%u/%u skip=%u arena=%u(fail=%u) dedicated=%u "
+                   "staticFail=%u",
+                   frame, c.calls, c.callsMissing, c.callsEmpty, c.replayDraws, c.batchOk,
+                   c.batchTry, c.compiled, c.compiledEmpty, c.captureOk,
+                   c.captureOk + c.captureFail, c.preconditionSkip, c.arenaOk, c.arenaFail,
+                   c.dedicated, c.staticFail);
+    }
+    ++frame;
+    const unsigned dc = c.detailsCapture, dp = c.detailsPrecondition, da = c.detailsArena,
+                   de = c.detailsEmpty, db = c.detailsBatch, dm = c.detailsMissing;
+    c = {};
+    c.detailsCapture = dc; c.detailsPrecondition = dp; c.detailsArena = da;
+    c.detailsEmpty = de; c.detailsBatch = db; c.detailsMissing = dm;
+}
+
+// Called by list.cpp for the compile/call side of the same accounting.
+void sfpewListLogCompiled(GLuint list, size_t commands) {
+    ++g_listLog.compiled;
+    if (commands != 0) return;
+    ++g_listLog.compiledEmpty;
+    if (listLogEnabled() && g_listLog.detailsEmpty++ < kListLogDetailLimit) {
+        SFPEW_LOGW("LISTLOG list %u compiled EMPTY - anything it should draw is now lost", list);
+    }
+}
+
+void sfpewListLogCalled(GLuint list, int found, size_t commands) {
+    ++g_listLog.calls;
+    if (!found) {
+        ++g_listLog.callsMissing;
+        if (listLogEnabled() && g_listLog.detailsMissing++ < kListLogDetailLimit)
+            SFPEW_LOGW("LISTLOG glCallList(%u): no such list", list);
+        return;
+    }
+    if (commands == 0) ++g_listLog.callsEmpty;
+}
 
 // GL 1.4 core. Forwards to the backend's multi-draw when nothing needs doing per
 // sub-draw, otherwise loops over the single-draw path so legacy modes and the

@@ -844,43 +844,22 @@ void nanscanAfterUserDraw(GLuint program, GLsizei vertex_count) {
         // aimed at the horizon reads healthy right through it.
         readPixel(viewport[2] / 4, viewport[3] / 4, attachment, t44);
 
+        // The pack's terrain lighting reads its sun/sky illuminance from a
+        // LUT the atmosphere pass writes into the top-left texels of
+        // colortex5 - texel (255,0) is directIlluminance, (255,1) is
+        // skyIlluminance - and its vertex stage integrates spherical
+        // harmonics over the sky-capture strip beside them. Run 10 showed
+        // terrain 5x darker while albedo held steady, which puts the loss in
+        // those lighting terms, so sample the LUT itself.
         char extra[192] = "";
-        if ((attachment == 4 || attachment == 5) &&
-            g_glFuncs.glGetFramebufferAttachmentParameteriv != nullptr &&
-            g_glFuncs.glGenFramebuffers != nullptr && g_glFuncs.glFramebufferTexture2D != nullptr &&
-            g_glFuncs.glCheckFramebufferStatus != nullptr) {
-            GLint obj_type = 0, obj_name = 0;
-            g_glFuncs.glGetFramebufferAttachmentParameteriv(
-                0x8CA8 /* GL_READ_FRAMEBUFFER */, (GLenum)(0x8CE0 + attachment),
-                0x8CD0 /* ATTACHMENT_OBJECT_TYPE */, &obj_type);
-            g_glFuncs.glGetFramebufferAttachmentParameteriv(
-                0x8CA8, (GLenum)(0x8CE0 + attachment), 0x8CD1 /* ATTACHMENT_OBJECT_NAME */,
-                &obj_name);
-            if (obj_type == 0x1702 /* GL_TEXTURE */ && obj_name != 0) {
-                static thread_local GLuint scratch_fbo = 0;
-                if (scratch_fbo == 0) g_glFuncs.glGenFramebuffers(1, &scratch_fbo);
-                if (scratch_fbo != 0) {
-                    g_glFuncs.glBindFramebuffer(0x8CA8, scratch_fbo);
-                    float m4[4] = {0, 0, 0, 0}, m8[4] = {0, 0, 0, 0};
-                    const struct { int level; float* out; } mip_probes[2] = {{4, m4}, {8, m8}};
-                    for (const auto& p : mip_probes) {
-                        g_glFuncs.glFramebufferTexture2D(0x8CA8, 0x8CE0, GL_TEXTURE_2D,
-                                                         (GLuint)obj_name, p.level);
-                        if (g_glFuncs.glCheckFramebufferStatus(0x8CA8) !=
-                            0x8CD5 /* GL_FRAMEBUFFER_COMPLETE */)
-                            continue;
-                        const GLint mw = viewport[2] >> p.level, mh = viewport[3] >> p.level;
-                        g_glFuncs.glReadPixels(mw > 1 ? mw / 2 : 0, mh > 1 ? mh / 2 : 0, 1, 1,
-                                               GL_RGBA, GL_FLOAT, p.out);
-                    }
-                    g_glFuncs.glFramebufferTexture2D(0x8CA8, 0x8CE0, GL_TEXTURE_2D, 0, 0);
-                    g_glFuncs.glBindFramebuffer(0x8CA8, (GLuint)draw_fbo);
-                    g_glFuncs.glReadBuffer((GLenum)(0x8CE0 + attachment));
-                    while (g_glFuncs.glGetError() != GL_NO_ERROR) {}
-                    std::snprintf(extra, sizeof extra, " m4=(%g,%g,%g) m8=(%g,%g,%g)", m4[0],
-                                  m4[1], m4[2], m8[0], m8[1], m8[2]);
-                }
-            }
+        if (attachment == 4 || attachment == 5) {
+            float lut0[4] = {0, 0, 0, 0}, lut1[4] = {0, 0, 0, 0}, cap[4] = {0, 0, 0, 0};
+            readPixel(255, 0, attachment, lut0);
+            readPixel(255, 1, attachment, lut1);
+            readPixel(64, 2, attachment, cap);
+            std::snprintf(extra, sizeof extra,
+                          " lut0=(%g,%g,%g) lut1=(%g,%g,%g) cap=(%g,%g,%g)", lut0[0], lut0[1],
+                          lut0[2], lut1[0], lut1[1], lut1[2], cap[0], cap[1], cap[2]);
         }
 
         if (bad) {

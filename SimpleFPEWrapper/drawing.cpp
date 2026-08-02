@@ -753,6 +753,9 @@ void nanscanAfterUserDraw(GLuint program, GLsizei vertex_count) {
     g_glFuncs.glGetIntegerv(0x0BA2 /* GL_VIEWPORT */, viewport);
     if (viewport[2] < 4 || viewport[3] < 4) return;
 
+    // The first pending error is likely the scanned draw's own (a silently
+    // failing draw raises INVALID_FRAMEBUFFER_OPERATION); keep it for RST.
+    const GLenum pre_err = g_glFuncs.glGetError();
     while (g_glFuncs.glGetError() != GL_NO_ERROR) {} // start clean
 
     GLint read_fbo = 0, pack_buffer = 0;
@@ -902,10 +905,23 @@ void nanscanAfterUserDraw(GLuint program, GLsizei vertex_count) {
         g_glFuncs.glGetBooleanv(0x0C23 /* GL_COLOR_WRITEMASK */, cm);
         g_glFuncs.glGetBooleanv(0x0B72 /* GL_DEPTH_WRITEMASK */, &dm);
         g_glFuncs.glGetIntegerv(0x0B74 /* GL_DEPTH_FUNC */, &dfunc);
+        // Run 8 found the whole switch block above IDENTICAL between the
+        // healthy and the dead state, which leaves the two things a fragment
+        // still needs: somewhere to go (the draw-buffer selection) and a
+        // complete framebuffer - a draw into an incomplete one fails silently
+        // except for the 0x506 error that pre_err now preserves.
+        const GLenum fbstat =
+            g_glFuncs.glCheckFramebufferStatus != nullptr
+                ? g_glFuncs.glCheckFramebufferStatus(0x8CA9 /* GL_DRAW_FRAMEBUFFER */)
+                : 0;
+        GLint db[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
+        for (int i = 0; i < 8; ++i)
+            g_glFuncs.glGetIntegerv((GLenum)(0x8825 /* GL_DRAW_BUFFER0 */ + i), &db[i]);
         SFPEW_LOGI("NANSCAN frame=%u prog=%u RST sc=%d(%d,%d,%d,%d) bl=%d(s%x,d%x,e%x) "
-                   "cm=%d%d%d%d dp=%d,w%d,f%x st=%d cf=%d rd=%d",
+                   "cm=%d%d%d%d dp=%d,w%d,f%x st=%d cf=%d rd=%d err=%x fb=%x db=%x,%x,%x,%x,%x,%x,%x,%x",
                    frame, program, sc, sb[0], sb[1], sb[2], sb[3], bl, bsrc, bdst, beq, cm[0],
-                   cm[1], cm[2], cm[3], dp, (int)dm, dfunc, st, cf, rd);
+                   cm[1], cm[2], cm[3], dp, (int)dm, dfunc, st, cf, rd, pre_err, fbstat, db[0],
+                   db[1], db[2], db[3], db[4], db[5], db[6], db[7]);
     }
     while (g_glFuncs.glGetError() != GL_NO_ERROR) {}
 }

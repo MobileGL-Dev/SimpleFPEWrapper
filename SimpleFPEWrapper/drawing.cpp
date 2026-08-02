@@ -15,11 +15,8 @@
 
 #include <algorithm>
 #include <array>
-#include <atomic>
 #include <cstddef>
 #include <cstdint>
-#include <cstdio>
-#include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <memory>
@@ -702,233 +699,6 @@ struct captured_display_list_batch_cache_t {
     std::array<captured_display_list_batch_t, kCapturedDisplayListBatchCacheSize> entries;
 };
 
-// SFPEW_NANSCAN: after every small offscreen draw made with a user program
-// (shader-pack composite quads), read the centre 2x2 of the bound render
-// target back and report NaN/Inf/absurd values. The shader-pack "dead dark
-// from some view angles" report replays CORRECTLY on desktop - the recorded
-// GLES stream of a bad frame is structurally identical to a good frame's and
-// every captured input is healthy - so whatever breaks does it inside the
-// device's execution of a pass, which only an on-device probe can see.
-// SFPEW_NANSCAN=1 logs anomalies; SFPEW_NANSCAN=trace also logs each scanned
-// pass's centre value every 32nd frame, giving a per-pass value trail to hold
-// against the RenderDoc replay numbers.
-int nanscanMode() {
-    static const int mode = [] {
-        const char* v = getenv("SFPEW_NANSCAN");
-        if (v == nullptr || *v == '\0' || (v[0] == '0' && v[1] == '\0')) return 0;
-        return std::strncmp(v, "trace", 5) == 0 ? 2 : 1;
-    }();
-    return mode;
-}
-
-// trace sample interval in frames: SFPEW_NANSCAN=trace:N (default 32).
-uint32_t nanscanInterval() {
-    static const uint32_t interval = [] {
-        const char* v = getenv("SFPEW_NANSCAN");
-        if (v != nullptr && std::strncmp(v, "trace:", 6) == 0) {
-            const long n = std::strtol(v + 6, nullptr, 10);
-            if (n >= 1 && n <= 100000) return (uint32_t)n;
-        }
-        return 32u;
-    }();
-    return interval;
-}
-
-std::atomic<uint32_t> g_nanscan_frame{0};
-
-void nanscanAfterUserDraw(GLuint program, GLsizei vertex_count) {
-    const int mode = nanscanMode();
-    if (mode == 0 || vertex_count > 8) return;
-    if (g_glFuncs.glGetIntegerv == nullptr || g_glFuncs.glReadPixels == nullptr ||
-        g_glFuncs.glBindFramebuffer == nullptr || g_glFuncs.glGetError == nullptr ||
-        g_glFuncs.glReadBuffer == nullptr || g_glFuncs.glPixelStorei == nullptr)
-        return;
-    const uint32_t frame = g_nanscan_frame.load(std::memory_order_relaxed);
-    const bool trace = mode == 2 && frame % nanscanInterval() == 0u;
-
-    GLint draw_fbo = 0;
-    g_glFuncs.glGetIntegerv(0x8CA6 /* GL_DRAW_FRAMEBUFFER_BINDING */, &draw_fbo);
-    if (draw_fbo == 0) return; // only the offscreen shader-pack chain
-    GLint viewport[4] = {0, 0, 0, 0};
-    g_glFuncs.glGetIntegerv(0x0BA2 /* GL_VIEWPORT */, viewport);
-    if (viewport[2] < 4 || viewport[3] < 4) return;
-
-    // The first pending error is likely the scanned draw's own (a silently
-    // failing draw raises INVALID_FRAMEBUFFER_OPERATION); keep it for RST.
-    const GLenum pre_err = g_glFuncs.glGetError();
-    while (g_glFuncs.glGetError() != GL_NO_ERROR) {} // start clean
-
-    GLint read_fbo = 0, pack_buffer = 0;
-    g_glFuncs.glGetIntegerv(0x8CAA /* GL_READ_FRAMEBUFFER_BINDING */, &read_fbo);
-    g_glFuncs.glGetIntegerv(0x88ED /* GL_PIXEL_PACK_BUFFER_BINDING */, &pack_buffer);
-    if (pack_buffer != 0 && g_glFuncs.glBindBuffer != nullptr)
-        g_glFuncs.glBindBuffer(0x88EB /* GL_PIXEL_PACK_BUFFER */, 0);
-    if (read_fbo != draw_fbo)
-        g_glFuncs.glBindFramebuffer(0x8CA8 /* GL_READ_FRAMEBUFFER */, (GLuint)draw_fbo);
-
-    GLint read_buffer = 0;
-    g_glFuncs.glGetIntegerv(0x0C02 /* GL_READ_BUFFER */, &read_buffer);
-    GLint pack_align = 4, pack_row = 0, pack_skip_rows = 0, pack_skip_pixels = 0;
-    g_glFuncs.glGetIntegerv(0x0D05 /* GL_PACK_ALIGNMENT */, &pack_align);
-    g_glFuncs.glGetIntegerv(0x0D02 /* GL_PACK_ROW_LENGTH */, &pack_row);
-    g_glFuncs.glGetIntegerv(0x0D03 /* GL_PACK_SKIP_ROWS */, &pack_skip_rows);
-    g_glFuncs.glGetIntegerv(0x0D04 /* GL_PACK_SKIP_PIXELS */, &pack_skip_pixels);
-    g_glFuncs.glPixelStorei(0x0D05, 4);
-    g_glFuncs.glPixelStorei(0x0D02, 0);
-    g_glFuncs.glPixelStorei(0x0D03, 0);
-    g_glFuncs.glPixelStorei(0x0D04, 0);
-
-    // All eight colortex attachments: Optifine keeps colortex0-7 attached at
-    // fixed points and selects with glDrawBuffers, so the scene HDR chain
-    // (colortex4 in the Derivative pack) is only visible from attachment 4.
-    // Per attachment, log centre AND texel (0,0) - the pack's Grade pass reads
-    // its exposure from colortex5 texel (0,0) alpha, and run 3 showed exactly
-    // that buffer collapsing ~300x during the symptom while the scene input
-    // (colortex4) stayed bright. For attachments 4 and 5 also read mip levels
-    // 4 and 8 through a scratch FBO: the exposure is averaged in Temporal.vert
-    // from the colortex4 mip pyramid, so wrong device-side mips are the prime
-    // suspect for the collapse.
-    const GLint cx = viewport[0] + viewport[2] / 2 - 1;
-    const GLint cy = viewport[1] + viewport[3] / 2 - 1;
-    // A fixed-point attachment does not accept an RGBA/FLOAT read: this
-    // driver answers one with zeros and NO error, which is why the RGB8
-    // gbuffers (colortex6/7 - the albedo the deferred pass multiplies the
-    // whole scene by) have read "all zero" in every run so far. Ask the
-    // attachment for its component type and read normalized ones as bytes.
-    auto readPixel = [&](GLint x, GLint y, int attachment, float* out) {
-        GLint comp = 0;
-        if (g_glFuncs.glGetFramebufferAttachmentParameteriv != nullptr) {
-            g_glFuncs.glGetFramebufferAttachmentParameteriv(
-                0x8CA8 /* GL_READ_FRAMEBUFFER */, (GLenum)(0x8CE0 + attachment),
-                0x8211 /* ATTACHMENT_COMPONENT_TYPE */, &comp);
-            while (g_glFuncs.glGetError() != GL_NO_ERROR) {}
-        }
-        const bool normalized = comp == 0x8C17 /* UNSIGNED_NORMALIZED */ ||
-                                comp == 0x8F9C /* SIGNED_NORMALIZED */;
-        if (!normalized) {
-            g_glFuncs.glReadPixels(x, y, 1, 1, GL_RGBA, GL_FLOAT, out);
-            if (g_glFuncs.glGetError() == GL_NO_ERROR) return true;
-        }
-        unsigned char b[4] = {0, 0, 0, 0};
-        g_glFuncs.glReadPixels(x, y, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, b);
-        if (g_glFuncs.glGetError() != GL_NO_ERROR) return false;
-        for (int i = 0; i < 4; ++i) out[i] = (float)b[i] / 255.0f;
-        return true;
-    };
-    for (int attachment = 0; attachment < 8; ++attachment) {
-        g_glFuncs.glReadBuffer((GLenum)(0x8CE0 /* GL_COLOR_ATTACHMENT0 */ + attachment));
-        if (g_glFuncs.glGetError() != GL_NO_ERROR) break; // no such attachment
-        float px[4] = {0, 0, 0, 0};
-        if (!readPixel(cx, cy, attachment, px)) {
-            if (trace)
-                SFPEW_LOGI("NANSCAN frame=%u prog=%u fbo=%d att=%d vp=%dx%d (readback refused)",
-                           frame, program, draw_fbo, attachment, viewport[2], viewport[3]);
-            continue;
-        }
-        bool bad = false;
-        for (float v : px)
-            if (v != v || v > 1e20f || v < -1e20f) bad = true;
-        if (!bad && !trace) continue;
-
-        // Three absolute corner-adjacent texels: run 6 showed texel (0,0) of
-        // EVERY colortex going exactly (0,0,0,0) mid-session while centres
-        // stayed healthy - the pack stores its exposure in colortex5 texel
-        // (0,0), so an uncovered corner pixel blacks the whole screen. The
-        // triplet separates a one-pixel corner gap from a shifted edge from a
-        // failed readback (error code logged).
-        float t00[4] = {0, 0, 0, 0}, t11[4] = {0, 0, 0, 0}, t44[4] = {0, 0, 0, 0};
-        const GLenum t00_err = readPixel(0, 0, attachment, t00) ? GL_NO_ERROR : GL_INVALID_OPERATION;
-        readPixel(1, 1, attachment, t11);
-        // A quarter into the frame, on the terrain side: the symptom blacks
-        // the ground while the sky keeps its colour, and a centre pixel
-        // aimed at the horizon reads healthy right through it.
-        readPixel(viewport[2] / 4, viewport[3] / 4, attachment, t44);
-
-        // The pack's terrain lighting reads its sun/sky illuminance from a
-        // LUT the atmosphere pass writes into the top-left texels of
-        // colortex5 - texel (255,0) is directIlluminance, (255,1) is
-        // skyIlluminance - and its vertex stage integrates spherical
-        // harmonics over the sky-capture strip beside them. Run 10 showed
-        // terrain 5x darker while albedo held steady, which puts the loss in
-        // those lighting terms, so sample the LUT itself.
-        char extra[192] = "";
-        if (attachment == 4 || attachment == 5) {
-            float lut0[4] = {0, 0, 0, 0}, lut1[4] = {0, 0, 0, 0}, cap[4] = {0, 0, 0, 0};
-            readPixel(255, 0, attachment, lut0);
-            readPixel(255, 1, attachment, lut1);
-            readPixel(64, 2, attachment, cap);
-            std::snprintf(extra, sizeof extra,
-                          " lut0=(%g,%g,%g) lut1=(%g,%g,%g) cap=(%g,%g,%g)", lut0[0], lut0[1],
-                          lut0[2], lut1[0], lut1[1], lut1[2], cap[0], cap[1], cap[2]);
-        }
-
-        if (bad) {
-            SFPEW_LOGE(
-                "NANSCAN frame=%u prog=%u fbo=%d att=%d vp=(%d,%d,%dx%d) BAD centre=(%g,%g,%g,%g) t00=(%g,%g,%g,%g)e%x t11=(%g,%g,%g) t14=(%g,%g,%g)%s",
-                frame, program, draw_fbo, attachment, viewport[0], viewport[1], viewport[2],
-                viewport[3], px[0], px[1], px[2], px[3], t00[0], t00[1], t00[2], t00[3], t00_err,
-                t11[0], t11[1], t11[2], t44[0], t44[1], t44[2], extra);
-        } else {
-            SFPEW_LOGI(
-                "NANSCAN frame=%u prog=%u fbo=%d att=%d vp=(%d,%d,%dx%d) centre=(%g,%g,%g,%g) t00=(%g,%g,%g,%g)e%x t11=(%g,%g,%g) t14=(%g,%g,%g)%s",
-                frame, program, draw_fbo, attachment, viewport[0], viewport[1], viewport[2],
-                viewport[3], px[0], px[1], px[2], px[3], t00[0], t00[1], t00[2], t00[3], t00_err,
-                t11[0], t11[1], t11[2], t44[0], t44[1], t44[2], extra);
-        }
-    }
-
-    g_glFuncs.glReadBuffer((GLenum)read_buffer);
-    if (read_fbo != draw_fbo)
-        g_glFuncs.glBindFramebuffer(0x8CA8 /* GL_READ_FRAMEBUFFER */, (GLuint)read_fbo);
-    if (pack_buffer != 0 && g_glFuncs.glBindBuffer != nullptr)
-        g_glFuncs.glBindBuffer(0x88EB /* GL_PIXEL_PACK_BUFFER */, (GLuint)pack_buffer);
-    g_glFuncs.glPixelStorei(0x0D05, pack_align);
-    g_glFuncs.glPixelStorei(0x0D02, pack_row);
-    g_glFuncs.glPixelStorei(0x0D03, pack_skip_rows);
-    g_glFuncs.glPixelStorei(0x0D04, pack_skip_pixels);
-
-    // Raster-output state, read back from the BACKEND: run 7 showed whole
-    // composite chains issuing normally while not landing a single fragment
-    // (cleared buffers stayed zero, uncleared ones froze), which is exactly
-    // what one stuck output-pipeline switch produces. The wrapper filters
-    // several of these against shadows, so log the backend's own answers.
-    if (trace && g_glFuncs.glIsEnabled != nullptr && g_glFuncs.glGetBooleanv != nullptr) {
-        GLint sb[4] = {0, 0, 0, 0}, bsrc = 0, bdst = 0, beq = 0, dfunc = 0;
-        GLboolean cm[4] = {0, 0, 0, 0}, dm = 0;
-        const int sc = g_glFuncs.glIsEnabled(GL_SCISSOR_TEST) == GL_TRUE;
-        const int bl = g_glFuncs.glIsEnabled(GL_BLEND) == GL_TRUE;
-        const int dp = g_glFuncs.glIsEnabled(GL_DEPTH_TEST) == GL_TRUE;
-        const int st = g_glFuncs.glIsEnabled(GL_STENCIL_TEST) == GL_TRUE;
-        const int cf = g_glFuncs.glIsEnabled(GL_CULL_FACE) == GL_TRUE;
-        const int rd = g_glFuncs.glIsEnabled(0x8D69 /* GL_RASTERIZER_DISCARD */) == GL_TRUE;
-        g_glFuncs.glGetIntegerv(GL_SCISSOR_BOX, sb);
-        g_glFuncs.glGetIntegerv(0x80C9 /* GL_BLEND_SRC_RGB */, &bsrc);
-        g_glFuncs.glGetIntegerv(0x80C8 /* GL_BLEND_DST_RGB */, &bdst);
-        g_glFuncs.glGetIntegerv(0x8009 /* GL_BLEND_EQUATION_RGB */, &beq);
-        g_glFuncs.glGetBooleanv(0x0C23 /* GL_COLOR_WRITEMASK */, cm);
-        g_glFuncs.glGetBooleanv(0x0B72 /* GL_DEPTH_WRITEMASK */, &dm);
-        g_glFuncs.glGetIntegerv(0x0B74 /* GL_DEPTH_FUNC */, &dfunc);
-        // Run 8 found the whole switch block above IDENTICAL between the
-        // healthy and the dead state, which leaves the two things a fragment
-        // still needs: somewhere to go (the draw-buffer selection) and a
-        // complete framebuffer - a draw into an incomplete one fails silently
-        // except for the 0x506 error that pre_err now preserves.
-        const GLenum fbstat =
-            g_glFuncs.glCheckFramebufferStatus != nullptr
-                ? g_glFuncs.glCheckFramebufferStatus(0x8CA9 /* GL_DRAW_FRAMEBUFFER */)
-                : 0;
-        GLint db[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
-        for (int i = 0; i < 8; ++i)
-            g_glFuncs.glGetIntegerv((GLenum)(0x8825 /* GL_DRAW_BUFFER0 */ + i), &db[i]);
-        SFPEW_LOGI("NANSCAN frame=%u prog=%u RST sc=%d(%d,%d,%d,%d) bl=%d(s%x,d%x,e%x) "
-                   "cm=%d%d%d%d dp=%d,w%d,f%x st=%d cf=%d rd=%d err=%x fb=%x db=%x,%x,%x,%x,%x,%x,%x,%x",
-                   frame, program, sc, sb[0], sb[1], sb[2], sb[3], bl, bsrc, bdst, beq, cm[0],
-                   cm[1], cm[2], cm[3], dp, (int)dm, dfunc, st, cf, rd, pre_err, fbstat, db[0],
-                   db[1], db[2], db[3], db[4], db[5], db[6], db[7]);
-    }
-    while (g_glFuncs.glGetError() != GL_NO_ERROR) {}
-}
-
 // GL_QUADS/GL_QUAD_STRIP/GL_POLYGON for a draw that keeps the APP's vertex
 // state. Sodium binds its own program and its own VAO with generic attributes,
 // then issues glDrawArrays(GL_QUADS, ...) - legal in GL 2.1, but mode 7 does not
@@ -1043,17 +813,12 @@ void drawArraysNow(GLenum mode, GLint first, GLsizei count, bool forceFixedFunct
             if ((vertex_array.enabled_pointers & vertex_array_mask) && first >= 0 && count > 0 &&
                 sfpewUserProgramFixedFunctionDrawArrays((GLuint)current_program, mode, first,
                                                         count)) {
-                nanscanAfterUserDraw((GLuint)current_program, count);
                 return;
             }
             sfpewFeedUserProgramUniforms((GLuint)current_program);
         }
-        if (passthroughLegacyDrawArrays(mode, first, count)) {
-            if (current_program != 0) nanscanAfterUserDraw((GLuint)current_program, count);
-            return;
-        }
+        if (passthroughLegacyDrawArrays(mode, first, count)) return;
         g_glFuncs.glDrawArrays(mode, first, count);
-        if (current_program != 0) nanscanAfterUserDraw((GLuint)current_program, count);
         return;
     }
 
@@ -1360,17 +1125,12 @@ void drawElementsNow(GLenum mode, GLsizei count, GLenum type, const GLvoid* indi
         if (current_program != 0) {
             if ((vertex_array.enabled_pointers & vertex_array_mask) &&
                 userProgramDrawElements((GLuint)current_program, mode, count, type, indices)) {
-                nanscanAfterUserDraw((GLuint)current_program, count);
                 return;
             }
             sfpewFeedUserProgramUniforms((GLuint)current_program);
         }
-        if (passthroughLegacyDrawElements(mode, count, type, indices)) {
-            if (current_program != 0) nanscanAfterUserDraw((GLuint)current_program, count);
-            return;
-        }
+        if (passthroughLegacyDrawElements(mode, count, type, indices)) return;
         if (g_glFuncs.glDrawElements != nullptr) g_glFuncs.glDrawElements(mode, count, type, indices);
-        if (current_program != 0) nanscanAfterUserDraw((GLuint)current_program, count);
         return;
     }
 
@@ -1933,22 +1693,6 @@ GLenum nativeMultiDrawMode(GLenum mode) {
 }
 
 } // namespace
-
-// Called from the eglSwapBuffers wrappers so SFPEW_NANSCAN log lines carry a
-// frame number to group by. A relaxed increment; costs nothing when the scan
-// is off.
-void sfpewNanScanNoteFrame() {
-    g_nanscan_frame.fetch_add(1, std::memory_order_relaxed);
-}
-
-// The immediate-mode flush (drawing1x) draws shader-pack composite quads with
-// the user program itself - glBegin/glEnd is how Optifine 1.12 issues them -
-// so that path needs the same post-draw probe as the array/element entries
-// here. First device run proved it: only four programs ever reached the scan,
-// the whole composite chain was flowing through the immediate path unseen.
-void sfpewNanScanAfterUserDraw(GLuint program, GLsizei vertex_count) {
-    nanscanAfterUserDraw(program, vertex_count);
-}
 
 // GL 1.4 core. Forwards to the backend's multi-draw when nothing needs doing per
 // sub-draw, otherwise loops over the single-draw path so legacy modes and the

@@ -52,10 +52,6 @@ void sfpewFinishBgraUpload(const sfpew_bgra_upload_t& upload);
 GLuint sfpewLogicalTextureBinding(GLenum target);
 // Changes whenever the active texture unit or any texture binding does.
 uint64_t sfpewTextureStateGeneration();
-// Frame tick for the SFPEW_NANSCAN debug probe (drawing.cpp).
-void sfpewNanScanNoteFrame();
-// SFPEW_NANSCAN post-draw probe; no-op unless the environment flag is set.
-void sfpewNanScanAfterUserDraw(GLuint program, GLsizei vertex_count);
 GLint sfpewLogicalProgram();
 GLuint sfpewLogicalArrayBufferBinding();
 GLuint sfpewLogicalVertexArrayBinding();

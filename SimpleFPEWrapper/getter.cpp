@@ -1157,8 +1157,12 @@ const GLubyte* glGetString(GLenum name) {
                                       kSfpewProjectName + " " + sfpewVersionAndCommit() + " (" +
                                       (const char*)backend + ")";
             } else {
+                // A desktop backend's own string already parses, so it stays
+                // first and the wrapper appends itself - with the commit,
+                // same as above: which build answered is the question a
+                // report has to be able to settle either way.
                 cachedVersionString = std::string((const char*)backend) + " (with " +
-                                      kSfpewProjectFullName + " " + sfpewVersionString() + ")";
+                                      kSfpewProjectFullName + " " + sfpewVersionAndCommit() + ")";
             }
         }
         return (const GLubyte*)cachedVersionString.c_str();

@@ -251,6 +251,10 @@ if(NOT ANDROID)
                         add_dependencies(smoke_version ${CMAKE_PROJECT_NAME})
                         add_test(NAME smoke_version COMMAND smoke_version)
                         set_tests_properties(smoke_version PROPERTIES SKIP_RETURN_CODE 77)
+                        # The other half of glGetString: a backend whose version already
+                        # parses, reported verbatim with the wrapper appended.
+                        add_test(NAME smoke_version_desktop COMMAND smoke_version desktop)
+                        set_tests_properties(smoke_version_desktop PROPERTIES SKIP_RETURN_CODE 77)
 
                         add_executable(smoke_gl3_core tests/smoke_gl3_core.c)
                         target_compile_definitions(smoke_gl3_core PRIVATE

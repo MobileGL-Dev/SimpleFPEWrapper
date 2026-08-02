@@ -12,6 +12,12 @@
 // and the commit both appear in it, the backend stays visible after them, and
 // GL_RENDERER tells the same version. The number itself is deliberately not
 // asserted - only its shape - so a release bump does not break this test.
+//
+// Run with "desktop" it makes a desktop GL context instead of an ES one,
+// which is the other half of glGetString: a backend whose version already
+// parses is reported verbatim and the wrapper appends itself. Both halves
+// have to carry the commit, and the strings are cached per process, so the
+// two cases cannot be covered by one run.
 #include <dlfcn.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -62,7 +68,8 @@ static int looksLikeCalVer(const char* v) {
     return v[i] == '\0' || v[i] == '-';
 }
 
-int main(void) {
+int main(int argc, char** argv) {
+    const int desktop = argc > 1 && strcmp(argv[1], "desktop") == 0;
     void* h = dlopen(WRAPPER_LIB_PATH, RTLD_NOW | RTLD_LOCAL);
     if (!h) { fprintf(stderr, "dlopen: %s\n", dlerror()); return 1; }
     void* (*resolve)(const char*);
@@ -72,16 +79,22 @@ int main(void) {
     EGLDisplay d = eglGetDisplay(EGL_DEFAULT_DISPLAY);
     if (d == EGL_NO_DISPLAY || !eglInitialize(d, NULL, NULL)) { printf("SKIP: no EGL display\n"); return 77; }
     const EGLint ca[] = {EGL_SURFACE_TYPE, EGL_PBUFFER_BIT, EGL_RENDERABLE_TYPE,
-                         EGL_OPENGL_ES3_BIT, EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8,
-                         EGL_ALPHA_SIZE, 8, EGL_NONE};
+                         desktop ? EGL_OPENGL_BIT : EGL_OPENGL_ES3_BIT, EGL_RED_SIZE, 8,
+                         EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8, EGL_ALPHA_SIZE, 8, EGL_NONE};
     EGLConfig c; EGLint n = 0;
-    if (!eglChooseConfig(d, ca, &c, 1, &n) || n == 0) { printf("SKIP: no ES3 config\n"); return 77; }
+    if (!eglChooseConfig(d, ca, &c, 1, &n) || n == 0) {
+        printf("SKIP: no %s config\n", desktop ? "desktop GL" : "ES3");
+        return 77;
+    }
     const EGLint pa[] = {EGL_WIDTH, WIN, EGL_HEIGHT, WIN, EGL_NONE};
     EGLSurface s = eglCreatePbufferSurface(d, c, pa);
-    eglBindAPI(EGL_OPENGL_ES_API);
-    const EGLint xa[] = {EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE};
-    EGLContext x = eglCreateContext(d, c, EGL_NO_CONTEXT, xa);
-    if (!eglMakeCurrent(d, s, s, x)) { printf("SKIP: no current context\n"); return 77; }
+    if (!eglBindAPI(desktop ? EGL_OPENGL_API : EGL_OPENGL_ES_API)) {
+        printf("SKIP: no %s API\n", desktop ? "desktop GL" : "ES");
+        return 77;
+    }
+    const EGLint esa[] = {EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE};
+    EGLContext x = eglCreateContext(d, c, EGL_NO_CONTEXT, desktop ? NULL : esa);
+    if (x == EGL_NO_CONTEXT || !eglMakeCurrent(d, s, s, x)) { printf("SKIP: no current context\n"); return 77; }
 
     const GLubyte* (*fGetString)(GLenum);
     *(void**)(&fGetString) = resolve("glGetString");
@@ -100,10 +113,13 @@ int main(void) {
         ++failures;
     }
 
+    // An ES backend is reported as its desktop equivalent and the wrapper
+    // names itself right after the level; a desktop backend keeps its own
+    // string and the wrapper follows in the suffix.
+    const char* marker = desktop ? "Simple FPE Wrapper " : "SFPEW ";
     char fromVersion[64] = {0};
-    if (!extractVersion(ver, "SFPEW ", fromVersion, sizeof fromVersion) &&
-        !extractVersion(ver, "Simple FPE Wrapper ", fromVersion, sizeof fromVersion)) {
-        printf("*** GL_VERSION carries no wrapper version\n");
+    if (!extractVersion(ver, marker, fromVersion, sizeof fromVersion)) {
+        printf("*** GL_VERSION carries no wrapper version after \"%s\"\n", marker);
         ++failures;
     } else if (!looksLikeCalVer(fromVersion)) {
         printf("*** \"%s\" is not a calendar version (expected e.g. 26.08-dev)\n", fromVersion);
@@ -119,8 +135,17 @@ int main(void) {
         printf("note: built outside a git checkout, commit reported as unknown\n");
     }
 
-    // Additive contract: whatever the backend called itself is still in there.
-    if (!strchr(ver, '(') || !strstr(ver, "OpenGL")) {
+    // Additive contract: whatever the backend called itself is still in
+    // there. An ES backend's string is quoted after the wrapper's part; a
+    // desktop backend's string IS the front of the line, so the wrapper's
+    // part must never have taken position zero.
+    if (desktop) {
+        const char* suffix = strstr(ver, "(with ");
+        if (!suffix || suffix == ver) {
+            printf("*** the backend's own version string was displaced\n");
+            ++failures;
+        }
+    } else if (!strstr(ver, "OpenGL ES")) {
         printf("note: backend version string not recognizable in GL_VERSION\n");
     }
 

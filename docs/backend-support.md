@@ -74,7 +74,11 @@ The wrapper's own version and the commit it was built from sit between the two
 renderer name.
 
 For a desktop backend the function returns false and the version is reported
-verbatim, with the wrapper named and versioned in the suffix instead. Nothing else in the wrapper reads this result — it does not gate a
+verbatim, with the wrapper named, versioned and stamped in the suffix instead:
+
+```
+GL_VERSION: 4.6 (Compatibility Profile) Mesa 26.1.5 (with Simple FPE Wrapper 26.08-dev, GIT@1b61a9ff8d07)
+``` Nothing else in the wrapper reads this result — it does not gate a
 feature, pick a shader path, or change a draw path.
 
 ## Enforcement

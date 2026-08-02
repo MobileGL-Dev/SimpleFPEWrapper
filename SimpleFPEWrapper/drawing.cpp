@@ -790,16 +790,38 @@ void nanscanAfterUserDraw(GLuint program, GLsizei vertex_count) {
     // suspect for the collapse.
     const GLint cx = viewport[0] + viewport[2] / 2 - 1;
     const GLint cy = viewport[1] + viewport[3] / 2 - 1;
+    // A fixed-point attachment does not accept an RGBA/FLOAT read: this
+    // driver answers one with zeros and NO error, which is why the RGB8
+    // gbuffers (colortex6/7 - the albedo the deferred pass multiplies the
+    // whole scene by) have read "all zero" in every run so far. Ask the
+    // attachment for its component type and read normalized ones as bytes.
+    auto readPixel = [&](GLint x, GLint y, int attachment, float* out) {
+        GLint comp = 0;
+        if (g_glFuncs.glGetFramebufferAttachmentParameteriv != nullptr) {
+            g_glFuncs.glGetFramebufferAttachmentParameteriv(
+                0x8CA8 /* GL_READ_FRAMEBUFFER */, (GLenum)(0x8CE0 + attachment),
+                0x8211 /* ATTACHMENT_COMPONENT_TYPE */, &comp);
+            while (g_glFuncs.glGetError() != GL_NO_ERROR) {}
+        }
+        const bool normalized = comp == 0x8C17 /* UNSIGNED_NORMALIZED */ ||
+                                comp == 0x8F9C /* SIGNED_NORMALIZED */;
+        if (!normalized) {
+            g_glFuncs.glReadPixels(x, y, 1, 1, GL_RGBA, GL_FLOAT, out);
+            if (g_glFuncs.glGetError() == GL_NO_ERROR) return true;
+        }
+        unsigned char b[4] = {0, 0, 0, 0};
+        g_glFuncs.glReadPixels(x, y, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, b);
+        if (g_glFuncs.glGetError() != GL_NO_ERROR) return false;
+        for (int i = 0; i < 4; ++i) out[i] = (float)b[i] / 255.0f;
+        return true;
+    };
     for (int attachment = 0; attachment < 8; ++attachment) {
         g_glFuncs.glReadBuffer((GLenum)(0x8CE0 /* GL_COLOR_ATTACHMENT0 */ + attachment));
         if (g_glFuncs.glGetError() != GL_NO_ERROR) break; // no such attachment
-        float px[2 * 2 * 4] = {0};
-        g_glFuncs.glReadPixels(cx, cy, 2, 2, GL_RGBA, GL_FLOAT, px);
-        if (g_glFuncs.glGetError() != GL_NO_ERROR) {
-            // Not a float attachment (or the driver refuses RGBA/FLOAT).
-            // A UNORM buffer cannot hold NaN anyway; note it once in trace.
+        float px[4] = {0, 0, 0, 0};
+        if (!readPixel(cx, cy, attachment, px)) {
             if (trace)
-                SFPEW_LOGI("NANSCAN frame=%u prog=%u fbo=%d att=%d vp=%dx%d (non-float readback)",
+                SFPEW_LOGI("NANSCAN frame=%u prog=%u fbo=%d att=%d vp=%dx%d (readback refused)",
                            frame, program, draw_fbo, attachment, viewport[2], viewport[3]);
             continue;
         }
@@ -815,10 +837,12 @@ void nanscanAfterUserDraw(GLuint program, GLsizei vertex_count) {
         // triplet separates a one-pixel corner gap from a shifted edge from a
         // failed readback (error code logged).
         float t00[4] = {0, 0, 0, 0}, t11[4] = {0, 0, 0, 0}, t44[4] = {0, 0, 0, 0};
-        g_glFuncs.glReadPixels(0, 0, 1, 1, GL_RGBA, GL_FLOAT, t00);
-        const GLenum t00_err = g_glFuncs.glGetError();
-        g_glFuncs.glReadPixels(1, 1, 1, 1, GL_RGBA, GL_FLOAT, t11);
-        g_glFuncs.glReadPixels(4, 4, 1, 1, GL_RGBA, GL_FLOAT, t44);
+        const GLenum t00_err = readPixel(0, 0, attachment, t00) ? GL_NO_ERROR : GL_INVALID_OPERATION;
+        readPixel(1, 1, attachment, t11);
+        // A quarter into the frame, on the terrain side: the symptom blacks
+        // the ground while the sky keeps its colour, and a centre pixel
+        // aimed at the horizon reads healthy right through it.
+        readPixel(viewport[2] / 4, viewport[3] / 4, attachment, t44);
 
         char extra[192] = "";
         if ((attachment == 4 || attachment == 5) &&
@@ -861,13 +885,13 @@ void nanscanAfterUserDraw(GLuint program, GLsizei vertex_count) {
 
         if (bad) {
             SFPEW_LOGE(
-                "NANSCAN frame=%u prog=%u fbo=%d att=%d vp=(%d,%d,%dx%d) BAD centre=(%g,%g,%g,%g) t00=(%g,%g,%g,%g)e%x t11=(%g,%g,%g) t44=(%g,%g,%g)%s",
+                "NANSCAN frame=%u prog=%u fbo=%d att=%d vp=(%d,%d,%dx%d) BAD centre=(%g,%g,%g,%g) t00=(%g,%g,%g,%g)e%x t11=(%g,%g,%g) t14=(%g,%g,%g)%s",
                 frame, program, draw_fbo, attachment, viewport[0], viewport[1], viewport[2],
                 viewport[3], px[0], px[1], px[2], px[3], t00[0], t00[1], t00[2], t00[3], t00_err,
                 t11[0], t11[1], t11[2], t44[0], t44[1], t44[2], extra);
         } else {
             SFPEW_LOGI(
-                "NANSCAN frame=%u prog=%u fbo=%d att=%d vp=(%d,%d,%dx%d) centre=(%g,%g,%g,%g) t00=(%g,%g,%g,%g)e%x t11=(%g,%g,%g) t44=(%g,%g,%g)%s",
+                "NANSCAN frame=%u prog=%u fbo=%d att=%d vp=(%d,%d,%dx%d) centre=(%g,%g,%g,%g) t00=(%g,%g,%g,%g)e%x t11=(%g,%g,%g) t14=(%g,%g,%g)%s",
                 frame, program, draw_fbo, attachment, viewport[0], viewport[1], viewport[2],
                 viewport[3], px[0], px[1], px[2], px[3], t00[0], t00[1], t00[2], t00[3], t00_err,
                 t11[0], t11[1], t11[2], t44[0], t44[1], t44[2], extra);

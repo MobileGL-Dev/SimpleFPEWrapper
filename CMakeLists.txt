@@ -144,12 +144,13 @@ if(SFPEW_LIST_DEBUG)
         target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE SFPEW_LIST_DEBUG=1)
 endif()
 
-# The git commit this build came from, logged once at backend initialization
-# so a device report always identifies the code it was produced by - version
-# strings alone cannot distinguish two builds made the same day. Configure
-# time is good enough: the hash marks the checkout, and "-dirty" marks
-# uncommitted changes on top of it. Falls back to "unknown" outside a git
-# checkout (tarball builds).
+# The git commit this build came from, reported alongside the version in
+# GL_VERSION and logged once at initialization, so a device report always
+# identifies the code it was produced by - a version cannot distinguish two
+# builds made the same day. Configure time is good enough: the hash marks the
+# checkout. The bare hash is the whole stamp; a working-tree state marker
+# does not belong in a string users read and quote. Falls back to "unknown"
+# outside a git checkout (tarball builds).
 find_package(Git QUIET)
 set(SFPEW_GIT_COMMIT "unknown")
 if(GIT_FOUND)
@@ -158,12 +159,7 @@ if(GIT_FOUND)
                         OUTPUT_STRIP_TRAILING_WHITESPACE
                         ERROR_QUIET RESULT_VARIABLE SFPEW_GIT_RC)
         if(SFPEW_GIT_RC EQUAL 0)
-                execute_process(COMMAND ${GIT_EXECUTABLE} -C ${CMAKE_SOURCE_DIR} diff --quiet HEAD
-                                RESULT_VARIABLE SFPEW_GIT_DIRTY ERROR_QUIET)
                 set(SFPEW_GIT_COMMIT "${SFPEW_GIT_COMMIT_RAW}")
-                if(NOT SFPEW_GIT_DIRTY EQUAL 0)
-                        set(SFPEW_GIT_COMMIT "${SFPEW_GIT_COMMIT}-dirty")
-                endif()
         endif()
 endif()
 target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE SFPEW_GIT_COMMIT="${SFPEW_GIT_COMMIT}")

@@ -118,6 +118,7 @@ void glCallList(GLuint list) {
     if (DisplayListManager::isCalling()) {
         DisplayListManager::callList(list);
     } else {
+        sfpewListLogRequested(1);
         fpe_backend_draw_state_guard_t backendState(
             sfpewLogicalProgram(), static_cast<GLint>(sfpewLogicalArrayBufferBinding()));
         if (!DisplayListManager::callSingleCaptured(list)) DisplayListManager::callList(list);
@@ -207,6 +208,7 @@ void glCallLists(GLsizei n, GLenum type, const GLvoid* lists) {
         listIds = decodedListIds.data();
     }
 
+    sfpewListLogRequested(static_cast<unsigned>(listCount));
     fpe_backend_draw_state_guard_t backendState(
         sfpewLogicalProgram(), static_cast<GLint>(sfpewLogicalArrayBufferBinding()));
     if (tryExecuteCapturedDisplayLists(listIds, listCount)) return;

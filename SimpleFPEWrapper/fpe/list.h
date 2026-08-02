@@ -476,6 +476,7 @@ public:
         ++callingDepth;
         command->execute();
         --callingDepth;
+        sfpewListLogDrewOne();
         return true;
     }
 

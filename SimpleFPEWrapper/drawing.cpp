@@ -153,6 +153,8 @@ void listLogLine(bool warn, const char* format, ...) {
 
 struct list_log_counters_t {
     // Per frame
+    unsigned requested = 0;      // lists the app asked to draw this frame
+    unsigned drawnLists = 0;     // lists actually replayed (loop + batched)
     unsigned calls = 0;          // lists invoked by glCallList(s)
     unsigned callsMissing = 0;   // invoked ids with no list object
     unsigned callsEmpty = 0;     // invoked lists that hold no commands
@@ -1654,6 +1656,7 @@ bool tryExecuteCapturedDisplayLists(const GLuint* listIds, size_t listCount) {
     }
 
     ++g_listLog.batchOk;
+    g_listLog.drawnLists += (unsigned)listCount;
     const auto* prototype = batch->prototype;
     const GLuint commonBuffer = batch->commonBuffer;
 
@@ -1918,18 +1921,20 @@ void sfpewListLogFrame() {
     auto& c = g_listLog;
     // Nothing happened since the last summary; the caller is one of several
     // frame boundaries (swap, clear, periodic) and only the first should print.
-    if (c.calls == 0 && c.compiled == 0 && c.replayDraws == 0) return;
-    const bool interesting = c.callsMissing || c.callsEmpty || c.captureFail ||
-                             c.preconditionSkip || c.arenaFail || c.staticFail || c.compiledEmpty;
+    if (c.requested == 0 && c.compiled == 0 && c.replayDraws == 0) return;
+    const bool interesting = c.requested != c.drawnLists || c.callsMissing || c.captureFail ||
+                             c.preconditionSkip || c.staticFail;
     // Every frame while something is wrong, otherwise one in sixty.
     if (interesting || (frame % 60) == 0) {
-        listLogLine(false, "LISTLOG frame=%u calls=%u(missing=%u empty=%u) replayDraws=%u batch=%u/%u "
-                   "compiled=%u(empty=%u) capture=%u/%u skip=%u arena=%u(fail=%u) dedicated=%u "
-                   "staticFail=%u",
-                   frame, c.calls, c.callsMissing, c.callsEmpty, c.replayDraws, c.batchOk,
-                   c.batchTry, c.compiled, c.compiledEmpty, c.captureOk,
-                   c.captureOk + c.captureFail, c.preconditionSkip, c.arenaOk, c.arenaFail,
-                   c.dedicated, c.staticFail);
+        listLogLine(c.requested != c.drawnLists,
+                   "LISTLOG frame=%u lists=%u/%u%s replayDraws=%u calls=%u(missing=%u empty=%u) "
+                   "batch=%u/%u compiled=%u(empty=%u) capture=%u/%u skip=%u arena=%u(fail=%u) "
+                   "dedicated=%u staticFail=%u",
+                   frame, c.drawnLists, c.requested,
+                   c.requested != c.drawnLists ? " LOST!" : "", c.replayDraws, c.calls,
+                   c.callsMissing, c.callsEmpty, c.batchOk, c.batchTry, c.compiled,
+                   c.compiledEmpty, c.captureOk, c.captureOk + c.captureFail, c.preconditionSkip,
+                   c.arenaOk, c.arenaFail, c.dedicated, c.staticFail);
     }
     ++frame;
     const unsigned dc = c.detailsCapture, dp = c.detailsPrecondition, da = c.detailsArena,
@@ -1949,9 +1954,37 @@ void sfpewListLogCompiled(GLuint list, size_t commands) {
     }
 }
 
+void sfpewListLogRequested(unsigned lists) { g_listLog.requested += lists; }
+
+void sfpewListLogDrewOne() { ++g_listLog.drawnLists; }
+
+// The frustum matrices, once every few seconds and again whenever they stop
+// looking like a camera - a zero row or a degenerate projection culls the
+// whole world while every other counter here stays perfectly healthy.
+void sfpewListLogMatrixQuery(const char* which, const GLfloat* matrix) {
+    if (!listLogEnabled()) return;
+    static unsigned queries = 0;
+    bool finite = true;
+    float magnitude = 0.0f;
+    for (int i = 0; i < 16; ++i) {
+        if (!(matrix[i] == matrix[i]) || matrix[i] > 1e18f || matrix[i] < -1e18f) finite = false;
+        magnitude += matrix[i] < 0 ? -matrix[i] : matrix[i];
+    }
+    const bool suspicious = !finite || magnitude < 1e-6f;
+    if (!suspicious && (queries++ % 600) != 0) return;
+    listLogLine(suspicious,
+                "LISTLOG %s%s [%.3f %.3f %.3f %.3f | %.3f %.3f %.3f %.3f | %.3f %.3f %.3f %.3f | "
+                "%.3f %.3f %.3f %.3f]",
+                which, suspicious ? " SUSPICIOUS" : "", matrix[0], matrix[1], matrix[2], matrix[3],
+                matrix[4], matrix[5], matrix[6], matrix[7], matrix[8], matrix[9], matrix[10],
+                matrix[11], matrix[12], matrix[13], matrix[14], matrix[15]);
+}
+
 void sfpewListLogCalled(GLuint list, int found, size_t commands) {
     ++g_listLog.calls;
+    ++g_listLog.drawnLists;
     if (!found) {
+        --g_listLog.drawnLists;
         ++g_listLog.callsMissing;
         if (listLogEnabled() && g_listLog.detailsMissing++ < kListLogDetailLimit)
             listLogLine(true, "LISTLOG glCallList(%u): no such list", list);

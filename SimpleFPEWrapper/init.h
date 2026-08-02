@@ -54,6 +54,9 @@ void sfpewFinishBgraUpload(const sfpew_bgra_upload_t& upload);
 void sfpewListLogFrame();
 void sfpewListLogCompiled(GLuint list, size_t commands);
 void sfpewListLogCalled(GLuint list, int found, size_t commands);
+void sfpewListLogRequested(unsigned lists);
+void sfpewListLogDrewOne();
+void sfpewListLogMatrixQuery(const char* which, const GLfloat* matrix);
 
 GLuint sfpewLogicalTextureBinding(GLenum target);
 // Changes whenever the active texture unit or any texture binding does.

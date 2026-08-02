@@ -17,6 +17,9 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cerrno>
+#include <cstdarg>
+#include <cstdio>
 #include <cstring>
 #include <limits>
 #include <memory>
@@ -105,6 +108,49 @@ bool listLogEnabled() {
     return enabled;
 }
 
+// The same lines also go to a file on the device, because a logcat buffer
+// wraps long before a session is over and this accounting is only useful as
+// a whole run. Truncated at open, so the file always holds the latest run.
+FILE* listLogFile() {
+    static FILE* file = []() -> FILE* {
+        if (!listLogEnabled()) return nullptr;
+        const char* path = getenv("SFPEW_LISTLOG_FILE");
+        if (path == nullptr || *path == '\0') path = "/sdcard/sfpew-listlog.txt";
+        FILE* opened = fopen(path, "w");
+        if (opened == nullptr) {
+            SFPEW_LOGW("LISTLOG cannot write %s (%s); logcat only", path, strerror(errno));
+            return nullptr;
+        }
+        setvbuf(opened, nullptr, _IOLBF, 0);
+        fprintf(opened, "SFPEW display-list accounting, commit %s, built %s\n", SFPEW_GIT_COMMIT,
+                __DATE__ " " __TIME__);
+        fflush(opened);
+        SFPEW_LOGI("LISTLOG writing to %s", path);
+        return opened;
+    }();
+    return file;
+}
+
+// Emits one accounting line to logcat and to the device file.
+void listLogLine(bool warn, const char* format, ...) {
+    char line[512];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(line, sizeof line, format, args);
+    va_end(args);
+    if (warn) {
+        SFPEW_LOGW("%s", line);
+    } else {
+        SFPEW_LOGI("%s", line);
+    }
+    FILE* file = listLogFile();
+    if (file != nullptr) {
+        fputs(line, file);
+        fputc('\n', file);
+        fflush(file);
+    }
+}
+
 struct list_log_counters_t {
     // Per frame
     unsigned calls = 0;          // lists invoked by glCallList(s)
@@ -133,7 +179,7 @@ struct display_list_vertex_allocation_t {
 bool listLogArenaFail(const char* reason, size_t size) {
     ++g_listLog.arenaFail;
     if (listLogEnabled() && g_listLog.detailsArena++ < kListLogDetailLimit) {
-        SFPEW_LOGW("LISTLOG arena allocate REJECTED (%s) size=%zu", reason, size);
+        listLogLine(true, "LISTLOG arena allocate REJECTED (%s) size=%zu", reason, size);
     }
     return false;
 }
@@ -190,7 +236,7 @@ public:
         if (listLogEnabled() && g_glFuncs.glGetError != nullptr) {
             const GLenum err = g_glFuncs.glGetError();
             if (err != GL_NO_ERROR && g_listLog.detailsArena++ < kListLogDetailLimit) {
-                SFPEW_LOGW("LISTLOG arena SubData FAILED err=0x%x buffer=%u offset=%zu size=%zu "
+                listLogLine(true, "LISTLOG arena SubData FAILED err=0x%x buffer=%u offset=%zu size=%zu "
                            "tail=%zu cap=%zu",
                            err, buffer, offset, size, tail, kDisplayListArenaCapacity);
             }
@@ -284,11 +330,11 @@ private:
         const GLenum reserveError =
             g_glFuncs.glGetError != nullptr ? g_glFuncs.glGetError() : (GLenum)GL_NO_ERROR;
         if (reserveError != GL_NO_ERROR) {
-            SFPEW_LOGW("LISTLOG arena reservation of %zu bytes REFUSED (err=0x%x); captured "
+            listLogLine(true, "LISTLOG arena reservation of %zu bytes REFUSED (err=0x%x); captured "
                        "display lists fall back to one buffer each",
                        kDisplayListArenaCapacity, reserveError);
         } else if (listLogEnabled()) {
-            SFPEW_LOGI("LISTLOG arena reserved %zu bytes as buffer %u", kDisplayListArenaCapacity,
+            listLogLine(false, "LISTLOG arena reserved %zu bytes as buffer %u", kDisplayListArenaCapacity,
                        buffer);
         }
         g_glFuncs.glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
@@ -598,7 +644,7 @@ private:
                 g_glFuncs.glBufferData == nullptr) {
                 ++g_listLog.staticFail;
                 if (listLogEnabled() && g_listLog.detailsArena++ < kListLogDetailLimit)
-                    SFPEW_LOGW("LISTLOG static buffer unavailable (no glGenBuffers/glBufferData)");
+                    listLogLine(true, "LISTLOG static buffer unavailable (no glGenBuffers/glBufferData)");
                 return false;
             }
             g_glFuncs.glGenBuffers(1, &vertexBuffer);
@@ -606,7 +652,7 @@ private:
             if (vertexBuffer == 0) {
                 ++g_listLog.staticFail;
                 if (listLogEnabled() && g_listLog.detailsArena++ < kListLogDetailLimit)
-                    SFPEW_LOGW("LISTLOG glGenBuffers returned 0 for a %zu byte list block",
+                    listLogLine(true, "LISTLOG glGenBuffers returned 0 for a %zu byte list block",
                                vertexData.size());
                 return false;
             }
@@ -624,7 +670,7 @@ private:
             if (listLogEnabled() && g_glFuncs.glGetError != nullptr) {
                 const GLenum err = g_glFuncs.glGetError();
                 if (err != GL_NO_ERROR && g_listLog.detailsArena++ < kListLogDetailLimit) {
-                    SFPEW_LOGW("LISTLOG dedicated buffer %u upload FAILED err=0x%x size=%zu",
+                    listLogLine(true, "LISTLOG dedicated buffer %u upload FAILED err=0x%x size=%zu",
                                vertexBuffer, err, vertexData.size());
                 }
             }
@@ -1482,7 +1528,7 @@ bool tryExecuteCapturedDisplayLists(const GLuint* listIds, size_t listCount) {
     if (listIds == nullptr || listCount < 2 || g_glFuncs.glMultiDrawArrays == nullptr ||
         g_glstate_c.fpe_uniform.transformation.matrix_mode != GL_MODELVIEW) {
         if (listLogEnabled() && g_listLog.detailsBatch++ < kListLogDetailLimit) {
-            SFPEW_LOGI("LISTLOG batch declined: count=%zu multiDraw=%s matrixMode=0x%x",
+            listLogLine(false, "LISTLOG batch declined: count=%zu multiDraw=%s matrixMode=0x%x",
                        listCount, g_glFuncs.glMultiDrawArrays ? "yes" : "NO",
                        g_glstate_c.fpe_uniform.transformation.matrix_mode);
         }
@@ -1691,7 +1737,7 @@ void glDrawArrays(GLenum mode, GLint first, GLsizei count) {
                     const auto& vp = vertexArray.attributes[captured->failAttribute >= 0
                                                                 ? captured->failAttribute
                                                                 : 0];
-                    SFPEW_LOGW("LISTLOG DROP capture failed: list=%u mode=0x%x first=%d count=%d "
+                    listLogLine(true, "LISTLOG DROP capture failed: list=%u mode=0x%x first=%d count=%d "
                                "enabled=0x%x stride=%d | reason=%s attr=%d size=%d type=0x%x "
                                "attrStride=%d ptr=%p buf=%u bufSize=%d needEnd=%zu",
                                DisplayListManager::currentList(), mode, first, count,
@@ -1707,7 +1753,7 @@ void glDrawArrays(GLenum mode, GLint first, GLsizei count) {
         } else {
             ++g_listLog.preconditionSkip;
             if (listLogEnabled() && g_listLog.detailsPrecondition++ < kListLogDetailLimit) {
-                SFPEW_LOGW("LISTLOG DROP not capturable: list=%u mode=0x%x first=%d count=%d "
+                listLogLine(true, "LISTLOG DROP not capturable: list=%u mode=0x%x first=%d count=%d "
                            "program=%d enabled=0x%x (GL_VERTEX_ARRAY %s)",
                            DisplayListManager::currentList(), mode, first, count, currentProgram,
                            vertexArray.enabled_pointers,
@@ -1877,7 +1923,7 @@ void sfpewListLogFrame() {
                              c.preconditionSkip || c.arenaFail || c.staticFail || c.compiledEmpty;
     // Every frame while something is wrong, otherwise one in sixty.
     if (interesting || (frame % 60) == 0) {
-        SFPEW_LOGI("LISTLOG frame=%u calls=%u(missing=%u empty=%u) replayDraws=%u batch=%u/%u "
+        listLogLine(false, "LISTLOG frame=%u calls=%u(missing=%u empty=%u) replayDraws=%u batch=%u/%u "
                    "compiled=%u(empty=%u) capture=%u/%u skip=%u arena=%u(fail=%u) dedicated=%u "
                    "staticFail=%u",
                    frame, c.calls, c.callsMissing, c.callsEmpty, c.replayDraws, c.batchOk,
@@ -1899,7 +1945,7 @@ void sfpewListLogCompiled(GLuint list, size_t commands) {
     if (commands != 0) return;
     ++g_listLog.compiledEmpty;
     if (listLogEnabled() && g_listLog.detailsEmpty++ < kListLogDetailLimit) {
-        SFPEW_LOGW("LISTLOG list %u compiled EMPTY - anything it should draw is now lost", list);
+        listLogLine(true, "LISTLOG list %u compiled EMPTY - anything it should draw is now lost", list);
     }
 }
 
@@ -1908,7 +1954,7 @@ void sfpewListLogCalled(GLuint list, int found, size_t commands) {
     if (!found) {
         ++g_listLog.callsMissing;
         if (listLogEnabled() && g_listLog.detailsMissing++ < kListLogDetailLimit)
-            SFPEW_LOGW("LISTLOG glCallList(%u): no such list", list);
+            listLogLine(true, "LISTLOG glCallList(%u): no such list", list);
         return;
     }
     if (commands == 0) ++g_listLog.callsEmpty;

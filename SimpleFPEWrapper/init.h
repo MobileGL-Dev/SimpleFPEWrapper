@@ -56,7 +56,8 @@ void sfpewListLogCompiled(GLuint list, size_t commands);
 void sfpewListLogCalled(GLuint list, int found, size_t commands);
 void sfpewListLogRequested(unsigned lists);
 void sfpewListLogDrewOne();
-void sfpewListLogMatrixQuery(const char* which, const GLfloat* matrix);
+void sfpewListLogMatrixQuery(const char* which, unsigned slot, size_t stackDepth,
+                             const GLfloat* matrix);
 
 GLuint sfpewLogicalTextureBinding(GLenum target);
 // Changes whenever the active texture unit or any texture binding does.

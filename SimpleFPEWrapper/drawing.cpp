@@ -1961,23 +1961,34 @@ void sfpewListLogDrewOne() { ++g_listLog.drawnLists; }
 // The frustum matrices, once every few seconds and again whenever they stop
 // looking like a camera - a zero row or a degenerate projection culls the
 // whole world while every other counter here stays perfectly healthy.
-void sfpewListLogMatrixQuery(const char* which, const GLfloat* matrix) {
+void sfpewListLogMatrixQuery(const char* which, unsigned slot, size_t stackDepth,
+                             const GLfloat* matrix) {
     if (!listLogEnabled()) return;
-    static unsigned queries = 0;
+    // One counter per matrix: a shared one prints whichever the application
+    // happens to ask for first and hides the other completely.
+    static unsigned queries[4] = {0, 0, 0, 0};
     bool finite = true;
     float magnitude = 0.0f;
     for (int i = 0; i < 16; ++i) {
         if (!(matrix[i] == matrix[i]) || matrix[i] > 1e18f || matrix[i] < -1e18f) finite = false;
         magnitude += matrix[i] < 0 ? -matrix[i] : matrix[i];
     }
-    const bool suspicious = !finite || magnitude < 1e-6f;
-    if (!suspicious && (queries++ % 600) != 0) return;
+    // An identity modelview is a camera that never moved: the frustum built
+    // from it sits at the world origin and culls everything the player can
+    // actually see.
+    const bool identity = matrix[0] == 1.0f && matrix[5] == 1.0f && matrix[10] == 1.0f &&
+                          matrix[15] == 1.0f && matrix[12] == 0.0f && matrix[13] == 0.0f &&
+                          matrix[14] == 0.0f && matrix[1] == 0.0f && matrix[4] == 0.0f;
+    const bool suspicious = !finite || magnitude < 1e-6f || identity;
+    unsigned& seen = queries[slot & 3u];
+    if (!suspicious && (seen++ % 300) != 0) return;
     listLogLine(suspicious,
-                "LISTLOG %s%s [%.3f %.3f %.3f %.3f | %.3f %.3f %.3f %.3f | %.3f %.3f %.3f %.3f | "
-                "%.3f %.3f %.3f %.3f]",
-                which, suspicious ? " SUSPICIOUS" : "", matrix[0], matrix[1], matrix[2], matrix[3],
-                matrix[4], matrix[5], matrix[6], matrix[7], matrix[8], matrix[9], matrix[10],
-                matrix[11], matrix[12], matrix[13], matrix[14], matrix[15]);
+                "LISTLOG %s%s depth=%zu [%.3f %.3f %.3f %.3f | %.3f %.3f %.3f %.3f | "
+                "%.3f %.3f %.3f %.3f | %.3f %.3f %.3f %.3f]",
+                which, suspicious ? (identity ? " IDENTITY" : " SUSPICIOUS") : "", stackDepth,
+                matrix[0], matrix[1], matrix[2], matrix[3], matrix[4], matrix[5], matrix[6],
+                matrix[7], matrix[8], matrix[9], matrix[10], matrix[11], matrix[12], matrix[13],
+                matrix[14], matrix[15]);
 }
 
 void sfpewListLogCalled(GLuint list, int found, size_t commands) {

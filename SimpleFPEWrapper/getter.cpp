@@ -1212,13 +1212,17 @@ void glGetFloatv(GLenum pname, GLfloat* params) {
         // Minecraft builds its view frustum from these two read-backs and
         // culls every chunk against it, so a wrong answer here empties the
         // world without any draw call going missing.
-        sfpewListLogMatrixQuery("MODELVIEW", params);
+        sfpewListLogMatrixQuery(
+            "MODELVIEW", 0,
+            gs.fpe_uniform.transformation.matrices_stack[matrix_idx(GL_MODELVIEW)].size(), params);
         break;
     }
     case GL_PROJECTION_MATRIX: {
         auto* ptr = glm::value_ptr(gs.fpe_uniform.transformation.matrices[matrix_idx(GL_PROJECTION)]);
         memcpy(params, ptr, sizeof(GLfloat) * 16);
-        sfpewListLogMatrixQuery("PROJECTION", params);
+        sfpewListLogMatrixQuery(
+            "PROJECTION", 1,
+            gs.fpe_uniform.transformation.matrices_stack[matrix_idx(GL_PROJECTION)].size(), params);
         break;
     }
     case GL_TEXTURE_MATRIX: {

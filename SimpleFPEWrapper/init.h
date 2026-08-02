@@ -55,6 +55,12 @@ void sfpewListLogFrame();
 void sfpewListLogCompiled(GLuint list, size_t commands);
 void sfpewListLogCalled(GLuint list, int found, size_t commands);
 void sfpewListLogRequested(unsigned lists);
+void sfpewListLogRequestedIds(const GLuint* ids, unsigned count);
+void sfpewListLogGenerated(unsigned range);
+void sfpewListLogDeleted(unsigned range);
+void sfpewListLogRecording(GLuint list);
+void sfpewListLogSingleCall();
+void sfpewListLogDrawIssued();
 void sfpewListLogDrewOne();
 void sfpewListLogMatrixQuery(const char* which, unsigned slot, size_t stackDepth,
                              const GLfloat* matrix);

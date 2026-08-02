@@ -163,6 +163,17 @@ struct list_log_counters_t {
     unsigned captureOk = 0, captureFail = 0, preconditionSkip = 0;
     unsigned arenaOk = 0, arenaFail = 0, dedicated = 0, staticFail = 0;
     unsigned compiled = 0, compiledEmpty = 0;
+    // List lifecycle, so a frame that stops drawing can be told apart from a
+    // frame whose lists were deleted or never recorded.
+    unsigned gens = 0, genRange = 0, deletes = 0, deleteRange = 0, recordings = 0;
+    unsigned callListsBatches = 0, callListSingles = 0;
+    // Geometry volume, independent of how many lists carried it.
+    unsigned long long vertsDrawn = 0, vertsCompiled = 0;
+    unsigned drawsTotal = 0;
+    // The ids of a frame that asks for almost nothing, to see whether it is
+    // the same chunk every time.
+    GLuint idSample[8] = {};
+    unsigned idSampleCount = 0;
     // Whole run, for the "first N" detail lines
     unsigned detailsCapture = 0, detailsPrecondition = 0, detailsArena = 0, detailsEmpty = 0,
              detailsBatch = 0, detailsMissing = 0;
@@ -574,6 +585,7 @@ public:
     void execute() const override {
         if (!valid) return;
         ++g_listLog.replayDraws;
+        g_listLog.vertsDrawn += (unsigned long long)count;
 
         wrapper_client_state_guard_t wrapperState;
 
@@ -945,6 +957,7 @@ bool passthroughLegacyDrawArrays(GLenum mode, GLint first, GLsizei count) {
 
 void drawArraysNow(GLenum mode, GLint first, GLsizei count, bool forceFixedFunction,
                    GLint arrayBufferOverride) {
+    ++g_listLog.drawsTotal;
     // A zero-vertex draw is legal and simply draws nothing - only a NEGATIVE
     // count is an error. Returning here keeps it away from the client-array
     // upload sizing in commit_fpe_state_on_draw, which assumes at least one
@@ -1657,6 +1670,8 @@ bool tryExecuteCapturedDisplayLists(const GLuint* listIds, size_t listCount) {
 
     ++g_listLog.batchOk;
     g_listLog.drawnLists += (unsigned)listCount;
+    for (const GLsizei vertices : batch->vertexCounts)
+        g_listLog.vertsDrawn += (unsigned long long)vertices;
     const auto* prototype = batch->prototype;
     const GLuint commonBuffer = batch->commonBuffer;
 
@@ -1733,6 +1748,7 @@ void glDrawArrays(GLenum mode, GLint first, GLsizei count) {
                 mode, first, count, vertexArray, g_glstate_c.fpe_state.client_active_texture);
             if (captured->isValid()) {
                 ++g_listLog.captureOk;
+                g_listLog.vertsCompiled += (unsigned long long)count;
                 command = std::move(captured);
             } else {
                 ++g_listLog.captureFail;
@@ -1922,22 +1938,41 @@ void sfpewListLogFrame() {
     // Nothing happened since the last summary; the caller is one of several
     // frame boundaries (swap, clear, periodic) and only the first should print.
     if (c.requested == 0 && c.compiled == 0 && c.replayDraws == 0) return;
+    unsigned probeTotal = 0, probeFilled = 0;
+    DisplayListManager::inventory(&probeTotal, &probeFilled);
     const bool interesting = c.requested != c.drawnLists || c.callsMissing || c.captureFail ||
-                             c.preconditionSkip || c.staticFail;
+                             c.preconditionSkip || c.staticFail ||
+                             (probeFilled >= 50 && c.requested * 8 < probeFilled);
     // Every frame while something is wrong, otherwise one in sixty.
     if (interesting || (frame % 60) == 0) {
         unsigned heldTotal = 0, heldFilled = 0;
         DisplayListManager::inventory(&heldTotal, &heldFilled);
-        listLogLine(c.requested != c.drawnLists,
-                   "LISTLOG frame=%u lists=%u/%u%s held=%u/%u replayDraws=%u calls=%u(missing=%u empty=%u) "
-                   "batch=%u/%u compiled=%u(empty=%u) capture=%u/%u skip=%u arena=%u(fail=%u) "
-                   "dedicated=%u staticFail=%u",
+        // The wrapper is holding plenty of chunk geometry and the game is
+        // asking for almost none of it: that is the reported symptom, and
+        // labelling it here means the log identifies its own bad frames.
+        const bool symptom = heldFilled >= 50 && c.requested * 8 < heldFilled;
+        listLogLine(c.requested != c.drawnLists || symptom,
+                   "LISTLOG frame=%u lists=%u/%u%s%s held=%u/%u verts=%llu draws=%u "
+                   "callLists=%u+%u calls=%u(missing=%u empty=%u) batch=%u/%u replayDraws=%u",
                    frame, c.drawnLists, c.requested,
-                   c.requested != c.drawnLists ? " LOST!" : "", heldFilled, heldTotal,
-                   c.replayDraws, c.calls,
-                   c.callsMissing, c.callsEmpty, c.batchOk, c.batchTry, c.compiled,
-                   c.compiledEmpty, c.captureOk, c.captureOk + c.captureFail, c.preconditionSkip,
-                   c.arenaOk, c.arenaFail, c.dedicated, c.staticFail);
+                   c.requested != c.drawnLists ? " LOST!" : "", symptom ? " SYMPTOM" : "",
+                   heldFilled, heldTotal, c.vertsDrawn, c.drawsTotal, c.callListsBatches,
+                   c.callListSingles, c.calls, c.callsMissing, c.callsEmpty, c.batchOk,
+                   c.batchTry, c.replayDraws);
+        listLogLine(false,
+                   "LISTLOG frame=%u   lifecycle gen=%u(+%u ids) del=%u(-%u ids) record=%u "
+                   "compiled=%u(empty=%u) vertsCompiled=%llu capture=%u/%u skip=%u "
+                   "arena=%u(fail=%u) dedicated=%u staticFail=%u",
+                   frame, c.gens, c.genRange, c.deletes, c.deleteRange, c.recordings, c.compiled,
+                   c.compiledEmpty, c.vertsCompiled, c.captureOk, c.captureOk + c.captureFail,
+                   c.preconditionSkip, c.arenaOk, c.arenaFail, c.dedicated, c.staticFail);
+        if (symptom && c.idSampleCount != 0) {
+            char ids[128] = "";
+            size_t at = 0;
+            for (unsigned i = 0; i < c.idSampleCount && at + 12 < sizeof ids; ++i)
+                at += (size_t)snprintf(ids + at, sizeof ids - at, "%u ", c.idSample[i]);
+            listLogLine(true, "LISTLOG frame=%u   asked for lists: %s", frame, ids);
+        }
     }
     ++frame;
     const unsigned dc = c.detailsCapture, dp = c.detailsPrecondition, da = c.detailsArena,
@@ -1957,9 +1992,36 @@ void sfpewListLogCompiled(GLuint list, size_t commands) {
     }
 }
 
-void sfpewListLogRequested(unsigned lists) { g_listLog.requested += lists; }
+void sfpewListLogRequested(unsigned lists) {
+    g_listLog.requested += lists;
+    ++g_listLog.callListsBatches;
+}
+
+// The ids themselves, kept only while a frame asks for very few of them.
+void sfpewListLogRequestedIds(const GLuint* ids, unsigned count) {
+    sfpewListLogRequested(count);
+    if (ids == nullptr || count > 8) return;
+    for (unsigned i = 0; i < count && g_listLog.idSampleCount < 8; ++i)
+        g_listLog.idSample[g_listLog.idSampleCount++] = ids[i];
+}
+
+void sfpewListLogGenerated(unsigned range) {
+    ++g_listLog.gens;
+    g_listLog.genRange += range;
+}
+
+void sfpewListLogDeleted(unsigned range) {
+    ++g_listLog.deletes;
+    g_listLog.deleteRange += range;
+}
+
+void sfpewListLogRecording(GLuint) { ++g_listLog.recordings; }
+
+void sfpewListLogDrawIssued() { ++g_listLog.drawsTotal; }
 
 void sfpewListLogDrewOne() { ++g_listLog.drawnLists; }
+
+void sfpewListLogSingleCall() { ++g_listLog.callListSingles; }
 
 // The frustum matrices, once every few seconds and again whenever they stop
 // looking like a camera - a zero row or a degenerate projection culls the

@@ -46,6 +46,7 @@ GLuint glGenLists(GLsizei range) {
         g_glstate.set_error(GL_INVALID_VALUE);
         return 0;
     }
+    sfpewListLogGenerated((unsigned)range);
     GLuint first = DisplayListManager::genDisplayList(range);
     // LOG_D("-> ", first)
     return first;
@@ -58,6 +59,7 @@ void glDeleteLists(GLuint list, GLsizei range) {
         g_glstate.set_error(GL_INVALID_VALUE);
         return;
     }
+    sfpewListLogDeleted((unsigned)range);
     DisplayListManager::deleteDisplayList(list, range);
 }
 
@@ -83,6 +85,7 @@ void glNewList(GLuint list, GLenum mode) {
         g_glstate.set_error(GL_INVALID_OPERATION);
         return;
     }
+    sfpewListLogRecording(list);
     DisplayListManager::startRecord(list, mode);
 }
 
@@ -118,7 +121,8 @@ void glCallList(GLuint list) {
     if (DisplayListManager::isCalling()) {
         DisplayListManager::callList(list);
     } else {
-        sfpewListLogRequested(1);
+        sfpewListLogRequestedIds(&list, 1);
+        sfpewListLogSingleCall();
         fpe_backend_draw_state_guard_t backendState(
             sfpewLogicalProgram(), static_cast<GLint>(sfpewLogicalArrayBufferBinding()));
         if (!DisplayListManager::callSingleCaptured(list)) DisplayListManager::callList(list);
@@ -208,7 +212,7 @@ void glCallLists(GLsizei n, GLenum type, const GLvoid* lists) {
         listIds = decodedListIds.data();
     }
 
-    sfpewListLogRequested(static_cast<unsigned>(listCount));
+    sfpewListLogRequestedIds(listIds, static_cast<unsigned>(listCount));
     fpe_backend_draw_state_guard_t backendState(
         sfpewLogicalProgram(), static_cast<GLint>(sfpewLogicalArrayBufferBinding()));
     if (tryExecuteCapturedDisplayLists(listIds, listCount)) return;

@@ -880,6 +880,33 @@ void nanscanAfterUserDraw(GLuint program, GLsizei vertex_count) {
     g_glFuncs.glPixelStorei(0x0D02, pack_row);
     g_glFuncs.glPixelStorei(0x0D03, pack_skip_rows);
     g_glFuncs.glPixelStorei(0x0D04, pack_skip_pixels);
+
+    // Raster-output state, read back from the BACKEND: run 7 showed whole
+    // composite chains issuing normally while not landing a single fragment
+    // (cleared buffers stayed zero, uncleared ones froze), which is exactly
+    // what one stuck output-pipeline switch produces. The wrapper filters
+    // several of these against shadows, so log the backend's own answers.
+    if (trace && g_glFuncs.glIsEnabled != nullptr && g_glFuncs.glGetBooleanv != nullptr) {
+        GLint sb[4] = {0, 0, 0, 0}, bsrc = 0, bdst = 0, beq = 0, dfunc = 0;
+        GLboolean cm[4] = {0, 0, 0, 0}, dm = 0;
+        const int sc = g_glFuncs.glIsEnabled(GL_SCISSOR_TEST) == GL_TRUE;
+        const int bl = g_glFuncs.glIsEnabled(GL_BLEND) == GL_TRUE;
+        const int dp = g_glFuncs.glIsEnabled(GL_DEPTH_TEST) == GL_TRUE;
+        const int st = g_glFuncs.glIsEnabled(GL_STENCIL_TEST) == GL_TRUE;
+        const int cf = g_glFuncs.glIsEnabled(GL_CULL_FACE) == GL_TRUE;
+        const int rd = g_glFuncs.glIsEnabled(0x8D69 /* GL_RASTERIZER_DISCARD */) == GL_TRUE;
+        g_glFuncs.glGetIntegerv(GL_SCISSOR_BOX, sb);
+        g_glFuncs.glGetIntegerv(0x80C9 /* GL_BLEND_SRC_RGB */, &bsrc);
+        g_glFuncs.glGetIntegerv(0x80C8 /* GL_BLEND_DST_RGB */, &bdst);
+        g_glFuncs.glGetIntegerv(0x8009 /* GL_BLEND_EQUATION_RGB */, &beq);
+        g_glFuncs.glGetBooleanv(0x0C23 /* GL_COLOR_WRITEMASK */, cm);
+        g_glFuncs.glGetBooleanv(0x0B72 /* GL_DEPTH_WRITEMASK */, &dm);
+        g_glFuncs.glGetIntegerv(0x0B74 /* GL_DEPTH_FUNC */, &dfunc);
+        SFPEW_LOGI("NANSCAN frame=%u prog=%u RST sc=%d(%d,%d,%d,%d) bl=%d(s%x,d%x,e%x) "
+                   "cm=%d%d%d%d dp=%d,w%d,f%x st=%d cf=%d rd=%d",
+                   frame, program, sc, sb[0], sb[1], sb[2], sb[3], bl, bsrc, bdst, beq, cm[0],
+                   cm[1], cm[2], cm[3], dp, (int)dm, dfunc, st, cf, rd);
+    }
     while (g_glFuncs.glGetError() != GL_NO_ERROR) {}
 }
 

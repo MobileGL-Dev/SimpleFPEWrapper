@@ -1926,12 +1926,15 @@ void sfpewListLogFrame() {
                              c.preconditionSkip || c.staticFail;
     // Every frame while something is wrong, otherwise one in sixty.
     if (interesting || (frame % 60) == 0) {
+        unsigned heldTotal = 0, heldFilled = 0;
+        DisplayListManager::inventory(&heldTotal, &heldFilled);
         listLogLine(c.requested != c.drawnLists,
-                   "LISTLOG frame=%u lists=%u/%u%s replayDraws=%u calls=%u(missing=%u empty=%u) "
+                   "LISTLOG frame=%u lists=%u/%u%s held=%u/%u replayDraws=%u calls=%u(missing=%u empty=%u) "
                    "batch=%u/%u compiled=%u(empty=%u) capture=%u/%u skip=%u arena=%u(fail=%u) "
                    "dedicated=%u staticFail=%u",
                    frame, c.drawnLists, c.requested,
-                   c.requested != c.drawnLists ? " LOST!" : "", c.replayDraws, c.calls,
+                   c.requested != c.drawnLists ? " LOST!" : "", heldFilled, heldTotal,
+                   c.replayDraws, c.calls,
                    c.callsMissing, c.callsEmpty, c.batchOk, c.batchTry, c.compiled,
                    c.compiledEmpty, c.captureOk, c.captureOk + c.captureFail, c.preconditionSkip,
                    c.arenaOk, c.arenaFail, c.dedicated, c.staticFail);

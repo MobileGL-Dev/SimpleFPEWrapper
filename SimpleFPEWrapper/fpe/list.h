@@ -363,6 +363,19 @@ public:
         listMode = GL_COMPILE;
     }
 
+    // How many lists exist and how many hold anything to draw. The pair
+    // separates "the game built no geometry" from "the game built it and
+    // then declined to draw it", which look identical from the draw stream.
+    static void inventory(unsigned* total, unsigned* nonEmpty) {
+        unsigned all = 0, filled = 0;
+        for (const auto& entry : lists) {
+            ++all;
+            if (!entry.second.empty()) ++filled;
+        }
+        *total = all;
+        *nonEmpty = filled;
+    }
+
     static int isRecording() { return currentListID != 0 ? 1 : 0; }
 
 

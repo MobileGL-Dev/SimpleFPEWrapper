@@ -23,6 +23,14 @@
 // lists have been re-recorded in place - the rebuild MC does whenever a chunk
 // changes, which frees and reallocates inside the wrapper's vertex arena.
 //
+// The batched replay also has to work on a backend without
+// glMultiDrawArrays: MobileGlues resolves the pointer but implements nothing
+// behind it up to V1.3.5, so a group drawn that way vanishes without an
+// error. SFPEW_NO_MULTIDRAWARRAYS forces the path taken there - identity
+// indices through the indexed multi-draw - and this runs the same checks
+// under it, with GL_TRIANGLES so the group cannot take the quad index path
+// instead.
+//
 // Skips (77) when the machine has no EGL device.
 
 #include <dlfcn.h>
@@ -40,6 +48,7 @@ typedef unsigned int GLbitfield;
 
 #define GL_COLOR_BUFFER_BIT 0x00004000
 #define GL_QUADS 0x0007
+#define GL_TRIANGLES 0x0004
 #define GL_FLOAT 0x1406
 #define GL_RGBA 0x1908
 #define GL_UNSIGNED_BYTE 0x1401
@@ -55,7 +64,9 @@ typedef unsigned int GLbitfield;
 // per-list fallback. The count is still high enough that the batch path has
 // to stitch many lists together.
 #define CHUNKS 64
-#define VERTS_PER_CHUNK 4
+// A quad needs four vertices, the same band as triangles needs six; the
+// buffer is sized for the larger so one shape serves both modes.
+#define MAX_VERTS_PER_CHUNK 6
 #define STRIDE 32 // MC's tessellator stride: xyz, uv, colour, padding
 
 static void (*fClearColor)(GLfloat, GLfloat, GLfloat, GLfloat);
@@ -77,8 +88,14 @@ static void (*fCallLists)(GLsizei, GLenum, const void*);
 
 static int failures;
 
+// A quad and two triangles cover the same band, so the readback checks are
+// the same either way; the mode only decides which batch path the group
+// takes.
+static int quadMode = 1;
+static int vertsPerChunk(void) { return quadMode ? 4 : 6; }
+
 // One buffer for every chunk, exactly like the tessellator's.
-static GLubyte sharedBuffer[VERTS_PER_CHUNK * STRIDE];
+static GLubyte sharedBuffer[MAX_VERTS_PER_CHUNK * STRIDE];
 
 // Chunk i owns the horizontal band [i/CHUNKS, (i+1)/CHUNKS] in clip space and
 // is tinted with a colour derived from i, so a readback in that band proves
@@ -90,12 +107,17 @@ static void fillSharedBuffer(int chunk) {
     const GLubyte g = (GLubyte)(255 - 3 * chunk);
     const float xs[4] = {left, right, right, left};
     const float ys[4] = {-1.0f, -1.0f, 1.0f, 1.0f};
+    // Corner order: a quad walks its four in turn, two triangles repeat the
+    // diagonal. Both sweep the same band.
+    static const int quadCorners[4] = {0, 1, 2, 3};
+    static const int triangleCorners[6] = {0, 1, 2, 0, 2, 3};
+    const int* corners = quadMode ? quadCorners : triangleCorners;
     memset(sharedBuffer, 0, sizeof sharedBuffer);
-    for (int v = 0; v < VERTS_PER_CHUNK; ++v) {
+    for (int v = 0; v < vertsPerChunk(); ++v) {
         GLubyte* vertex = sharedBuffer + v * STRIDE;
         float* position = (float*)vertex;
-        position[0] = xs[v];
-        position[1] = ys[v];
+        position[0] = xs[corners[v]];
+        position[1] = ys[corners[v]];
         position[2] = 0.0f;
         float* uv = (float*)(vertex + 12);
         uv[0] = 0.0f;
@@ -119,7 +141,7 @@ static void recordChunk(GLuint list, int chunk) {
     fEnableClientState(GL_VERTEX_ARRAY);
     fEnableClientState(GL_TEXTURE_COORD_ARRAY);
     fEnableClientState(GL_COLOR_ARRAY);
-    fDrawArrays(GL_QUADS, 0, VERTS_PER_CHUNK);
+    fDrawArrays(quadMode ? GL_QUADS : GL_TRIANGLES, 0, vertsPerChunk());
     fDisableClientState(GL_COLOR_ARRAY);
     fDisableClientState(GL_TEXTURE_COORD_ARRAY);
     fDisableClientState(GL_VERTEX_ARRAY);
@@ -161,7 +183,8 @@ static void checkAllChunks(const char* what) {
     }
 }
 
-int main(void) {
+int main(int argc, char** argv) {
+    quadMode = !(argc > 1 && strcmp(argv[1], "triangles") == 0);
     void* handle = dlopen(WRAPPER_LIB_PATH, RTLD_NOW | RTLD_LOCAL);
     if (!handle) { fprintf(stderr, "FAIL: dlopen: %s\n", dlerror()); return 1; }
     typedef void* (*resolver_t)(const char*);
@@ -247,6 +270,7 @@ int main(void) {
         fprintf(stderr, "FAIL: %d check(s) failed\n", failures);
         return 1;
     }
-    printf("OK: display-list chunks keep their own vertex snapshots\n");
+    printf("OK: display-list chunks keep their own vertex snapshots (%s)\n",
+           quadMode ? "quads" : "triangles");
     return 0;
 }

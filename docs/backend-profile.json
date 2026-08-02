@@ -480,7 +480,7 @@
     },
     "glMultiDrawElementsBaseVertex": {
       "availability": "GL 3.2 / ES: EXT_multi_draw_elements_base_vertex",
-      "call_sites": 1
+      "call_sites": 2
     },
     "glMultiDrawElementsBaseVertexEXT": {
       "availability": "vendor/extension suffix: never core",

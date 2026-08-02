@@ -88,6 +88,54 @@ struct array_buffer_binding_guard_t {
 
 constexpr size_t kDisplayListArenaCapacity = 64u * 1024u * 1024u;
 
+// Indices 0,1,2,... - the identity permutation. Drawing `count` of them with
+// a base vertex reaches exactly the vertices glMultiDrawArrays would have
+// drawn for that sub-draw, so a group whose backend implements only the
+// indexed multi-draw still goes out in one call rather than one per list.
+// Grown on demand and kept for the process.
+GLuint identityIndexBuffer(GLsizei vertices, GLenum* type) {
+    static thread_local GLuint buffer = 0;
+    static thread_local GLsizei capacity = 0;
+    static thread_local GLenum storedType = GL_UNSIGNED_SHORT;
+    if (vertices <= 0 || g_glFuncs.glGenBuffers == nullptr || g_glFuncs.glBufferData == nullptr ||
+        g_glFuncs.glBindBuffer == nullptr) {
+        return 0;
+    }
+    const GLenum wanted = vertices > (GLsizei)std::numeric_limits<uint16_t>::max()
+                              ? GL_UNSIGNED_INT
+                              : GL_UNSIGNED_SHORT;
+    if (buffer != 0 && capacity >= vertices && storedType == wanted) {
+        *type = storedType;
+        return buffer;
+    }
+    if (buffer == 0) {
+        g_glFuncs.glGenBuffers(1, &buffer);
+        sfpewNoteInternalBuffer(buffer);
+        if (buffer == 0) return 0;
+    }
+    sfpewBackendBindElementBuffer(buffer);
+    g_glstate_c.fpe_state.fpe_ibo_bound = false; // fpe_ibo is no longer the bound one
+    if (wanted == GL_UNSIGNED_SHORT) {
+        thread_local std::vector<uint16_t> indices;
+        indices.resize((size_t)vertices);
+        for (GLsizei i = 0; i < vertices; ++i) indices[(size_t)i] = (uint16_t)i;
+        g_glFuncs.glBufferData(GL_ELEMENT_ARRAY_BUFFER,
+                               (GLsizeiptr)(indices.size() * sizeof(uint16_t)), indices.data(),
+                               GL_STATIC_DRAW);
+    } else {
+        thread_local std::vector<uint32_t> indices;
+        indices.resize((size_t)vertices);
+        for (GLsizei i = 0; i < vertices; ++i) indices[(size_t)i] = (uint32_t)i;
+        g_glFuncs.glBufferData(GL_ELEMENT_ARRAY_BUFFER,
+                               (GLsizeiptr)(indices.size() * sizeof(uint32_t)), indices.data(),
+                               GL_STATIC_DRAW);
+    }
+    capacity = vertices;
+    storedType = wanted;
+    *type = storedType;
+    return buffer;
+}
+
 // ---- SFPEW_LISTLOG: display-list geometry accounting -------------------
 // Minecraft's terrain lives entirely in display lists, and every way this
 // wrapper can lose a chunk is silent by construction: a draw whose client
@@ -123,6 +171,20 @@ bool listBatchDisabled() {
     return disabled;
 }
 
+// SFPEW_LIST_BATCH_LOOP=1 keeps the batch path exactly as it is - one state
+// commit for the whole group, same buffer, same per-list first and count -
+// but issues the group as individual draws instead of one multi-draw. It
+// isolates the multi-draw entry point itself from everything around it,
+// which is all that still differs between a batched group and the per-list
+// replay that renders correctly.
+bool listBatchLoopOnly() {
+    static const bool loop = [] {
+        const char* v = getenv("SFPEW_LIST_BATCH_LOOP");
+        return v != nullptr && v[0] != '\0' && !(v[0] == '0' && v[1] == '\0');
+    }();
+    return loop;
+}
+
 bool listArenaDisabled() {
     static const bool disabled = [] {
         const char* v = getenv("SFPEW_NO_LIST_ARENA");
@@ -155,7 +217,8 @@ FILE* listLogFile() {
         setvbuf(opened, nullptr, _IOLBF, 0);
         fprintf(opened, "SFPEW display-list accounting, commit %s, built %s%s%s\n",
                 SFPEW_GIT_COMMIT, __DATE__ " " __TIME__,
-                listBatchDisabled() ? " [NO_LIST_BATCH]" : "",
+                listBatchDisabled() ? " [NO_LIST_BATCH]"
+                                    : (listBatchLoopOnly() ? " [LIST_BATCH_LOOP]" : ""),
                 listArenaDisabled() ? " [NO_LIST_ARENA]" : "");
         fflush(opened);
         SFPEW_LOGI("LISTLOG writing to %s", path);
@@ -1577,7 +1640,9 @@ void drawElementsNow(GLenum mode, GLsizei count, GLenum type, const GLvoid* indi
 bool tryExecuteCapturedDisplayLists(const GLuint* listIds, size_t listCount) {
     if (listBatchDisabled()) return false;
     ++g_listLog.batchTry;
-    if (listIds == nullptr || listCount < 2 || g_glFuncs.glMultiDrawArrays == nullptr ||
+    if (listIds == nullptr || listCount < 2 ||
+        (g_glFuncs.glMultiDrawArrays == nullptr &&
+         g_glFuncs.glMultiDrawElementsBaseVertex == nullptr) ||
         g_glstate_c.fpe_uniform.transformation.matrix_mode != GL_MODELVIEW) {
         if (listLogEnabled() && g_listLog.detailsBatch++ < kListLogDetailLimit) {
             listLogLine(false, "LISTLOG batch declined: count=%zu multiDraw=%s matrixMode=0x%x",
@@ -1701,8 +1766,10 @@ bool tryExecuteCapturedDisplayLists(const GLuint* listIds, size_t listCount) {
             for (const GLsizei count : candidate.vertexCounts) {
                 candidate.elementCounts.push_back((count / 4) * 6);
             }
-            candidate.indexPointers.assign(candidate.vertexCounts.size(), nullptr);
         }
+        // Needed by both indexed forms: the quad indices and the identity
+        // indices are each drawn from offset zero.
+        candidate.indexPointers.assign(candidate.vertexCounts.size(), nullptr);
         candidate.valid = true;
         batch = &candidate;
     }
@@ -1779,11 +1846,41 @@ bool tryExecuteCapturedDisplayLists(const GLuint* listIds, size_t listCount) {
     // glMultiDrawArrays is absent from GLES core (EXT_multi_draw_arrays), so on a
     // backend without it this pointer is null and the call would segfault. Keeping
     // the test adjacent to the call is what makes that safe to read.
-    if (drawElements == 0 && prototype->mode != GL_QUADS &&
-        g_glFuncs.glMultiDrawArrays != nullptr) {
-        g_glFuncs.glMultiDrawArrays(mode, batch->firsts.data(), batch->vertexCounts.data(),
-                                    static_cast<GLsizei>(batch->vertexCounts.size()));
-        executed = true;
+    // MobileGlues resolves a glMultiDrawArrays pointer but has no
+    // implementation behind it up to V1.3.5: the call returns having drawn
+    // nothing, which is why batched chunks vanished while every list was
+    // submitted and every offset was right. Its indexed relatives work, so
+    // only the array form needs the loop.
+    // MobileGlues resolves a glMultiDrawArrays pointer but has nothing behind
+    // it up to V1.3.5: the call returns having drawn nothing, which is why
+    // batched chunks vanished while every list was submitted and every offset
+    // was right. Its INDEXED multi-draws are implemented, and identity indices
+    // with a base vertex reach the same vertices the array form would, so the
+    // group still leaves in a single call there.
+    const bool avoidMultiArrays = listBatchLoopOnly() || sfpewBackendLacksMultiDrawArrays();
+    if (drawElements == 0 && prototype->mode != GL_QUADS) {
+        GLenum identityType = GL_UNSIGNED_SHORT;
+        GLuint identityBuffer = 0;
+        if (!avoidMultiArrays && g_glFuncs.glMultiDrawArrays != nullptr) {
+            g_glFuncs.glMultiDrawArrays(mode, batch->firsts.data(), batch->vertexCounts.data(),
+                                        static_cast<GLsizei>(batch->vertexCounts.size()));
+            executed = true;
+        } else if (!listBatchLoopOnly() && g_glFuncs.glMultiDrawElementsBaseVertex != nullptr &&
+                   (identityBuffer = identityIndexBuffer(batch->maxVertexCount, &identityType)) !=
+                       0) {
+            sfpewBackendBindElementBuffer(identityBuffer);
+            g_glstate_c.fpe_state.fpe_ibo_bound = false;
+            g_glFuncs.glMultiDrawElementsBaseVertex(
+                mode, batch->vertexCounts.data(), identityType, batch->indexPointers.data(),
+                static_cast<GLsizei>(batch->vertexCounts.size()), batch->firsts.data());
+            executed = true;
+        } else if (g_glFuncs.glDrawArrays != nullptr) {
+            // Neither multi-draw usable: still one state commit for the whole
+            // group, one draw per list.
+            for (size_t i = 0; i < batch->firsts.size(); ++i)
+                g_glFuncs.glDrawArrays(mode, batch->firsts[i], batch->vertexCounts[i]);
+            executed = true;
+        }
     } else if (drawElements > 0 && prototype->mode == GL_QUADS &&
                g_glFuncs.glMultiDrawElementsBaseVertex != nullptr) {
         g_glFuncs.glMultiDrawElementsBaseVertex(
@@ -1792,6 +1889,19 @@ bool tryExecuteCapturedDisplayLists(const GLuint* listIds, size_t listCount) {
         executed = true;
     }
 
+    if (listLogEnabled() && executed && g_listLog.detailsBatch++ < kListLogDetailLimit) {
+        listLogLine(false,
+                    "LISTLOG batch %s mode=0x%x n=%zu maxVerts=%d buffer=%u stride=%d "
+                    "first[0..2]=%d,%d,%d count[0..2]=%d,%d,%d",
+                    drawElements > 0 ? "multiElements(quads)"
+                                     : (avoidMultiArrays ? "multiElements(identity)" : "multiArrays"),
+                    mode, batch->firsts.size(), batch->maxVertexCount, commonBuffer,
+                    prototype->layout.stride, batch->firsts[0],
+                    batch->firsts.size() > 1 ? batch->firsts[1] : -1,
+                    batch->firsts.size() > 2 ? batch->firsts[2] : -1, batch->vertexCounts[0],
+                    batch->vertexCounts.size() > 1 ? batch->vertexCounts[1] : -1,
+                    batch->vertexCounts.size() > 2 ? batch->vertexCounts[2] : -1);
+    }
     modelView = savedModelView;
     return executed;
 }

@@ -459,6 +459,13 @@ if(NOT ANDROID)
                         add_dependencies(smoke_display_list_chunks ${CMAKE_PROJECT_NAME})
                         add_test(NAME smoke_display_list_chunks COMMAND smoke_display_list_chunks)
                         set_tests_properties(smoke_display_list_chunks PROPERTIES SKIP_RETURN_CODE 77)
+                        # The same groups on a backend without glMultiDrawArrays,
+                        # in a mode that cannot fall back to the quad indices.
+                        add_test(NAME smoke_display_list_chunks_no_multidrawarrays
+                                 COMMAND smoke_display_list_chunks triangles)
+                        set_tests_properties(smoke_display_list_chunks_no_multidrawarrays PROPERTIES
+                                SKIP_RETURN_CODE 77
+                                ENVIRONMENT "SFPEW_NO_MULTIDRAWARRAYS=1")
 
                         add_executable(smoke_manual_mipgen tests/smoke_manual_mipgen.c)
                         target_compile_definitions(smoke_manual_mipgen PRIVATE

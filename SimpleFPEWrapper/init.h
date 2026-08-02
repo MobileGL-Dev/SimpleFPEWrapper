@@ -33,6 +33,9 @@ bool sfpewBackendIsES();
 // GLES-backed translation layers (MobileGlues) that only pretend to.
 // Conservative: unknown answers "no", and the wrapper converts.
 bool sfpewBackendTakesBgra();
+// True when glMultiDrawArrays must not be called on this backend: MobileGlues
+// up to V1.3.5 has no implementation and the call silently draws nothing.
+bool sfpewBackendLacksMultiDrawArrays();
 
 // A GL_BGRA upload converted for a GLES backend: `pixels` is tightly packed
 // RGBA (thread-local scratch), and the unpack state / pixel unpack buffer

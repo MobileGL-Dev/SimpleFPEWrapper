@@ -906,6 +906,9 @@ private:
 constexpr size_t kCapturedDisplayListBatchCacheSize = 4;
 
 struct captured_display_list_batch_t {
+    // Every draw in the group, so a cache hit can re-derive each one's
+    // current vertex offset instead of trusting the offsets it recorded.
+    std::vector<const captured_draw_arrays_cmd_t*> draws;
     bool valid = false;
     const captured_draw_arrays_cmd_t* prototype = nullptr;
     glm::mat4 commonLinear{1.0f};
@@ -1650,6 +1653,7 @@ bool tryExecuteCapturedDisplayLists(const GLuint* listIds, size_t listCount) {
         candidate.commonBuffer = 0;
         candidate.maxVertexCount = 0;
         candidate.listIds.assign(listIds, listIds + listCount);
+        candidate.draws.clear();
         candidate.firsts.clear();
         candidate.vertexCounts.clear();
         candidate.elementCounts.clear();
@@ -1684,6 +1688,7 @@ bool tryExecuteCapturedDisplayLists(const GLuint* listIds, size_t listCount) {
             else if (candidate.commonBuffer != buffer)
                 return false;
 
+            candidate.draws.push_back(draw);
             candidate.firsts.push_back(first);
             candidate.vertexCounts.push_back(draw->count);
             candidate.maxVertexCount = std::max(candidate.maxVertexCount, draw->count);
@@ -1700,6 +1705,39 @@ bool tryExecuteCapturedDisplayLists(const GLuint* listIds, size_t listCount) {
         }
         candidate.valid = true;
         batch = &candidate;
+    }
+
+    // A cached group only ever re-checked the FIRST list's arena allocation
+    // and reused the recorded offset of every other one, on the reasoning
+    // that a shared arena generation makes one allocation prove the rest.
+    // It does not: an individual list can be re-uploaded to a different
+    // slice while the group is still cached, and the group then draws that
+    // list from wherever its old slice now points - the chunk lands as
+    // another chunk's geometry or outside the buffer entirely. Re-deriving
+    // the offsets costs one check per list against a rebuild's map lookups.
+    for (size_t i = 0; i < batch->draws.size(); ++i) {
+        GLuint buffer = 0;
+        GLint first = 0;
+        if (!batch->draws[i]->bindStaticVertexBuffer(&buffer, &first) ||
+            buffer != batch->commonBuffer) {
+            if (listLogEnabled() && g_listLog.detailsBatch++ < kListLogDetailLimit) {
+                listLogLine(true,
+                            "LISTLOG batch list %u no longer shares the group's buffer "
+                            "(buffer=%u want=%u); replaying the group one list at a time",
+                            batch->listIds[i], buffer, batch->commonBuffer);
+            }
+            batch->valid = false;
+            return false;
+        }
+        if (first != batch->firsts[i]) {
+            if (listLogEnabled() && g_listLog.detailsBatch++ < kListLogDetailLimit) {
+                listLogLine(true,
+                            "LISTLOG batch list %u moved: cached first=%d now %d (stride=%d) - "
+                            "the cached group would have drawn the wrong vertices",
+                            batch->listIds[i], batch->firsts[i], first, batch->prototype->layout.stride);
+            }
+            batch->firsts[i] = first;
+        }
     }
 
     ++g_listLog.batchOk;

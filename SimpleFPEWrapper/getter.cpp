@@ -1582,13 +1582,17 @@ bool fixedFunctionState(GLenum pname, GLdouble* values, int* count, bool* colour
     // but nothing in a legacy frontend branches on this.
     case GL_DOUBLEBUFFER: return scalar(1);
 
-    // ---- hints GLES cannot take, answered from their shadow ----
+    // ---- hints one of the two floors cannot take, from their shadow ----
+    // GL_GENERATE_MIPMAP_HINT is the one that goes the other way: ES 3 has
+    // it, a core context rejects it, and NVIDIA's core profile does reject
+    // it where Mesa's lets it through.
     case GL_FOG_HINT:
     case GL_LINE_SMOOTH_HINT:
     case GL_PERSPECTIVE_CORRECTION_HINT:
     case GL_POINT_SMOOTH_HINT:
     case GL_POLYGON_SMOOTH_HINT:
-    case GL_TEXTURE_COMPRESSION_HINT: {
+    case GL_TEXTURE_COMPRESSION_HINT:
+    case GL_GENERATE_MIPMAP_HINT: {
         const int slot = sfpewLegacyHintSlot(pname);
         return scalar(slot >= 0 ? gs.legacy_hints[slot] : GL_DONT_CARE);
     }

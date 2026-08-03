@@ -423,6 +423,7 @@ int sfpewLegacyHintSlot(GLenum target) {
     case GL_POINT_SMOOTH_HINT: return 3;
     case GL_POLYGON_SMOOTH_HINT: return 4;
     case GL_TEXTURE_COMPRESSION_HINT: return 5;
+    case GL_GENERATE_MIPMAP_HINT: return 6;
     default: return -1;
     }
 }
@@ -433,13 +434,26 @@ void glHint(GLenum target, GLenum mode) {
         return;
     }
     switch (target) {
-    // Backed by the GLES backend.
-    case GL_GENERATE_MIPMAP_HINT:
+    // Backed by both floors.
     case GL_FRAGMENT_SHADER_DERIVATIVE_HINT:
         if (!sfpewEnsureBackend() || g_glFuncs.glHint == nullptr) return;
         sfpewClientStateBarrier();
         g_glFuncs.glHint(target, mode);
         return;
+    // ES 3 has this one and a GL 3.2 core context does not - it went out
+    // with the fixed-function mipmap generation the wrapper now does itself.
+    // Remember it either way, and only pass it on where it means something.
+    case GL_GENERATE_MIPMAP_HINT: {
+        const int slot = sfpewLegacyHintSlot(target);
+        if (slot >= 0) g_glstate.legacy_hints[slot] = mode;
+        int major = 0, minor = 0;
+        if (sfpewDesktopGLVersion(&major, &minor) && sfpewEnsureBackend() &&
+            g_glFuncs.glHint != nullptr) {
+            sfpewClientStateBarrier();
+            g_glFuncs.glHint(target, mode);
+        }
+        return;
+    }
     // Legal GL 2.1 hints with no GLES equivalent: accepting them as a no-op
     // is a conforming implementation of a hint, but the value has to be
     // remembered - a hint that cannot be read back is not state.

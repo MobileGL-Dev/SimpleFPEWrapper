@@ -99,8 +99,14 @@ inline void sfpewListLogMatrixQuery(const char*, unsigned, size_t, const GLfloat
 bool sfpewEvaluatorStateQuery(GLenum pname, GLdouble* values, int* count);
 void sfpewAccumClearValue(GLfloat* rgba);
 void sfpewAttribStackDepths(int* server, int* client, int* maxDepth);
-// Slot in glstate_t::legacy_hints for a hint target GLES cannot take, or -1.
+// Slot in glstate_t::legacy_hints for a hint target one of the two backend
+// floors cannot take, or -1.
 int sfpewLegacyHintSlot(GLenum target);
+// True when the backend is GLES, reporting the desktop level the wrapper
+// presents for it; false for a desktop backend, which needs no mapping.
+// The two differ in which legacy queries they still accept, so anything
+// that has to pick a spelling asks here.
+bool sfpewDesktopGLVersion(int* major, int* minor);
 
 GLuint sfpewLogicalTextureBinding(GLenum target);
 // Changes whenever the active texture unit or any texture binding does.

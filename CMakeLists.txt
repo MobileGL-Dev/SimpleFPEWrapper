@@ -199,6 +199,20 @@ target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE
         glslang glslang-default-resource-limits SPIRV spirv-cross-glsl spirv-cross-core)
 if(ANDROID)
         target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE log)
+
+        # The state sweeps, built for the device as well. Everything else is
+        # verified against Mesa on the host, but which state a driver can be
+        # asked for is exactly what differs between one GLES stack and the
+        # next - and the stack this ships on is not the one CI runs. They are
+        # plain executables to adb push and run, not ctests: the host cannot
+        # run them, and the device has no ctest.
+        foreach(t smoke_ffp_getters smoke_version)
+                add_executable(${t} tests/${t}.c)
+                target_compile_definitions(${t} PRIVATE
+                        WRAPPER_LIB_PATH="lib${CMAKE_PROJECT_NAME}.so")
+                target_link_libraries(${t} PRIVATE dl m EGL)
+                add_dependencies(${t} ${CMAKE_PROJECT_NAME})
+        endforeach()
 endif()
 
 # Host-side tests (not applicable to Android cross builds).

@@ -317,7 +317,8 @@ if(NOT ANDROID)
                                        attrib_retire arraybuffer_heal element_binding_survives
                                        buffer_name_reuse display_list_chunks fog rastercolor
                                        orthpos texgen_toggle polygon_mode draw_batch
-                                       swap_flushes_batch list_immediate lwjgl_surface)
+                                       swap_flushes_batch list_immediate lwjgl_surface
+                                       uniform_cache userprog_enable_cache)
                                 sfpew_add_gtest(sfpew_${suite}_test SOURCES tests/gtest_${suite}.cc
                                                 LIBRARIES ${SFPEW_TEST_EGL})
                         endforeach()
@@ -396,13 +397,6 @@ if(NOT ANDROID)
 
 
 
-                        add_executable(smoke_uniform_cache tests/smoke_uniform_cache.c)
-                        target_compile_definitions(smoke_uniform_cache PRIVATE
-                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
-                        target_link_libraries(smoke_uniform_cache PRIVATE dl ${SFPEW_TEST_EGL})
-                        add_dependencies(smoke_uniform_cache ${CMAKE_PROJECT_NAME})
-                        add_test(NAME smoke_uniform_cache COMMAND smoke_uniform_cache)
-                        set_tests_properties(smoke_uniform_cache PROPERTIES SKIP_RETURN_CODE 77)
 
 
                         add_executable(smoke_manual_mipgen tests/smoke_manual_mipgen.c)
@@ -438,13 +432,6 @@ if(NOT ANDROID)
                         set_tests_properties(smoke_mixed_translation_link PROPERTIES SKIP_RETURN_CODE 77)
 
 
-                        add_executable(smoke_userprog_enable_cache tests/smoke_userprog_enable_cache.c)
-                        target_compile_definitions(smoke_userprog_enable_cache PRIVATE
-                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
-                        target_link_libraries(smoke_userprog_enable_cache PRIVATE dl ${SFPEW_TEST_EGL})
-                        add_dependencies(smoke_userprog_enable_cache ${CMAKE_PROJECT_NAME})
-                        add_test(NAME smoke_userprog_enable_cache COMMAND smoke_userprog_enable_cache)
-                        set_tests_properties(smoke_userprog_enable_cache PROPERTIES SKIP_RETURN_CODE 77)
 
                         add_executable(smoke_vbo_surface tests/smoke_vbo_surface.c)
                         target_compile_definitions(smoke_vbo_surface PRIVATE
@@ -455,14 +442,6 @@ if(NOT ANDROID)
                         set_tests_properties(smoke_vbo_surface PROPERTIES SKIP_RETURN_CODE 77)
 
 
-                        add_executable(smoke_translator tests/smoke_translator.c)
-                        target_compile_definitions(smoke_translator PRIVATE
-                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
-                        target_link_libraries(smoke_translator PRIVATE dl
-                                ${SFPEW_TEST_EGL} ${SFPEW_TEST_GLES})
-                        add_dependencies(smoke_translator ${CMAKE_PROJECT_NAME})
-                        add_test(NAME smoke_translator COMMAND smoke_translator)
-                        set_tests_properties(smoke_translator PROPERTIES SKIP_RETURN_CODE 77)
 
                         add_executable(smoke_render tests/smoke_render.c)
                         target_compile_definitions(smoke_render PRIVATE

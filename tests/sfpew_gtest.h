@@ -36,6 +36,7 @@ using GLuint = unsigned int;
 using GLbitfield = unsigned int;
 using GLboolean = unsigned char;
 using GLubyte = unsigned char;
+using GLushort = unsigned short;
 using GLint = int;
 using GLsizei = int;
 using GLfloat = float;
@@ -43,6 +44,9 @@ using GLdouble = double;
 using GLchar = char;
 using GLsizeiptr = long;
 using GLintptr = long;
+
+constexpr GLboolean GL_FALSE_ = 0;
+constexpr GLboolean GL_TRUE_ = 1;
 
 // Which client API the case wants underneath. The two cannot share a
 // process - see the note in CMakeLists.txt - so a case that wants the
@@ -176,6 +180,14 @@ public:
     template <typename Fn>
     Fn GetOptional(const char* name) {
         return reinterpret_cast<Fn>(resolve_ != nullptr ? resolve_(name) : nullptr);
+    }
+
+    // A symbol straight off the library, for the test-only hooks the wrapper
+    // exports that are not GL entry points (sfpewMarkBufferInternalForTest and
+    // friends): those answer dlsym, not eglGetProcAddress.
+    template <typename Fn>
+    Fn Dlsym(const char* name) {
+        return reinterpret_cast<Fn>(library_ != nullptr ? ::dlsym(library_, name) : nullptr);
     }
 
     EGLDisplay display() const { return display_; }

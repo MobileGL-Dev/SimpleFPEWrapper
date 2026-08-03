@@ -313,7 +313,9 @@ if(NOT ANDROID)
                         foreach(suite version ffp_getters empty_beginend edgeflag line_loop
                                        degenerate_prims long_primitives immediate_merge
                                        dlist_shademodel dlist_beginend dlist_no_state_leak
-                                       list_current_attr)
+                                       list_current_attr ffp_vbo_arrays bgra_color_array
+                                       attrib_retire arraybuffer_heal element_binding_survives
+                                       buffer_name_reuse)
                                 sfpew_add_gtest(sfpew_${suite}_test SOURCES tests/gtest_${suite}.cc
                                                 LIBRARIES ${SFPEW_TEST_EGL})
                         endforeach()
@@ -382,21 +384,7 @@ if(NOT ANDROID)
                         add_test(NAME smoke_userobject_blit COMMAND smoke_userobject_blit)
                         set_tests_properties(smoke_userobject_blit PROPERTIES SKIP_RETURN_CODE 77)
 
-                        add_executable(smoke_attrib_retire tests/smoke_attrib_retire.c)
-                        target_compile_definitions(smoke_attrib_retire PRIVATE
-                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
-                        target_link_libraries(smoke_attrib_retire PRIVATE dl ${SFPEW_TEST_EGL})
-                        add_dependencies(smoke_attrib_retire ${CMAKE_PROJECT_NAME})
-                        add_test(NAME smoke_attrib_retire COMMAND smoke_attrib_retire)
-                        set_tests_properties(smoke_attrib_retire PROPERTIES SKIP_RETURN_CODE 77)
 
-                        add_executable(smoke_buffer_name_reuse tests/smoke_buffer_name_reuse.c)
-                        target_compile_definitions(smoke_buffer_name_reuse PRIVATE
-                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
-                        target_link_libraries(smoke_buffer_name_reuse PRIVATE dl ${SFPEW_TEST_EGL})
-                        add_dependencies(smoke_buffer_name_reuse ${CMAKE_PROJECT_NAME})
-                        add_test(NAME smoke_buffer_name_reuse COMMAND smoke_buffer_name_reuse)
-                        set_tests_properties(smoke_buffer_name_reuse PROPERTIES SKIP_RETURN_CODE 77)
 
                         add_executable(smoke_swap_flushes_batch tests/smoke_swap_flushes_batch.c)
                         target_compile_definitions(smoke_swap_flushes_batch PRIVATE
@@ -449,21 +437,7 @@ if(NOT ANDROID)
                         set_tests_properties(smoke_draw_batch PROPERTIES SKIP_RETURN_CODE 77)
 
 
-                        add_executable(smoke_arraybuffer_heal tests/smoke_arraybuffer_heal.c)
-                        target_compile_definitions(smoke_arraybuffer_heal PRIVATE
-                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
-                        target_link_libraries(smoke_arraybuffer_heal PRIVATE dl ${SFPEW_TEST_EGL})
-                        add_dependencies(smoke_arraybuffer_heal ${CMAKE_PROJECT_NAME})
-                        add_test(NAME smoke_arraybuffer_heal COMMAND smoke_arraybuffer_heal)
-                        set_tests_properties(smoke_arraybuffer_heal PROPERTIES SKIP_RETURN_CODE 77)
 
-                        add_executable(smoke_element_binding_survives tests/smoke_element_binding_survives.c)
-                        target_compile_definitions(smoke_element_binding_survives PRIVATE
-                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
-                        target_link_libraries(smoke_element_binding_survives PRIVATE dl ${SFPEW_TEST_EGL})
-                        add_dependencies(smoke_element_binding_survives ${CMAKE_PROJECT_NAME})
-                        add_test(NAME smoke_element_binding_survives COMMAND smoke_element_binding_survives)
-                        set_tests_properties(smoke_element_binding_survives PROPERTIES SKIP_RETURN_CODE 77)
 
                         add_executable(smoke_uniform_cache tests/smoke_uniform_cache.c)
                         target_compile_definitions(smoke_uniform_cache PRIVATE
@@ -519,13 +493,6 @@ if(NOT ANDROID)
                         add_test(NAME smoke_bgra_texture COMMAND smoke_bgra_texture)
                         set_tests_properties(smoke_bgra_texture PROPERTIES SKIP_RETURN_CODE 77)
 
-                        add_executable(smoke_bgra_color_array tests/smoke_bgra_color_array.c)
-                        target_compile_definitions(smoke_bgra_color_array PRIVATE
-                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
-                        target_link_libraries(smoke_bgra_color_array PRIVATE dl ${SFPEW_TEST_EGL})
-                        add_dependencies(smoke_bgra_color_array ${CMAKE_PROJECT_NAME})
-                        add_test(NAME smoke_bgra_color_array COMMAND smoke_bgra_color_array)
-                        set_tests_properties(smoke_bgra_color_array PROPERTIES SKIP_RETURN_CODE 77)
 
                         add_executable(smoke_mixed_translation_link tests/smoke_mixed_translation_link.c)
                         target_compile_definitions(smoke_mixed_translation_link PRIVATE
@@ -535,13 +502,6 @@ if(NOT ANDROID)
                         add_test(NAME smoke_mixed_translation_link COMMAND smoke_mixed_translation_link)
                         set_tests_properties(smoke_mixed_translation_link PROPERTIES SKIP_RETURN_CODE 77)
 
-                        add_executable(smoke_ffp_vbo_arrays tests/smoke_ffp_vbo_arrays.c)
-                        target_compile_definitions(smoke_ffp_vbo_arrays PRIVATE
-                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
-                        target_link_libraries(smoke_ffp_vbo_arrays PRIVATE dl ${SFPEW_TEST_EGL})
-                        add_dependencies(smoke_ffp_vbo_arrays ${CMAKE_PROJECT_NAME})
-                        add_test(NAME smoke_ffp_vbo_arrays COMMAND smoke_ffp_vbo_arrays)
-                        set_tests_properties(smoke_ffp_vbo_arrays PROPERTIES SKIP_RETURN_CODE 77)
 
                         add_executable(smoke_userprog_enable_cache tests/smoke_userprog_enable_cache.c)
                         target_compile_definitions(smoke_userprog_enable_cache PRIVATE

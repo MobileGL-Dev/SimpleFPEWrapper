@@ -311,7 +311,9 @@ if(NOT ANDROID)
                 if(SFPEW_TEST_EGL AND SFPEW_TEST_GLES)
                         # Suites that need a driver underneath.
                         foreach(suite version ffp_getters empty_beginend edgeflag line_loop
-                                       degenerate_prims long_primitives immediate_merge)
+                                       degenerate_prims long_primitives immediate_merge
+                                       dlist_shademodel dlist_beginend dlist_no_state_leak
+                                       list_current_attr)
                                 sfpew_add_gtest(sfpew_${suite}_test SOURCES tests/gtest_${suite}.cc
                                                 LIBRARIES ${SFPEW_TEST_EGL})
                         endforeach()
@@ -404,13 +406,6 @@ if(NOT ANDROID)
                         add_test(NAME smoke_swap_flushes_batch COMMAND smoke_swap_flushes_batch)
                         set_tests_properties(smoke_swap_flushes_batch PROPERTIES SKIP_RETURN_CODE 77)
 
-                        add_executable(smoke_dlist_no_state_leak tests/smoke_dlist_no_state_leak.c)
-                        target_compile_definitions(smoke_dlist_no_state_leak PRIVATE
-                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
-                        target_link_libraries(smoke_dlist_no_state_leak PRIVATE dl ${SFPEW_TEST_EGL})
-                        add_dependencies(smoke_dlist_no_state_leak ${CMAKE_PROJECT_NAME})
-                        add_test(NAME smoke_dlist_no_state_leak COMMAND smoke_dlist_no_state_leak)
-                        set_tests_properties(smoke_dlist_no_state_leak PROPERTIES SKIP_RETURN_CODE 77)
 
                         add_executable(smoke_beginend_coverage tests/smoke_beginend_coverage.c)
                         target_compile_definitions(smoke_beginend_coverage PRIVATE
@@ -428,13 +423,6 @@ if(NOT ANDROID)
                         add_test(NAME smoke_polygon_mode COMMAND smoke_polygon_mode)
                         set_tests_properties(smoke_polygon_mode PROPERTIES SKIP_RETURN_CODE 77)
 
-                        add_executable(smoke_dlist_beginend tests/smoke_dlist_beginend.c)
-                        target_compile_definitions(smoke_dlist_beginend PRIVATE
-                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
-                        target_link_libraries(smoke_dlist_beginend PRIVATE dl ${SFPEW_TEST_EGL})
-                        add_dependencies(smoke_dlist_beginend ${CMAKE_PROJECT_NAME})
-                        add_test(NAME smoke_dlist_beginend COMMAND smoke_dlist_beginend)
-                        set_tests_properties(smoke_dlist_beginend PROPERTIES SKIP_RETURN_CODE 77)
 
                         add_executable(smoke_rastercolor tests/smoke_rastercolor.c)
                         target_compile_definitions(smoke_rastercolor PRIVATE
@@ -460,13 +448,6 @@ if(NOT ANDROID)
                         add_test(NAME smoke_draw_batch COMMAND smoke_draw_batch)
                         set_tests_properties(smoke_draw_batch PROPERTIES SKIP_RETURN_CODE 77)
 
-                        add_executable(smoke_dlist_shademodel tests/smoke_dlist_shademodel.c)
-                        target_compile_definitions(smoke_dlist_shademodel PRIVATE
-                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
-                        target_link_libraries(smoke_dlist_shademodel PRIVATE dl ${SFPEW_TEST_EGL})
-                        add_dependencies(smoke_dlist_shademodel ${CMAKE_PROJECT_NAME})
-                        add_test(NAME smoke_dlist_shademodel COMMAND smoke_dlist_shademodel)
-                        set_tests_properties(smoke_dlist_shademodel PROPERTIES SKIP_RETURN_CODE 77)
 
                         add_executable(smoke_arraybuffer_heal tests/smoke_arraybuffer_heal.c)
                         target_compile_definitions(smoke_arraybuffer_heal PRIVATE
@@ -603,13 +584,6 @@ if(NOT ANDROID)
                         add_test(NAME smoke_render COMMAND smoke_render)
                         set_tests_properties(smoke_render PROPERTIES SKIP_RETURN_CODE 77)
 
-                        add_executable(smoke_list_current_attr tests/smoke_list_current_attr.c)
-                        target_compile_definitions(smoke_list_current_attr PRIVATE
-                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
-                        target_link_libraries(smoke_list_current_attr PRIVATE dl ${SFPEW_TEST_EGL})
-                        add_dependencies(smoke_list_current_attr ${CMAKE_PROJECT_NAME})
-                        add_test(NAME smoke_list_current_attr COMMAND smoke_list_current_attr)
-                        set_tests_properties(smoke_list_current_attr PROPERTIES SKIP_RETURN_CODE 77)
                 endif()
 
                 # Vendored piglit shader_test subset through the mini-runner

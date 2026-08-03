@@ -318,7 +318,8 @@ if(NOT ANDROID)
                                        buffer_name_reuse display_list_chunks fog rastercolor
                                        orthpos texgen_toggle polygon_mode draw_batch
                                        swap_flushes_batch list_immediate lwjgl_surface
-                                       uniform_cache userprog_enable_cache)
+                                       uniform_cache userprog_enable_cache userobject_blit
+                                       userprog_multiattrib)
                                 sfpew_add_gtest(sfpew_${suite}_test SOURCES tests/gtest_${suite}.cc
                                                 LIBRARIES ${SFPEW_TEST_EGL})
                         endforeach()
@@ -361,21 +362,7 @@ if(NOT ANDROID)
                         add_test(NAME smoke_userobject_quads COMMAND smoke_userobject_quads)
                         set_tests_properties(smoke_userobject_quads PROPERTIES SKIP_RETURN_CODE 77)
 
-                        add_executable(smoke_userprog_multiattrib tests/smoke_userprog_multiattrib.c)
-                        target_compile_definitions(smoke_userprog_multiattrib PRIVATE
-                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
-                        target_link_libraries(smoke_userprog_multiattrib PRIVATE dl ${SFPEW_TEST_EGL})
-                        add_dependencies(smoke_userprog_multiattrib ${CMAKE_PROJECT_NAME})
-                        add_test(NAME smoke_userprog_multiattrib COMMAND smoke_userprog_multiattrib)
-                        set_tests_properties(smoke_userprog_multiattrib PROPERTIES SKIP_RETURN_CODE 77)
 
-                        add_executable(smoke_userobject_blit tests/smoke_userobject_blit.c)
-                        target_compile_definitions(smoke_userobject_blit PRIVATE
-                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
-                        target_link_libraries(smoke_userobject_blit PRIVATE dl ${SFPEW_TEST_EGL})
-                        add_dependencies(smoke_userobject_blit ${CMAKE_PROJECT_NAME})
-                        add_test(NAME smoke_userobject_blit COMMAND smoke_userobject_blit)
-                        set_tests_properties(smoke_userobject_blit PROPERTIES SKIP_RETURN_CODE 77)
 
 
 

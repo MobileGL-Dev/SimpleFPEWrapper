@@ -11,7 +11,10 @@
 #include "types.h"
 #include "fpe.hpp"
 
+#include <algorithm>
 #include <array>
+#include <limits>
+#include <type_traits>
 
 void flushPendingImmediateDraws();
 
@@ -89,6 +92,23 @@ inline glm::vec4 mglDefaultedVec4(const std::array<Type, N>& v) {
         return glm::vec4((GLfloat)v[0], 0.0f, 0.0f, 1.0f);
 }
 
+// GL 2.1 Table 2.6 conversion shared by primary colors, secondary colors,
+// normals and the integer fixed-function parameter spellings. Signed minima
+// have one extra magnitude value, so clamp -128/127 (and equivalents) to -1.
+template <typename T>
+inline GLfloat sfpewNormalizeColorComponent(T value) {
+    if constexpr (std::is_floating_point_v<T>) {
+        return static_cast<GLfloat>(value);
+    } else if constexpr (std::is_signed_v<T>) {
+        const GLfloat converted = static_cast<GLfloat>(value) /
+                                  static_cast<GLfloat>(std::numeric_limits<T>::max());
+        return std::max(converted, -1.0f);
+    } else {
+        return static_cast<GLfloat>(value) /
+               static_cast<GLfloat>(std::numeric_limits<T>::max());
+    }
+}
+
 // Vertex-data entries ride the Begin/End context pin: zero strict resolves
 // while a batch is collecting, one strict resolve otherwise (types.h).
 template <typename Type, GLint N>
@@ -109,6 +129,18 @@ void mglFogCoord(Type coord) {
     auto& state = g_glstate.fpe_state.fpe_draw;
     state.set_attribute_size(5, 1);
     state.current_data.fog_coord = (GLfloat)coord;
+}
+
+// GL 1.4 / EXT_secondary_color feeds fixed-function attribute slot 6. The
+// alpha component is not supplied by this API and is always one.
+template <typename Type, GLint N>
+void mglSecondaryColor(std::array<Type, N> color) {
+    auto& state = sfpewVertexDataState().fpe_state.fpe_draw;
+    state.set_attribute_size(6, 3);
+    auto& current = state.current_data.secondary_color;
+    for (GLint i = 0; i < N; ++i)
+        glm::value_ptr(current)[i] = sfpewNormalizeColorComponent(color[i]);
+    glm::value_ptr(current)[3] = 1.0f;
 }
 
 template <typename Type, GLint N>

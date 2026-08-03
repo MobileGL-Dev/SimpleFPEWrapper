@@ -578,14 +578,14 @@ Note `GL_EXT_secondary_color` is **already advertised** in `kDesktopExtensions`
 
 | Entry point | Status | | Entry point | Status |
 |---|---|---|---|---|
-| `glSecondaryColor3b` | [ ] | | `glSecondaryColor3bv` | [ ] |
-| `glSecondaryColor3s` | [ ] | | `glSecondaryColor3sv` | [ ] |
-| `glSecondaryColor3i` | [ ] | | `glSecondaryColor3iv` | [ ] |
-| `glSecondaryColor3f` | [ ] | | `glSecondaryColor3fv` | [ ] |
-| `glSecondaryColor3d` | [ ] | | `glSecondaryColor3dv` | [ ] |
-| `glSecondaryColor3ub` | [ ] | | `glSecondaryColor3ubv` | [ ] |
-| `glSecondaryColor3us` | [ ] | | `glSecondaryColor3usv` | [ ] |
-| `glSecondaryColor3ui` | [ ] | | `glSecondaryColor3uiv` | [ ] |
+| `glSecondaryColor3b` | [x] | | `glSecondaryColor3bv` | [x] |
+| `glSecondaryColor3s` | [x] | | `glSecondaryColor3sv` | [x] |
+| `glSecondaryColor3i` | [x] | | `glSecondaryColor3iv` | [x] |
+| `glSecondaryColor3f` | [x] | | `glSecondaryColor3fv` | [x] |
+| `glSecondaryColor3d` | [x] | | `glSecondaryColor3dv` | [x] |
+| `glSecondaryColor3ub` | [x] | | `glSecondaryColor3ubv` | [x] |
+| `glSecondaryColor3us` | [x] | | `glSecondaryColor3usv` | [x] |
+| `glSecondaryColor3ui` | [x] | | `glSecondaryColor3uiv` | [x] |
 
 ### The conversion rule — get this right or colors are wrong
 
@@ -1865,11 +1865,11 @@ Group B; decide when you get there.
 | C — Texture residency | 2 | 2 / 2 |
 | D — Transpose matrices | 4 | 4 / 4 |
 | E — Point parameters | 4 | 0 / 4 |
-| F — Secondary colour immediate | 16 | 0 / 16 |
+| F — Secondary colour immediate | 16 | 16 / 16 |
 | G — Vertex attrib variants | 29 | 0 / 29 |
 | H — Half-implemented fixes | 3 | 3 / 3 |
 | I — Completing partial paths | 6 items | 0 / 6 |
-| **Total** | **95 entry points + 6 items** | **9 / 101** |
+| **Total** | **95 entry points + 6 items** | **25 / 101** |
 
 Update this table as groups complete. When it reads 95/95, the three-part API
 contract in §0.1 holds for everything `docs.gl`'s GL 2.1 pages describe, minus

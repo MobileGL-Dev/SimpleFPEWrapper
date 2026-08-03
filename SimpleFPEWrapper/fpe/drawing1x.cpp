@@ -947,6 +947,8 @@ public:
             if (i == 0) live.vertex = finalData.vertex;
             else if (i == 1) live.normal = finalData.normal;
             else if (i == 2) live.color = finalData.color;
+            else if (i == 5) live.fog_coord = finalData.fog_coord;
+            else if (i == 6) live.secondary_color = finalData.secondary_color;
             else if (i >= 7) live.texcoord[i - 7] = finalData.texcoord[i - 7];
         }
     }

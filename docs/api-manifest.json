@@ -1,6 +1,6 @@
 {
  "source": "lookup.cpp",
- "count": 563,
+ "count": 595,
  "entries": {
   "eglSwapBuffersWithDamageKHR": {
    "status": "alias",
@@ -1697,6 +1697,134 @@
   "glScissor": {
    "status": "resolvable",
    "target": "glScissor"
+  },
+  "glSecondaryColor3b": {
+   "status": "resolvable",
+   "target": "glSecondaryColor3b"
+  },
+  "glSecondaryColor3bEXT": {
+   "status": "alias",
+   "target": "glSecondaryColor3b"
+  },
+  "glSecondaryColor3bv": {
+   "status": "resolvable",
+   "target": "glSecondaryColor3bv"
+  },
+  "glSecondaryColor3bvEXT": {
+   "status": "alias",
+   "target": "glSecondaryColor3bv"
+  },
+  "glSecondaryColor3d": {
+   "status": "resolvable",
+   "target": "glSecondaryColor3d"
+  },
+  "glSecondaryColor3dEXT": {
+   "status": "alias",
+   "target": "glSecondaryColor3d"
+  },
+  "glSecondaryColor3dv": {
+   "status": "resolvable",
+   "target": "glSecondaryColor3dv"
+  },
+  "glSecondaryColor3dvEXT": {
+   "status": "alias",
+   "target": "glSecondaryColor3dv"
+  },
+  "glSecondaryColor3f": {
+   "status": "resolvable",
+   "target": "glSecondaryColor3f"
+  },
+  "glSecondaryColor3fEXT": {
+   "status": "alias",
+   "target": "glSecondaryColor3f"
+  },
+  "glSecondaryColor3fv": {
+   "status": "resolvable",
+   "target": "glSecondaryColor3fv"
+  },
+  "glSecondaryColor3fvEXT": {
+   "status": "alias",
+   "target": "glSecondaryColor3fv"
+  },
+  "glSecondaryColor3i": {
+   "status": "resolvable",
+   "target": "glSecondaryColor3i"
+  },
+  "glSecondaryColor3iEXT": {
+   "status": "alias",
+   "target": "glSecondaryColor3i"
+  },
+  "glSecondaryColor3iv": {
+   "status": "resolvable",
+   "target": "glSecondaryColor3iv"
+  },
+  "glSecondaryColor3ivEXT": {
+   "status": "alias",
+   "target": "glSecondaryColor3iv"
+  },
+  "glSecondaryColor3s": {
+   "status": "resolvable",
+   "target": "glSecondaryColor3s"
+  },
+  "glSecondaryColor3sEXT": {
+   "status": "alias",
+   "target": "glSecondaryColor3s"
+  },
+  "glSecondaryColor3sv": {
+   "status": "resolvable",
+   "target": "glSecondaryColor3sv"
+  },
+  "glSecondaryColor3svEXT": {
+   "status": "alias",
+   "target": "glSecondaryColor3sv"
+  },
+  "glSecondaryColor3ub": {
+   "status": "resolvable",
+   "target": "glSecondaryColor3ub"
+  },
+  "glSecondaryColor3ubEXT": {
+   "status": "alias",
+   "target": "glSecondaryColor3ub"
+  },
+  "glSecondaryColor3ubv": {
+   "status": "resolvable",
+   "target": "glSecondaryColor3ubv"
+  },
+  "glSecondaryColor3ubvEXT": {
+   "status": "alias",
+   "target": "glSecondaryColor3ubv"
+  },
+  "glSecondaryColor3ui": {
+   "status": "resolvable",
+   "target": "glSecondaryColor3ui"
+  },
+  "glSecondaryColor3uiEXT": {
+   "status": "alias",
+   "target": "glSecondaryColor3ui"
+  },
+  "glSecondaryColor3uiv": {
+   "status": "resolvable",
+   "target": "glSecondaryColor3uiv"
+  },
+  "glSecondaryColor3uivEXT": {
+   "status": "alias",
+   "target": "glSecondaryColor3uiv"
+  },
+  "glSecondaryColor3us": {
+   "status": "resolvable",
+   "target": "glSecondaryColor3us"
+  },
+  "glSecondaryColor3usEXT": {
+   "status": "alias",
+   "target": "glSecondaryColor3us"
+  },
+  "glSecondaryColor3usv": {
+   "status": "resolvable",
+   "target": "glSecondaryColor3usv"
+  },
+  "glSecondaryColor3usvEXT": {
+   "status": "alias",
+   "target": "glSecondaryColor3usv"
   },
   "glSecondaryColorPointer": {
    "status": "resolvable",

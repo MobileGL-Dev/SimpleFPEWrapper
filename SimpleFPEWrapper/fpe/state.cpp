@@ -16,8 +16,6 @@
 
 #include <algorithm>
 #include <cstring>
-#include <limits>
-#include <type_traits>
 
 #define DEBUG 0
 
@@ -37,18 +35,6 @@ int active_texture_index() {
 int light_index(GLenum light) {
     if (light < GL_LIGHT0 || light >= GL_LIGHT0 + MAX_LIGHTS) return -1;
     return static_cast<int>(light - GL_LIGHT0);
-}
-
-template <typename T>
-GLfloat normalized_component(T value) {
-    if constexpr (std::is_floating_point_v<T>) {
-        return (GLfloat)value;
-    } else if constexpr (std::is_signed_v<T>) {
-        const auto converted = (GLfloat)value / (GLfloat)std::numeric_limits<T>::max();
-        return std::max(converted, -1.0f);
-    } else {
-        return (GLfloat)value / (GLfloat)std::numeric_limits<T>::max();
-    }
 }
 
 int material_param_count(GLenum pname) {
@@ -357,6 +343,33 @@ void glFogCoorddv(const GLdouble* coord) {
     if (coord == nullptr) return;
     glFogCoordd(coord[0]);
 }
+
+template <typename T>
+void set_secondary_color(T red, T green, T blue) {
+    mglSecondaryColor<T, 3>({red, green, blue});
+}
+
+#define DEFINE_SECONDARY_COLOR(SUFFIX, TYPE)                                                        \
+    void glSecondaryColor3##SUFFIX(TYPE red, TYPE green, TYPE blue) {                               \
+        LIST_RECORD(glSecondaryColor3##SUFFIX, {}, red, green, blue)                                \
+        set_secondary_color(red, green, blue);                                                       \
+    }                                                                                                \
+    void glSecondaryColor3##SUFFIX##v(const TYPE* value) {                                          \
+        if (value == nullptr) return;                                                                \
+        LIST_RECORD(glSecondaryColor3##SUFFIX##v, {{0, 3 * sizeof(TYPE)}}, value)                    \
+        set_secondary_color(value[0], value[1], value[2]);                                           \
+    }
+
+DEFINE_SECONDARY_COLOR(b, GLbyte)
+DEFINE_SECONDARY_COLOR(s, GLshort)
+DEFINE_SECONDARY_COLOR(i, GLint)
+DEFINE_SECONDARY_COLOR(f, GLfloat)
+DEFINE_SECONDARY_COLOR(d, GLdouble)
+DEFINE_SECONDARY_COLOR(ub, GLubyte)
+DEFINE_SECONDARY_COLOR(us, GLushort)
+DEFINE_SECONDARY_COLOR(ui, GLuint)
+
+#undef DEFINE_SECONDARY_COLOR
 
 // The fixed-function state family below (alpha test, fog, lighting,
 // materials, texture environment, texgen, clip planes, point/line/polygon
@@ -672,7 +685,7 @@ void glLightiv(GLenum light, GLenum pname, const GLint* params) {
     case GL_DIFFUSE:
     case GL_SPECULAR: {
         GLfloat converted[4];
-        for (int i = 0; i < 4; ++i) converted[i] = normalized_component(params[i]);
+        for (int i = 0; i < 4; ++i) converted[i] = sfpewNormalizeColorComponent(params[i]);
         SELF_CALL(glLightfv, light, pname, converted)
         break;
     }
@@ -772,7 +785,7 @@ void glLightModeliv(GLenum pname, const GLint* params) {
     switch (pname) {
     case GL_LIGHT_MODEL_AMBIENT: {
         GLfloat converted[4];
-        for (int i = 0; i < 4; ++i) converted[i] = normalized_component(params[i]);
+        for (int i = 0; i < 4; ++i) converted[i] = sfpewNormalizeColorComponent(params[i]);
         SELF_CALL(glLightModelfv, pname, converted)
         break;
     }
@@ -872,7 +885,8 @@ void glMaterialiv(GLenum face, GLenum pname, const GLint* params) {
     GLfloat converted[4] = {};
     const int count = material_param_count(pname);
     for (int i = 0; i < count; ++i) {
-        converted[i] = pname == GL_COLOR_INDEXES ? (GLfloat)params[i] : normalized_component(params[i]);
+        converted[i] = pname == GL_COLOR_INDEXES ? (GLfloat)params[i]
+                                                  : sfpewNormalizeColorComponent(params[i]);
     }
     SELF_CALL(glMaterialfv, face, pname, converted)
 }
@@ -947,7 +961,7 @@ void glTexEnviv(GLenum target, GLenum pname, const GLint* params) {
     auto& gs = g_glstate;
     if (target == GL_TEXTURE_ENV && pname == GL_TEXTURE_ENV_COLOR) {
         GLfloat converted[4];
-        for (int i = 0; i < 4; ++i) converted[i] = normalized_component(params[i]);
+        for (int i = 0; i < 4; ++i) converted[i] = sfpewNormalizeColorComponent(params[i]);
         current_texture_env(gs).color = glm::make_vec4(converted);
         return;
     }
@@ -1020,7 +1034,8 @@ DEFINE_VERTEX_VECTOR(4, s, GLshort)
 
 template <typename T>
 void set_normal(T x, T y, T z) {
-    mglNormal<GLfloat, 3>({normalized_component(x), normalized_component(y), normalized_component(z)});
+    mglNormal<GLfloat, 3>({sfpewNormalizeColorComponent(x), sfpewNormalizeColorComponent(y),
+                           sfpewNormalizeColorComponent(z)});
 }
 
 #define DEFINE_NORMAL_SCALAR(SUFFIX, TYPE)                                                                            \
@@ -1052,13 +1067,14 @@ DEFINE_NORMAL_VECTOR(s, GLshort)
 template <typename T>
 void set_color3(T red, T green, T blue) {
     mglColor<GLfloat, 4>(
-        {normalized_component(red), normalized_component(green), normalized_component(blue), 1.0f});
+        {sfpewNormalizeColorComponent(red), sfpewNormalizeColorComponent(green),
+         sfpewNormalizeColorComponent(blue), 1.0f});
 }
 
 template <typename T>
 void set_color4(T red, T green, T blue, T alpha) {
-    mglColor<GLfloat, 4>({normalized_component(red), normalized_component(green), normalized_component(blue),
-                          normalized_component(alpha)});
+    mglColor<GLfloat, 4>({sfpewNormalizeColorComponent(red), sfpewNormalizeColorComponent(green),
+                          sfpewNormalizeColorComponent(blue), sfpewNormalizeColorComponent(alpha)});
 }
 
 #define DEFINE_COLOR3_SCALAR(SUFFIX, TYPE)                                                                            \

@@ -1321,7 +1321,6 @@ bool fixedFunctionState(GLenum pname, GLdouble* values, int* count, bool* colour
     case GL_LINE_SMOOTH:
     case GL_POLYGON_SMOOTH:
     case GL_POINT_SPRITE:
-    case GL_COLOR_SUM:
     case GL_COLOR_LOGIC_OP:
     case GL_INDEX_LOGIC_OP:
     case GL_POLYGON_OFFSET_LINE:
@@ -1337,6 +1336,10 @@ bool fixedFunctionState(GLenum pname, GLdouble* values, int* count, bool* colour
     case GL_POST_CONVOLUTION_COLOR_TABLE:
     case GL_POST_COLOR_MATRIX_COLOR_TABLE:
         return capability(false);
+    // Secondary colors are tracked and queryable, but the generated shader
+    // does not sum them yet. Reporting COLOR_SUM disabled keeps that boundary
+    // explicit instead of advertising a render effect that is not present.
+    case GL_COLOR_SUM: return capability(false);
 
     // ---- current vertex attributes ----
     case GL_CURRENT_COLOR: return signal(glm::value_ptr(current.color), 4);

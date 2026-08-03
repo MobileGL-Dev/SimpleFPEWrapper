@@ -1,5 +1,5 @@
 {
-  "declared_entry_points": 374,
+  "declared_entry_points": 375,
   "doc": "docs/backend-support.md",
   "entry_points": [
     "glActiveShaderProgram",
@@ -163,6 +163,7 @@
     "glGetProgramiv",
     "glGetQueryObjecti64vEXT",
     "glGetQueryObjectivEXT",
+    "glGetQueryObjectui64vEXT",
     "glGetQueryObjectuiv",
     "glGetQueryiv",
     "glGetRenderbufferParameteriv",
@@ -440,11 +441,15 @@
     },
     "glGetQueryObjecti64vEXT": {
       "availability": "vendor/extension suffix: never core",
-      "call_sites": 0
+      "call_sites": 1
     },
     "glGetQueryObjectivEXT": {
       "availability": "vendor/extension suffix: never core",
-      "call_sites": 0
+      "call_sites": 1
+    },
+    "glGetQueryObjectui64vEXT": {
+      "availability": "vendor/extension suffix: never core",
+      "call_sites": 1
     },
     "glGetTexLevelParameteriv": {
       "availability": "GL 1.0 / ES 3.1",

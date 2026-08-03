@@ -12,6 +12,7 @@
 #include <vector>
 #include <algorithm>
 #include <cstdint>
+#include <limits>
 #include "fpe/fpe.hpp"
 
 namespace {
@@ -111,6 +112,174 @@ void glClear(GLbitfield mask) {
     LIST_RECORD(glClear, {}, mask)
     sfpewListLogFrame();
     if (g_glFuncs.glClear != nullptr) g_glFuncs.glClear(mask);
+}
+
+namespace {
+
+bool rejectDuringBeginEnd(glstate_t& gs) {
+    if (gs.fpe_state.fpe_draw.primitive == kNoPrimitive) return false;
+    gs.set_error(GL_INVALID_OPERATION);
+    return true;
+}
+
+bool isLegacyDrawBuffer(GLenum buf) {
+    switch (buf) {
+    case GL_FRONT_LEFT:
+    case GL_FRONT_RIGHT:
+    case GL_BACK_LEFT:
+    case GL_BACK_RIGHT:
+    case GL_FRONT:
+    case GL_BACK:
+    case GL_LEFT:
+    case GL_RIGHT:
+    case GL_FRONT_AND_BACK: return true;
+    default: return false;
+    }
+}
+
+bool isAuxDrawBuffer(GLenum buf) {
+    return buf >= GL_AUX0 && buf <= GL_AUX3;
+}
+
+bool isColorAttachment(GLenum buf) {
+    return buf >= GL_COLOR_ATTACHMENT0 && buf <= GL_COLOR_ATTACHMENT31;
+}
+
+bool validateQueryObject(glstate_t& gs, GLuint id, GLenum pname) {
+    if (pname != GL_QUERY_RESULT && pname != GL_QUERY_RESULT_AVAILABLE) {
+        gs.set_error(GL_INVALID_ENUM);
+        return false;
+    }
+    if (g_glFuncs.glIsQuery != nullptr && g_glFuncs.glIsQuery(id) == GL_FALSE) {
+        gs.set_error(GL_INVALID_OPERATION);
+        return false;
+    }
+    return true;
+}
+
+} // namespace
+
+// Desktop GL's double spelling is represented by the float entry point on
+// the two backend floors. Clamp before narrowing, as GL 2.1 requires.
+void glClearDepth(GLdouble depth) {
+    auto& gs = g_glstate;
+    LIST_RECORD(glClearDepth, {}, depth)
+    if (rejectDuringBeginEnd(gs)) return;
+    sfpewEntryBarrier();
+    if (!sfpewEnsureBackend() || g_glFuncs.glClearDepthf == nullptr) return;
+    g_glFuncs.glClearDepthf(static_cast<GLfloat>(std::clamp(depth, 0.0, 1.0)));
+}
+
+// Keep the backend spelling wrapped as well: callers resolving glClearDepthf
+// must still get ordering and display-list semantics.
+void glClearDepthf(GLfloat depth) {
+    auto& gs = g_glstate;
+    LIST_RECORD(glClearDepthf, {}, depth)
+    if (rejectDuringBeginEnd(gs)) return;
+    sfpewEntryBarrier();
+    if (!sfpewEnsureBackend() || g_glFuncs.glClearDepthf == nullptr) return;
+    g_glFuncs.glClearDepthf(std::clamp(depth, 0.0f, 1.0f));
+}
+
+// GL 2.1's singular draw-buffer selector maps to the one-element plural
+// command available on both backend floors. EGL surfaces have no separately
+// addressable front buffer, so every legacy surface selector lands on BACK.
+void glDrawBuffer(GLenum buf) {
+    auto& gs = g_glstate;
+    LIST_RECORD(glDrawBuffer, {}, buf)
+    if (rejectDuringBeginEnd(gs)) return;
+
+    const bool legacy = isLegacyDrawBuffer(buf);
+    const bool auxiliary = isAuxDrawBuffer(buf);
+    const bool attachment = isColorAttachment(buf);
+    if (buf != GL_NONE && !legacy && !auxiliary && !attachment) {
+        gs.set_error(GL_INVALID_ENUM);
+        return;
+    }
+
+    sfpewEntryBarrier();
+    if (!sfpewEnsureBackend() || g_glFuncs.glDrawBuffers == nullptr ||
+        g_glFuncs.glGetIntegerv == nullptr) {
+        return;
+    }
+
+    GLint framebuffer = 0;
+    g_glFuncs.glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &framebuffer);
+    GLenum mapped = buf;
+    if (framebuffer == 0) {
+        if (attachment || auxiliary) {
+            gs.set_error(GL_INVALID_OPERATION);
+            return;
+        }
+        if (legacy) mapped = GL_BACK;
+    } else {
+        if (legacy || auxiliary) {
+            gs.set_error(GL_INVALID_OPERATION);
+            return;
+        }
+        if (attachment) {
+            GLint maximum = 0;
+            g_glFuncs.glGetIntegerv(GL_MAX_COLOR_ATTACHMENTS, &maximum);
+            if (maximum <= 0 || static_cast<GLint>(buf - GL_COLOR_ATTACHMENT0) >= maximum) {
+                gs.set_error(GL_INVALID_OPERATION);
+                return;
+            }
+        }
+    }
+    g_glFuncs.glDrawBuffers(1, &mapped);
+}
+
+// ES 3.0 has only the unsigned spelling. Prefer the exact EXT function when
+// available; otherwise read the common unsigned form and saturate rather than
+// wrapping a large occlusion result into a negative GLint.
+void glGetQueryObjectiv(GLuint id, GLenum pname, GLint* params) {
+    if (params == nullptr) return;
+    auto& gs = g_glstate;
+    if (rejectDuringBeginEnd(gs)) return;
+    sfpewEntryBarrier();
+    if (!sfpewEnsureBackend() || !validateQueryObject(gs, id, pname)) return;
+    if (g_glFuncs.glGetQueryObjectivEXT != nullptr) {
+        g_glFuncs.glGetQueryObjectivEXT(id, pname, params);
+        return;
+    }
+    if (g_glFuncs.glGetQueryObjectuiv == nullptr) return;
+    GLuint value = 0;
+    g_glFuncs.glGetQueryObjectuiv(id, pname, &value);
+    *params = value > static_cast<GLuint>(std::numeric_limits<GLint>::max())
+                  ? std::numeric_limits<GLint>::max()
+                  : static_cast<GLint>(value);
+}
+
+void glGetQueryObjecti64v(GLuint id, GLenum pname, GLint64* params) {
+    if (params == nullptr) return;
+    auto& gs = g_glstate;
+    if (rejectDuringBeginEnd(gs)) return;
+    sfpewEntryBarrier();
+    if (!sfpewEnsureBackend() || !validateQueryObject(gs, id, pname)) return;
+    if (g_glFuncs.glGetQueryObjecti64vEXT != nullptr) {
+        g_glFuncs.glGetQueryObjecti64vEXT(id, pname, params);
+        return;
+    }
+    if (g_glFuncs.glGetQueryObjectuiv == nullptr) return;
+    GLuint value = 0;
+    g_glFuncs.glGetQueryObjectuiv(id, pname, &value);
+    *params = static_cast<GLint64>(value);
+}
+
+void glGetQueryObjectui64v(GLuint id, GLenum pname, GLuint64* params) {
+    if (params == nullptr) return;
+    auto& gs = g_glstate;
+    if (rejectDuringBeginEnd(gs)) return;
+    sfpewEntryBarrier();
+    if (!sfpewEnsureBackend() || !validateQueryObject(gs, id, pname)) return;
+    if (g_glFuncs.glGetQueryObjectui64vEXT != nullptr) {
+        g_glFuncs.glGetQueryObjectui64vEXT(id, pname, params);
+        return;
+    }
+    if (g_glFuncs.glGetQueryObjectuiv == nullptr) return;
+    GLuint value = 0;
+    g_glFuncs.glGetQueryObjectuiv(id, pname, &value);
+    *params = static_cast<GLuint64>(value);
 }
 // glDrawElements lives in drawing.cpp: it is FPE-converted, not passthrough.
 void glReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type,

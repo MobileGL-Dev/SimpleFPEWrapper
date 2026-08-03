@@ -636,6 +636,7 @@ namespace SFPEW {
                             GLbitfield flags)
             GL_FUNC_TYPEDEF(void, glGetQueryObjectivEXT, GLuint id, GLenum pname, GLint* params)
             GL_FUNC_TYPEDEF(void, glGetQueryObjecti64vEXT, GLuint id, GLenum pname, GLint64* params)
+            GL_FUNC_TYPEDEF(void, glGetQueryObjectui64vEXT, GLuint id, GLenum pname, GLuint64* params)
             GL_FUNC_TYPEDEF(void, glBindFragDataLocationEXT, GLuint program, GLuint colorNumber, const GLchar* name)
             GL_FUNC_TYPEDEF(void*, glMapBufferOES, GLenum target, GLenum access)
 
@@ -1016,6 +1017,7 @@ namespace SFPEW {
             GL_FUNC_DECL(glBufferStorageEXT)
             GL_FUNC_DECL(glGetQueryObjectivEXT)
             GL_FUNC_DECL(glGetQueryObjecti64vEXT)
+            GL_FUNC_DECL(glGetQueryObjectui64vEXT)
             GL_FUNC_DECL(glBindFragDataLocationEXT)
             GL_FUNC_DECL(glMapBufferOES)
 

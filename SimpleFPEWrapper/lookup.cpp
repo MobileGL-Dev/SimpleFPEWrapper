@@ -94,6 +94,16 @@ SFPEW_APIENTRY __eglMustCastToProperFunctionPointerType eglGetProcAddress(const 
         return (__eglMustCastToProperFunctionPointerType)glMultiDrawElements;
     }
     GETPROC(glClear, name)
+    GETPROC(glClearDepth, name)
+    GETPROC(glClearDepthf, name)
+    GETPROC(glDrawBuffer, name)
+    GETPROC(glGetQueryObjectiv, name)
+    GETPROC_WRAPPER_ALIAS(glGetQueryObjectivARB, glGetQueryObjectiv)
+    GETPROC_WRAPPER_ALIAS(glGetQueryObjectivEXT, glGetQueryObjectiv)
+    GETPROC(glGetQueryObjecti64v, name)
+    GETPROC(glGetQueryObjectui64v, name)
+    GETPROC_WRAPPER_ALIAS(glGetQueryObjecti64vEXT, glGetQueryObjecti64v)
+    GETPROC_WRAPPER_ALIAS(glGetQueryObjectui64vEXT, glGetQueryObjectui64v)
     GETPROC(glReadPixels, name)
     GETPROC(glFlush, name)
     GETPROC(glFinish, name)

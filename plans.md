@@ -431,9 +431,9 @@ calls `glClearDepth`.
 
 | Entry point | Status |
 |---|---|
-| `glClearDepth` | [ ] |
-| `glDrawBuffer` | [ ] |
-| `glGetQueryObjectiv` | [ ] |
+| `glClearDepth` | [x] |
+| `glDrawBuffer` | [x] |
+| `glGetQueryObjectiv` | [x] |
 
 ### H.1 `glClearDepth` — `ordered_passthrough.cpp`
 
@@ -1867,9 +1867,9 @@ Group B; decide when you get there.
 | E — Point parameters | 4 | 0 / 4 |
 | F — Secondary colour immediate | 16 | 0 / 16 |
 | G — Vertex attrib variants | 29 | 0 / 29 |
-| H — Half-implemented fixes | 3 | 0 / 3 |
+| H — Half-implemented fixes | 3 | 3 / 3 |
 | I — Completing partial paths | 6 items | 0 / 6 |
-| **Total** | **95 entry points + 6 items** | **6 / 101** |
+| **Total** | **95 entry points + 6 items** | **9 / 101** |
 
 Update this table as groups complete. When it reads 95/95, the three-part API
 contract in §0.1 holds for everything `docs.gl`'s GL 2.1 pages describe, minus

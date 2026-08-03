@@ -227,6 +227,12 @@ SFPEW_APIENTRY void glBlendEquationSeparate(GLenum modeRGB, GLenum modeAlpha);
 SFPEW_APIENTRY void glBlendFuncSeparate(GLenum sfactorRGB, GLenum dfactorRGB, GLenum sfactorAlpha,
                                        GLenum dfactorAlpha);
 SFPEW_APIENTRY void glGetFloatv(GLenum pname, GLfloat* params);
+SFPEW_APIENTRY void glClearDepth(GLdouble depth);
+SFPEW_APIENTRY void glClearDepthf(GLfloat depth);
+SFPEW_APIENTRY void glDrawBuffer(GLenum buf);
+SFPEW_APIENTRY void glGetQueryObjectiv(GLuint id, GLenum pname, GLint* params);
+SFPEW_APIENTRY void glGetQueryObjecti64v(GLuint id, GLenum pname, GLint64* params);
+SFPEW_APIENTRY void glGetQueryObjectui64v(GLuint id, GLenum pname, GLuint64* params);
 SFPEW_APIENTRY void glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height,
                                 GLint border, GLenum format, GLenum type, const GLvoid* pixels);
 SFPEW_APIENTRY void glGetTexParameterfv(GLenum target, GLenum pname, GLfloat* params);

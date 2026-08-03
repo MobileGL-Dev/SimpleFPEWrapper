@@ -1,6 +1,6 @@
 {
  "source": "lookup.cpp",
- "count": 553,
+ "count": 563,
  "entries": {
   "eglSwapBuffersWithDamageKHR": {
    "status": "alias",
@@ -157,6 +157,14 @@
   "glClearAccum": {
    "status": "resolvable",
    "target": "glClearAccum"
+  },
+  "glClearDepth": {
+   "status": "resolvable",
+   "target": "glClearDepth"
+  },
+  "glClearDepthf": {
+   "status": "resolvable",
+   "target": "glClearDepthf"
   },
   "glClientActiveTexture": {
    "status": "resolvable",
@@ -417,6 +425,10 @@
   "glDrawArrays": {
    "status": "resolvable",
    "target": "glDrawArrays"
+  },
+  "glDrawBuffer": {
+   "status": "resolvable",
+   "target": "glDrawBuffer"
   },
   "glDrawBuffersARB": {
    "status": "backend-alias",
@@ -785,6 +797,34 @@
   "glGetProgramiv": {
    "status": "resolvable",
    "target": "glGetProgramiv"
+  },
+  "glGetQueryObjecti64v": {
+   "status": "resolvable",
+   "target": "glGetQueryObjecti64v"
+  },
+  "glGetQueryObjecti64vEXT": {
+   "status": "alias",
+   "target": "glGetQueryObjecti64v"
+  },
+  "glGetQueryObjectiv": {
+   "status": "resolvable",
+   "target": "glGetQueryObjectiv"
+  },
+  "glGetQueryObjectivARB": {
+   "status": "alias",
+   "target": "glGetQueryObjectiv"
+  },
+  "glGetQueryObjectivEXT": {
+   "status": "alias",
+   "target": "glGetQueryObjectiv"
+  },
+  "glGetQueryObjectui64v": {
+   "status": "resolvable",
+   "target": "glGetQueryObjectui64v"
+  },
+  "glGetQueryObjectui64vEXT": {
+   "status": "alias",
+   "target": "glGetQueryObjectui64v"
   },
   "glGetRenderbufferParameterivEXT": {
    "status": "backend-alias",

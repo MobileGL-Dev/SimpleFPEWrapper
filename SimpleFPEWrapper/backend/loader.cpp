@@ -424,6 +424,7 @@ namespace SFPEW::Utils::BackendLoader {
             INIT_BACKENDGL_FUNC(glBufferStorageEXT)
             INIT_BACKENDGL_FUNC(glGetQueryObjectivEXT)
             INIT_BACKENDGL_FUNC(glGetQueryObjecti64vEXT)
+            INIT_BACKENDGL_FUNC(glGetQueryObjectui64vEXT)
             INIT_BACKENDGL_FUNC(glBindFragDataLocationEXT)
             INIT_BACKENDGL_FUNC(glMapBufferOES)
             INIT_BACKENDGL_FUNC(glMultiDrawArraysIndirectEXT)

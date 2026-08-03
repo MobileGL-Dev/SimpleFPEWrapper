@@ -320,6 +320,16 @@ void glClearAccum(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha) {
     accumState().clear_value = {red, green, blue, alpha};
 }
 
+// GL_ACCUM_CLEAR_VALUE, for the glGet family: the accumulation state is
+// private to this file, but its clear colour is queryable state.
+void sfpewAccumClearValue(GLfloat* rgba) {
+    const glm::vec4& value = accumState().clear_value;
+    rgba[0] = value.r;
+    rgba[1] = value.g;
+    rgba[2] = value.b;
+    rgba[3] = value.a;
+}
+
 void glAccum(GLenum op, GLfloat value) {
     sfpewEntryBarrier();
     if (op != GL_ACCUM && op != GL_LOAD && op != GL_ADD && op != GL_MULT && op != GL_RETURN) {

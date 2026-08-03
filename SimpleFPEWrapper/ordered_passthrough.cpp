@@ -414,6 +414,19 @@ void glDepthRange(GLdouble nearVal, GLdouble farVal) {
     g_glFuncs.glDepthRangef(static_cast<GLfloat>(nearVal), static_cast<GLfloat>(farVal));
 }
 
+// Keeps the setter below and the glGet family on one numbering.
+int sfpewLegacyHintSlot(GLenum target) {
+    switch (target) {
+    case GL_FOG_HINT: return 0;
+    case GL_LINE_SMOOTH_HINT: return 1;
+    case GL_PERSPECTIVE_CORRECTION_HINT: return 2;
+    case GL_POINT_SMOOTH_HINT: return 3;
+    case GL_POLYGON_SMOOTH_HINT: return 4;
+    case GL_TEXTURE_COMPRESSION_HINT: return 5;
+    default: return -1;
+    }
+}
+
 void glHint(GLenum target, GLenum mode) {
     if (mode != GL_FASTEST && mode != GL_NICEST && mode != GL_DONT_CARE) {
         g_glstate.set_error(GL_INVALID_ENUM);
@@ -428,14 +441,18 @@ void glHint(GLenum target, GLenum mode) {
         g_glFuncs.glHint(target, mode);
         return;
     // Legal GL 2.1 hints with no GLES equivalent: accepting them as a no-op
-    // is a conforming implementation of a hint.
+    // is a conforming implementation of a hint, but the value has to be
+    // remembered - a hint that cannot be read back is not state.
     case GL_FOG_HINT:
     case GL_LINE_SMOOTH_HINT:
     case GL_PERSPECTIVE_CORRECTION_HINT:
     case GL_POINT_SMOOTH_HINT:
     case GL_POLYGON_SMOOTH_HINT:
-    case GL_TEXTURE_COMPRESSION_HINT:
+    case GL_TEXTURE_COMPRESSION_HINT: {
+        const int slot = sfpewLegacyHintSlot(target);
+        if (slot >= 0) g_glstate.legacy_hints[slot] = mode;
         return;
+    }
     default:
         g_glstate.set_error(GL_INVALID_ENUM);
         return;

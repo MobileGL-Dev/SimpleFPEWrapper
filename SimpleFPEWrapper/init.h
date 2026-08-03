@@ -92,6 +92,16 @@ inline void sfpewListLogDrewOne() {}
 inline void sfpewListLogMatrixQuery(const char*, unsigned, size_t, const GLfloat*) {}
 #endif
 
+// Fixed-function state that lives inside one translation unit, reachable
+// only so the glGet family can answer for it. Each fills `values` in the
+// order the spec lists and reports how many it wrote; false means the pname
+// is not theirs.
+bool sfpewEvaluatorStateQuery(GLenum pname, GLdouble* values, int* count);
+void sfpewAccumClearValue(GLfloat* rgba);
+void sfpewAttribStackDepths(int* server, int* client, int* maxDepth);
+// Slot in glstate_t::legacy_hints for a hint target GLES cannot take, or -1.
+int sfpewLegacyHintSlot(GLenum target);
+
 GLuint sfpewLogicalTextureBinding(GLenum target);
 // Changes whenever the active texture unit or any texture binding does.
 uint64_t sfpewTextureStateGeneration();

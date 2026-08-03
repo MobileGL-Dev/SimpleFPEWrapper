@@ -126,6 +126,54 @@ void emitAttributes(const GLfloat* value, int idx, int comps) {
 
 } // namespace
 
+// The evaluator state lives in this file; the glGet family needs to read it
+// without it becoming everyone's business. Values come out as doubles in the
+// order the spec lists them, which is what the caller converts from.
+bool sfpewEvaluatorStateQuery(GLenum pname, GLdouble* values, int* count) {
+    const evaluator_state_t& es = evalState();
+    // GL_MAP1_*/GL_MAP2_* double as enable queries for the map they name.
+    bool is_map2 = false;
+    int components = 0;
+    if (pname >= GL_MAP1_COLOR_4 && pname <= GL_MAP2_VERTEX_4) {
+        const int idx = targetIndex(pname, is_map2, components);
+        if (idx >= 0) {
+            values[0] = (is_map2 ? es.map2_enable[idx] : es.map1_enable[idx]) ? 1.0 : 0.0;
+            *count = 1;
+            return true;
+        }
+    }
+    switch (pname) {
+    case GL_AUTO_NORMAL:
+        values[0] = es.auto_normal ? 1.0 : 0.0;
+        *count = 1;
+        return true;
+    case GL_MAP1_GRID_SEGMENTS:
+        values[0] = es.grid_un;
+        *count = 1;
+        return true;
+    case GL_MAP1_GRID_DOMAIN:
+        values[0] = es.grid_u1;
+        values[1] = es.grid_u2;
+        *count = 2;
+        return true;
+    case GL_MAP2_GRID_SEGMENTS:
+        values[0] = es.grid_un;
+        values[1] = es.grid_vn;
+        *count = 2;
+        return true;
+    case GL_MAP2_GRID_DOMAIN:
+        values[0] = es.grid_u1;
+        values[1] = es.grid_u2;
+        values[2] = es.grid_v1;
+        values[3] = es.grid_v2;
+        *count = 4;
+        return true;
+    default:
+        return false;
+    }
+}
+
+
 void glMap1f(GLenum target, GLfloat u1, GLfloat u2, GLint stride, GLint order, const GLfloat* points) {
     (void)g_glstate; // entry strict resolve; evaluator cache reads the snapshot
     bool is_map2 = false;

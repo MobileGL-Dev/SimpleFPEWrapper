@@ -85,6 +85,14 @@ void copy_array(T (&dst)[N], const T (&src)[N]) {
 
 } // namespace
 
+// GL_ATTRIB_STACK_DEPTH, GL_CLIENT_ATTRIB_STACK_DEPTH and the maximum both
+// stacks share, for the glGet family. The stacks themselves stay private.
+void sfpewAttribStackDepths(int* server, int* client, int* maxDepth) {
+    if (server != nullptr) *server = static_cast<int>(attribStack().size());
+    if (client != nullptr) *client = static_cast<int>(clientAttribStack().size());
+    if (maxDepth != nullptr) *maxDepth = static_cast<int>(kMaxAttribStackDepth);
+}
+
 void glPushAttrib(GLbitfield mask) {
     // Flush-only: the snapshot reads the wrapper's own fixed-function state
     // and nothing else - no program, VAO or buffer binding is read or

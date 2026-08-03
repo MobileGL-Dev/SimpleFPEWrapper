@@ -240,6 +240,14 @@ if(NOT ANDROID)
                         add_test(NAME smoke_list_immediate COMMAND smoke_list_immediate)
                         set_tests_properties(smoke_list_immediate PROPERTIES SKIP_RETURN_CODE 77)
 
+                        add_executable(smoke_ffp_getters tests/smoke_ffp_getters.c)
+                        target_compile_definitions(smoke_ffp_getters PRIVATE
+                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
+                        target_link_libraries(smoke_ffp_getters PRIVATE dl m ${SFPEW_TEST_EGL})
+                        add_dependencies(smoke_ffp_getters ${CMAKE_PROJECT_NAME})
+                        add_test(NAME smoke_ffp_getters COMMAND smoke_ffp_getters)
+                        set_tests_properties(smoke_ffp_getters PROPERTIES SKIP_RETURN_CODE 77)
+
                         add_executable(smoke_version tests/smoke_version.c)
                         target_compile_definitions(smoke_version PRIVATE
                                 WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")

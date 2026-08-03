@@ -777,6 +777,14 @@ struct glstate_t {
     // context (previously the file-scope global fpe_inited).
     bool fpe_ready = false;
 
+    // glHint targets that GL 2.1 defines and GLES has no equivalent for.
+    // Accepting them as a no-op is a conforming hint implementation, but a
+    // query still has to report what was last set, so the value is kept
+    // here. Order: FOG, LINE_SMOOTH, PERSPECTIVE_CORRECTION, POINT_SMOOTH,
+    // POLYGON_SMOOTH, TEXTURE_COMPRESSION (see sfpewLegacyHintSlot).
+    GLenum legacy_hints[6] = {GL_DONT_CARE, GL_DONT_CARE, GL_DONT_CARE,
+                              GL_DONT_CARE, GL_DONT_CARE, GL_DONT_CARE};
+
     // Desktop-only glPixelStore modes, consumed by the CPU pixel repack
     // pipeline (plans/05 and plans/08); GLES rejects these pnames.
     bool pixel_store_unpack_swap_bytes = false;

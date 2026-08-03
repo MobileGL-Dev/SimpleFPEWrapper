@@ -26,6 +26,7 @@
 #define GLF 0x8B30 /* GL_FRAGMENT_SHADER */
 
 typedef int (*translate_fn)(unsigned int, const char*, char*, int);
+typedef int (*passthrough_fn)(unsigned int, const char*, int, unsigned int);
 
 static const char* kVertex110 =
     "#version 110\n"
@@ -148,6 +149,17 @@ static int translate_and_check(translate_fn translate, unsigned int stage, const
     return 1;
 }
 
+static int check_passthrough(passthrough_fn can, unsigned int stage, const char* src,
+                             int backend_es, unsigned backend_version, int expect,
+                             const char* tag) {
+    const int got = can(stage, src, backend_es, backend_version);
+    if (got != expect) {
+        fprintf(stderr, "FAIL[%s]: passthrough=%d, expected %d\n", tag, got, expect);
+        return 0;
+    }
+    return 1;
+}
+
 static int compile_on_device(unsigned int gl_stage, const char* essl, const char* tag) {
     GLuint shader = glCreateShader(gl_stage);
     glShaderSource(shader, 1, &essl, NULL);
@@ -175,6 +187,34 @@ int main(void) {
         fprintf(stderr, "FAIL: sfpewTranslateGlslForTest not exported\n");
         return 1;
     }
+    passthrough_fn can_passthrough =
+        (passthrough_fn)dlsym(handle, "sfpewShaderCanPassthroughForTest");
+    if (!can_passthrough) {
+        fprintf(stderr, "FAIL: sfpewShaderCanPassthroughForTest not exported\n");
+        return 1;
+    }
+
+    struct { unsigned int stage; const char* src; int es; unsigned version; int expect;
+             const char* tag; } passthrough_cases[] = {
+        {GLV, "#version 300 es\nvoid main() {}\n", 1, 320, 1, "es300-on-es320"},
+        {GLV, "#version 310 es\nvoid main() {}\n", 1, 320, 1, "es310-on-es320"},
+        {GLV, "#version 320 es\nvoid main() {}\n", 1, 310, 0, "es320-on-es310"},
+        {GLV, "#version 110\nvoid main() {}\n", 0, 450, 1, "glsl110-on-desktop450"},
+        {GLV, "#version 460\nvoid main() {}\n", 0, 450, 0, "glsl460-on-desktop450"},
+        {GLV, "#version 300 es\nvoid main() {}\n", 0, 450, 0, "essl-on-desktop"},
+        {GLV, "#version 110\nvoid main() {}\n", 1, 300, 0, "desktop-on-gles"},
+        {GLV, "void main() {}\n", 0, 450, 1, "no-version-desktop"},
+        {GLV, "void main() {}\n", 1, 300, 0, "no-version-gles"},
+        {GLV, "void main() {}\n#version 110\n", 0, 450, 0, "late-version-invalid"},
+    };
+    for (unsigned i = 0; i < sizeof(passthrough_cases) / sizeof(passthrough_cases[0]); ++i) {
+        const auto* c = &passthrough_cases[i];
+        if (!check_passthrough(can_passthrough, c->stage, c->src, c->es, c->version, c->expect,
+                               c->tag))
+            return 1;
+    }
+    printf("OK: %u native pass-through cases\n",
+           (unsigned)(sizeof(passthrough_cases) / sizeof(passthrough_cases[0])));
 
     // Phase 1: offline translation shape checks.
     struct { unsigned int stage; const char* src; const char* tag; } cases[] = {

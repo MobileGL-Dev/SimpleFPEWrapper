@@ -317,18 +317,11 @@ if(NOT ANDROID)
                                        attrib_retire arraybuffer_heal element_binding_survives
                                        buffer_name_reuse display_list_chunks fog rastercolor
                                        orthpos texgen_toggle polygon_mode draw_batch
-                                       swap_flushes_batch)
+                                       swap_flushes_batch list_immediate lwjgl_surface)
                                 sfpew_add_gtest(sfpew_${suite}_test SOURCES tests/gtest_${suite}.cc
                                                 LIBRARIES ${SFPEW_TEST_EGL})
                         endforeach()
 
-                        add_executable(smoke_list_immediate tests/smoke_list_immediate.c)
-                        target_compile_definitions(smoke_list_immediate PRIVATE
-                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
-                        target_link_libraries(smoke_list_immediate PRIVATE dl ${SFPEW_TEST_EGL})
-                        add_dependencies(smoke_list_immediate ${CMAKE_PROJECT_NAME})
-                        add_test(NAME smoke_list_immediate COMMAND smoke_list_immediate)
-                        set_tests_properties(smoke_list_immediate PROPERTIES SKIP_RETURN_CODE 77)
 
                         add_executable(smoke_gl3_core tests/smoke_gl3_core.c)
                         target_compile_definitions(smoke_gl3_core PRIVATE
@@ -457,13 +450,6 @@ if(NOT ANDROID)
                         add_test(NAME smoke_vbo_surface COMMAND smoke_vbo_surface)
                         set_tests_properties(smoke_vbo_surface PROPERTIES SKIP_RETURN_CODE 77)
 
-                        add_executable(smoke_lwjgl_surface tests/smoke_lwjgl_surface.c)
-                        target_compile_definitions(smoke_lwjgl_surface PRIVATE
-                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
-                        target_link_libraries(smoke_lwjgl_surface PRIVATE dl ${SFPEW_TEST_EGL})
-                        add_dependencies(smoke_lwjgl_surface ${CMAKE_PROJECT_NAME})
-                        add_test(NAME smoke_lwjgl_surface COMMAND smoke_lwjgl_surface)
-                        set_tests_properties(smoke_lwjgl_surface PROPERTIES SKIP_RETURN_CODE 77)
 
                         add_executable(smoke_translator tests/smoke_translator.c)
                         target_compile_definitions(smoke_translator PRIVATE

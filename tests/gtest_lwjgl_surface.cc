@@ -1,4 +1,4 @@
-// SimpleFPEWrapper - tests/smoke_lwjgl_surface.c
+// SimpleFPEWrapper - tests/gtest_lwjgl_surface.cc
 // Copyright (c) 2026 MobileGL-Dev
 // Licensed under the GNU Lesser General Public License v3.0:
 //   https://www.gnu.org/licenses/gpl-3.0.txt
@@ -12,13 +12,19 @@
 // eglGetProcAddress and checks the advertised extension list is ADDITIVE:
 // backend extensions still present, desktop ones appended.
 
-#include <dlfcn.h>
-#include <stdio.h>
-#include <string.h>
+#include "sfpew_gtest.h"
 
-#include <EGL/egl.h>
+#include <cstring>
 
-static const char* kMustResolve[] = {
+namespace {
+
+using sfpew_test::ContextTest;
+using sfpew_test::GLenum;
+
+constexpr GLenum GL_EXTENSIONS_ = 0x1F03;
+constexpr GLenum GL_VERSION_ = 0x1F02;
+
+constexpr const char* kMustResolve[] = {
     // GL_EXT_framebuffer_object (complete set)
     "glGenFramebuffersEXT", "glDeleteFramebuffersEXT", "glBindFramebufferEXT",
     "glIsFramebufferEXT", "glCheckFramebufferStatusEXT", "glFramebufferTexture1DEXT",
@@ -56,84 +62,50 @@ static const char* kMustResolve[] = {
     "glUnmapBufferARB", "glGetBufferSubDataARB", "glMapBuffer", "glGetBufferSubData",
 };
 
-static const char* kMustAdvertise[] = {
+constexpr const char* kMustAdvertise[] = {
     "GL_EXT_framebuffer_object", "GL_ARB_framebuffer_object", "GL_ARB_shader_objects",
     "GL_ARB_vertex_shader",      "GL_ARB_fragment_shader",    "GL_ARB_shading_language_100",
     "GL_ARB_draw_buffers",       "GL_ARB_vertex_buffer_object",
     "GL_ARB_depth_texture",      "GL_ARB_multitexture",
 };
 
-int main(void) {
-    void* handle = dlopen(WRAPPER_LIB_PATH, RTLD_NOW | RTLD_LOCAL);
-    if (!handle) {
-        fprintf(stderr, "FAIL: dlopen: %s\n", dlerror());
-        return 1;
-    }
-    typedef void* (*resolver_t)(const char*);
-    resolver_t resolve = (resolver_t)dlsym(handle, "eglGetProcAddress");
-    if (!resolve) return 1;
+using LwjglSurfaceTest = ContextTest;
 
+TEST_F(LwjglSurfaceTest, DesktopFboShaderVboSurfaceResolves) {
     // Resolution requires a loadable backend (GETPROC_BACKEND_ALIAS reads
     // the loaded function table), but not a current context.
     int missing = 0;
-    for (unsigned i = 0; i < sizeof(kMustResolve) / sizeof(kMustResolve[0]); ++i) {
-        if (resolve(kMustResolve[i]) == NULL) {
-            fprintf(stderr, "FAIL: eglGetProcAddress(\"%s\") == NULL\n", kMustResolve[i]);
+    for (const char* name : kMustResolve) {
+        if (GetOptional<void (*)()>(name) == nullptr) {
+            ADD_FAILURE() << "eglGetProcAddress(\"" << name << "\") == NULL";
             ++missing;
         }
     }
-    if (missing != 0) return 1;
-    printf("OK: %zu desktop FBO/shader/VBO entry points resolve\n",
-           sizeof(kMustResolve) / sizeof(kMustResolve[0]));
-
-    // Extension string checks need a real context.
-    EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
-    if (display == EGL_NO_DISPLAY || !eglInitialize(display, NULL, NULL)) {
-        printf("SKIP: no EGL display; extension-string phase skipped\n");
-        return 77;
-    }
-    static const EGLint config_attribs[] = {EGL_SURFACE_TYPE, EGL_PBUFFER_BIT, EGL_RENDERABLE_TYPE,
-                                            EGL_OPENGL_ES3_BIT, EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8,
-                                            EGL_BLUE_SIZE, 8, EGL_ALPHA_SIZE, 8, EGL_NONE};
-    EGLConfig config;
-    EGLint num_config = 0;
-    if (!eglChooseConfig(display, config_attribs, &config, 1, &num_config) || num_config == 0) {
-        printf("SKIP: no ES3 config\n");
-        return 77;
-    }
-    eglBindAPI(EGL_OPENGL_ES_API);
-    static const EGLint ctx_attribs[] = {EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE};
-    EGLContext context = eglCreateContext(display, config, EGL_NO_CONTEXT, ctx_attribs);
-    if (context == EGL_NO_CONTEXT ||
-        !eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, context)) {
-        printf("SKIP: no current ES3 context\n");
-        return 77;
-    }
-
-    typedef const unsigned char* (*getstring_t)(unsigned int);
-    getstring_t fGetString = (getstring_t)resolve("glGetString");
-    const char* extensions = (const char*)fGetString(0x1F03 /* GL_EXTENSIONS */);
-    if (!extensions) {
-        fprintf(stderr, "FAIL: glGetString(GL_EXTENSIONS) == NULL\n");
-        return 1;
-    }
-    for (unsigned i = 0; i < sizeof(kMustAdvertise) / sizeof(kMustAdvertise[0]); ++i) {
-        if (strstr(extensions, kMustAdvertise[i]) == NULL) {
-            fprintf(stderr, "FAIL: extension list lacks %s\n", kMustAdvertise[i]);
-            return 1;
-        }
-    }
-    // ADDITIVE contract: the backend's native surface must survive.
-    if (strstr(extensions, "GL_OES_") == NULL && strstr(extensions, "GL_KHR_") == NULL) {
-        fprintf(stderr, "FAIL: backend's own extensions vanished from the list\n");
-        return 1;
-    }
-    const char* version = (const char*)fGetString(0x1F02 /* GL_VERSION */);
-    if (!version || strstr(version, "OpenGL ES") == NULL) {
-        fprintf(stderr, "FAIL: GL_VERSION no longer reports the backend: %s\n",
-                version ? version : "(null)");
-        return 1;
-    }
-    printf("OK: additive extension surface verified (%s)\n", version);
-    return 0;
+    EXPECT_EQ(missing, 0) << "desktop FBO/shader/VBO entry points must all resolve";
 }
+
+TEST_F(LwjglSurfaceTest, ExtensionListIsAdditive) {
+    auto get_string = Get<const unsigned char* (*)(GLenum)>("glGetString");
+    ASSERT_NE(get_string, nullptr);
+
+    const char* extensions = reinterpret_cast<const char*>(get_string(GL_EXTENSIONS_));
+    ASSERT_NE(extensions, nullptr) << "glGetString(GL_EXTENSIONS) == NULL";
+
+    for (const char* ext : kMustAdvertise) {
+        EXPECT_NE(std::strstr(extensions, ext), nullptr) << "extension list lacks " << ext;
+    }
+
+    // ADDITIVE contract: the backend's native surface must survive.
+    EXPECT_TRUE(std::strstr(extensions, "GL_OES_") != nullptr ||
+                std::strstr(extensions, "GL_KHR_") != nullptr)
+        << "backend's own extensions vanished from the list";
+
+    const char* version = reinterpret_cast<const char*>(get_string(GL_VERSION_));
+    EXPECT_NE(version, nullptr);
+    if (version != nullptr) {
+        EXPECT_NE(std::strstr(version, "OpenGL ES"), nullptr)
+            << "GL_VERSION no longer reports the backend: " << version;
+    }
+}
+
+} // namespace

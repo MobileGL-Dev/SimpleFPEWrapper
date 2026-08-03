@@ -325,6 +325,15 @@ if(NOT ANDROID)
                                 sfpew_add_gtest(sfpew_${suite}_test SOURCES tests/gtest_${suite}.cc
                                                 LIBRARIES ${SFPEW_TEST_EGL})
                         endforeach()
+                        # The begin/end sweep stays C (see the wrapper file header);
+                        # only the gtest harness around it is C++.
+                        sfpew_add_gtest(sfpew_beginend_coverage_test
+                                        SOURCES tests/gtest_beginend_coverage.cc
+                                                tests/beginend_coverage_core.c
+                                        LIBRARIES ${SFPEW_TEST_EGL})
+                        # The old smoke registration is removed below; the C core
+                        # is compiled as part of the gtest target above.
+
                         # The translator feeds its output to the REAL driver's
                         # glCompileShader, so it links the system GLES too.
                         sfpew_add_gtest(sfpew_translator_test SOURCES tests/gtest_translator.cc
@@ -342,13 +351,6 @@ if(NOT ANDROID)
 
 
 
-                        add_executable(smoke_beginend_coverage tests/smoke_beginend_coverage.c)
-                        target_compile_definitions(smoke_beginend_coverage PRIVATE
-                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
-                        target_link_libraries(smoke_beginend_coverage PRIVATE dl ${SFPEW_TEST_EGL})
-                        add_dependencies(smoke_beginend_coverage ${CMAKE_PROJECT_NAME})
-                        add_test(NAME smoke_beginend_coverage COMMAND smoke_beginend_coverage)
-                        set_tests_properties(smoke_beginend_coverage PROPERTIES SKIP_RETURN_CODE 77)
 
 
 

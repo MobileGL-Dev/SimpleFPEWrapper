@@ -1368,7 +1368,7 @@ static void run_tests(struct test* tests, int n, GLenum expected, bool is_nondli
     }
 }
 
-int main(void) {
+int sfpew_beginend_coverage_run(void) {
     void* h = dlopen(WRAPPER_LIB_PATH, RTLD_NOW | RTLD_LOCAL);
     if (!h) { fprintf(stderr, "dlopen: %s\n", dlerror()); return 1; }
     resolve = (void*(*)(const char*))dlsym(h, "eglGetProcAddress");

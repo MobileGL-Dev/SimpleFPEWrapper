@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <vector>
 
 namespace {
@@ -173,6 +174,73 @@ bool sfpewEvaluatorStateQuery(GLenum pname, GLdouble* values, int* count) {
     }
 }
 
+
+namespace {
+
+// GL_COEFF, GL_ORDER and GL_DOMAIN for one map, as floats. The caller casts
+// to whatever type it was asked for; returns how many values were written,
+// or -1 if the query is not one of the three.
+int mapQuery(GLenum target, GLenum query, GLfloat* out) {
+    bool is_map2 = false;
+    int comps = 0;
+    const int idx = targetIndex(target, is_map2, comps);
+    if (idx < 0) {
+        g_glstate.set_error(GL_INVALID_ENUM);
+        return -1;
+    }
+    const evaluator_map_t& map = is_map2 ? evalState().map2[idx] : evalState().map1[idx];
+    switch (query) {
+    case GL_COEFF: {
+        // A map that was never specified has no control points to hand out;
+        // GL leaves the caller's array alone rather than inventing any.
+        const size_t count = map.points.size();
+        for (size_t i = 0; i < count; ++i) out[i] = map.points[i];
+        return (int)count;
+    }
+    case GL_ORDER:
+        out[0] = (GLfloat)map.uorder;
+        if (!is_map2) return 1;
+        out[1] = (GLfloat)map.vorder;
+        return 2;
+    case GL_DOMAIN:
+        out[0] = map.u1;
+        out[1] = map.u2;
+        if (!is_map2) return 2;
+        out[2] = map.v1;
+        out[3] = map.v2;
+        return 4;
+    default:
+        g_glstate.set_error(GL_INVALID_ENUM);
+        return -1;
+    }
+}
+
+} // namespace
+
+void glGetMapfv(GLenum target, GLenum query, GLfloat* v) {
+    if (v == nullptr) return;
+    (void)g_glstate; // entry strict resolve; evaluator cache reads the snapshot
+    mapQuery(target, query, v);
+}
+
+void glGetMapdv(GLenum target, GLenum query, GLdouble* v) {
+    if (v == nullptr) return;
+    (void)g_glstate;
+    // Control points are stored as floats; a map2 of order 32x32 with four
+    // components is the largest thing this can produce.
+    std::vector<GLfloat> staging(32 * 32 * 4);
+    const int count = mapQuery(target, query, staging.data());
+    for (int i = 0; i < count; ++i) v[i] = staging[(size_t)i];
+}
+
+void glGetMapiv(GLenum target, GLenum query, GLint* v) {
+    if (v == nullptr) return;
+    (void)g_glstate;
+    std::vector<GLfloat> staging(32 * 32 * 4);
+    const int count = mapQuery(target, query, staging.data());
+    // Rounded, per the conversion rules for an integer query.
+    for (int i = 0; i < count; ++i) v[i] = (GLint)std::lround(staging[(size_t)i]);
+}
 
 void glMap1f(GLenum target, GLfloat u1, GLfloat u2, GLint stride, GLint order, const GLfloat* points) {
     (void)g_glstate; // entry strict resolve; evaluator cache reads the snapshot

@@ -367,6 +367,64 @@ int main(void) {
     }
     drainErrors();
 
+    // --- Phase 6: the getters that cannot go through glGet ---
+    // Pointers, evaluator control points and pixel maps have their own entry
+    // points; a null function pointer in the caller's hand is the failure
+    // mode here, so resolving them is half the test.
+    void (*fGetPointerv)(GLenum, void**);
+    void (*fVertexPointer)(GLint, GLenum, GLsizei, const void*);
+    void (*fGetMapfv)(GLenum, GLenum, GLfloat*);
+    void (*fGetMapiv)(GLenum, GLenum, GLint*);
+    void (*fMap1f)(GLenum, GLfloat, GLfloat, GLint, GLint, const GLfloat*);
+    void (*fGetPixelMapfv)(GLenum, GLfloat*);
+#define R2(v, nm) *(void**)(&v) = resolve(nm); \
+    if (!v) { printf("*** MISSING %s\n", nm); ++failures; }
+    R2(fGetPointerv, "glGetPointerv")
+    R2(fVertexPointer, "glVertexPointer")
+    R2(fGetMapfv, "glGetMapfv")
+    R2(fGetMapiv, "glGetMapiv")
+    R2(fMap1f, "glMap1f")
+    R2(fGetPixelMapfv, "glGetPixelMapfv")
+#undef R2
+    if (fVertexPointer && fGetPointerv) {
+        static const GLfloat verts[12] = {0};
+        fVertexPointer(3, GL_FLOAT, 0, verts);
+        void* got = NULL;
+        fGetPointerv(0x808E, &got); // GL_VERTEX_ARRAY_POINTER
+        if (got != (void*)verts) {
+            printf("*** GL_VERTEX_ARRAY_POINTER: expected %p, got %p\n", (void*)verts, got);
+            ++failures;
+        }
+    }
+    if (fMap1f && fGetMapfv && fGetMapiv) {
+        const GLfloat control[8] = {0, 0, 0, 1, 1, 1, 2, 4};
+        fMap1f(GL_MAP1_VERTEX_3, 0.0f, 4.0f, 3, 2, control); // 2 control points
+        GLint order = 0;
+        fGetMapiv(GL_MAP1_VERTEX_3, 0x0A01, &order); // GL_ORDER
+        if (order != 2) { printf("*** glGetMapiv(GL_ORDER): %d\n", order); ++failures; }
+        GLfloat domain[2] = {0};
+        fGetMapfv(GL_MAP1_VERTEX_3, 0x0A02, domain); // GL_DOMAIN
+        if (fabsf(domain[0]) > 1e-5f || fabsf(domain[1] - 4.0f) > 1e-5f) {
+            printf("*** glGetMapfv(GL_DOMAIN): %g %g\n", (double)domain[0], (double)domain[1]);
+            ++failures;
+        }
+        GLfloat coeff[6] = {-1, -1, -1, -1, -1, -1};
+        fGetMapfv(GL_MAP1_VERTEX_3, 0x0A00, coeff); // GL_COEFF
+        if (fabsf(coeff[3] - 1.0f) > 1e-5f || fabsf(coeff[5] - 1.0f) > 1e-5f) {
+            printf("*** glGetMapfv(GL_COEFF) did not return the control points\n");
+            ++failures;
+        }
+    }
+    if (fGetPixelMapfv) {
+        GLfloat entry = -1.0f;
+        fGetPixelMapfv(0x0C70, &entry); // GL_PIXEL_MAP_I_TO_I
+        if (entry != 0.0f) { printf("*** glGetPixelMapfv: %g\n", (double)entry); ++failures; }
+    }
+    if (fGetError() != GL_NO_ERROR) {
+        printf("*** phase 6 raised an error\n");
+        ++failures;
+    }
+
     printf(failures ? "FAIL: %d\n" : "OK (%d)\n", failures);
     return failures ? 1 : 0;
 }

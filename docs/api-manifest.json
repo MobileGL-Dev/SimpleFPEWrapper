@@ -1,6 +1,6 @@
 {
  "source": "lookup.cpp",
- "count": 532,
+ "count": 539,
  "entries": {
   "eglSwapBuffersWithDamageKHR": {
    "status": "alias",
@@ -726,6 +726,18 @@
    "status": "resolvable",
    "target": "glGetLightiv"
   },
+  "glGetMapdv": {
+   "status": "resolvable",
+   "target": "glGetMapdv"
+  },
+  "glGetMapfv": {
+   "status": "resolvable",
+   "target": "glGetMapfv"
+  },
+  "glGetMapiv": {
+   "status": "resolvable",
+   "target": "glGetMapiv"
+  },
   "glGetMaterialfv": {
    "status": "resolvable",
    "target": "glGetMaterialfv"
@@ -737,6 +749,22 @@
   "glGetObjectParameterivARB": {
    "status": "alias",
    "target": "sfpewGetObjectParameterivARB"
+  },
+  "glGetPixelMapfv": {
+   "status": "resolvable",
+   "target": "glGetPixelMapfv"
+  },
+  "glGetPixelMapuiv": {
+   "status": "resolvable",
+   "target": "glGetPixelMapuiv"
+  },
+  "glGetPixelMapusv": {
+   "status": "resolvable",
+   "target": "glGetPixelMapusv"
+  },
+  "glGetPointerv": {
+   "status": "resolvable",
+   "target": "glGetPointerv"
   },
   "glGetPolygonStipple": {
    "status": "resolvable",

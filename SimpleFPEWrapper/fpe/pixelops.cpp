@@ -320,6 +320,45 @@ void glClearAccum(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha) {
     accumState().clear_value = {red, green, blue, alpha};
 }
 
+// Pixel maps are not implemented: glPixelMap has no entry point here, so
+// every table is still the single-entry identity GL starts with, and that
+// is what a query returns. Answering is what matters - the alternative is
+// a null function pointer in the caller's hand.
+namespace {
+
+bool validPixelMap(GLenum map) {
+    return map >= GL_PIXEL_MAP_I_TO_I && map <= GL_PIXEL_MAP_A_TO_A;
+}
+
+} // namespace
+
+void glGetPixelMapfv(GLenum map, GLfloat* values) {
+    if (values == nullptr) return;
+    if (!validPixelMap(map)) {
+        g_glstate.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    values[0] = 0.0f;
+}
+
+void glGetPixelMapuiv(GLenum map, GLuint* values) {
+    if (values == nullptr) return;
+    if (!validPixelMap(map)) {
+        g_glstate.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    values[0] = 0;
+}
+
+void glGetPixelMapusv(GLenum map, GLushort* values) {
+    if (values == nullptr) return;
+    if (!validPixelMap(map)) {
+        g_glstate.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    values[0] = 0;
+}
+
 // GL_ACCUM_CLEAR_VALUE, for the glGet family: the accumulation state is
 // private to this file, but its clear colour is queryable state.
 void sfpewAccumClearValue(GLfloat* rgba) {

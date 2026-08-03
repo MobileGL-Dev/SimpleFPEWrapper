@@ -1527,6 +1527,44 @@ bool fixedFunctionState(GLenum pname, GLdouble* values, int* count, bool* colour
 
 } // namespace
 
+// The client-array pointers, which no glGet* variant can return - they are
+// pointers, so they get their own entry point. GLES has none of these
+// arrays, and the two buffers below live entirely on the wrapper's side.
+void glGetPointerv(GLenum pname, GLvoid** params) {
+    if (!params) return;
+    auto& gs = g_glstate;
+    const auto& arrays = gs.fpe_state.vertexpointer_array;
+
+    GLenum array = 0;
+    switch (pname) {
+    case GL_VERTEX_ARRAY_POINTER: array = GL_VERTEX_ARRAY; break;
+    case GL_NORMAL_ARRAY_POINTER: array = GL_NORMAL_ARRAY; break;
+    case GL_COLOR_ARRAY_POINTER: array = GL_COLOR_ARRAY; break;
+    case GL_INDEX_ARRAY_POINTER: array = GL_INDEX_ARRAY; break;
+    case GL_TEXTURE_COORD_ARRAY_POINTER: array = GL_TEXTURE_COORD_ARRAY; break;
+    case GL_EDGE_FLAG_ARRAY_POINTER: array = GL_EDGE_FLAG_ARRAY; break;
+    case GL_SECONDARY_COLOR_ARRAY_POINTER: array = GL_SECONDARY_COLOR_ARRAY; break;
+    case GL_FOG_COORD_ARRAY_POINTER: array = GL_FOG_COORD_ARRAY; break;
+    case GL_FEEDBACK_BUFFER_POINTER:
+        *params = gs.feedback_buffer;
+        return;
+    case GL_SELECTION_BUFFER_POINTER:
+        *params = gs.select_buffer;
+        return;
+    default:
+        // Modern pointer queries (GL_DEBUG_CALLBACK_*, mapped buffers) are
+        // the backend's; an unknown pname is its error to raise.
+        if (sfpewEnsureBackend() && g_glFuncs.glGetPointerv != nullptr)
+            g_glFuncs.glGetPointerv(pname, params);
+        else
+            gs.set_error(GL_INVALID_ENUM);
+        return;
+    }
+
+    const int slot = vp2idx(array);
+    *params = slot >= 0 ? const_cast<GLvoid*>(arrays.attributes[slot].pointer) : nullptr;
+}
+
 GLboolean glIsEnabled(GLenum cap) {
     // Every fixed-function enable comes from the same table the glGet family
     // reads, so the two can never disagree about whether fog is on.

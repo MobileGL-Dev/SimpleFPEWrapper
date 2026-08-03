@@ -321,7 +321,7 @@ if(NOT ANDROID)
                                        uniform_cache userprog_enable_cache userobject_blit
                                        userprog_multiattrib userobject_quads gl3_core
                                        bgra_texture manual_mipgen mixed_translation_link
-                                       multidraw_native mixed_pipeline)
+                                       multidraw_native mixed_pipeline vbo_surface)
                                 sfpew_add_gtest(sfpew_${suite}_test SOURCES tests/gtest_${suite}.cc
                                                 LIBRARIES ${SFPEW_TEST_EGL})
                         endforeach()
@@ -358,13 +358,6 @@ if(NOT ANDROID)
 
 
 
-                        add_executable(smoke_vbo_surface tests/smoke_vbo_surface.c)
-                        target_compile_definitions(smoke_vbo_surface PRIVATE
-                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
-                        target_link_libraries(smoke_vbo_surface PRIVATE dl ${SFPEW_TEST_EGL})
-                        add_dependencies(smoke_vbo_surface ${CMAKE_PROJECT_NAME})
-                        add_test(NAME smoke_vbo_surface COMMAND smoke_vbo_surface)
-                        set_tests_properties(smoke_vbo_surface PROPERTIES SKIP_RETURN_CODE 77)
 
 
 

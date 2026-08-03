@@ -320,7 +320,8 @@ if(NOT ANDROID)
                                        swap_flushes_batch list_immediate lwjgl_surface
                                        uniform_cache userprog_enable_cache userobject_blit
                                        userprog_multiattrib userobject_quads gl3_core
-                                       bgra_texture manual_mipgen)
+                                       bgra_texture manual_mipgen mixed_translation_link
+                                       multidraw_native)
                                 sfpew_add_gtest(sfpew_${suite}_test SOURCES tests/gtest_${suite}.cc
                                                 LIBRARIES ${SFPEW_TEST_EGL})
                         endforeach()
@@ -340,13 +341,6 @@ if(NOT ANDROID)
                         add_test(NAME smoke_mixed_pipeline COMMAND smoke_mixed_pipeline)
                         set_tests_properties(smoke_mixed_pipeline PROPERTIES SKIP_RETURN_CODE 77)
 
-                        add_executable(smoke_multidraw_native tests/smoke_multidraw_native.c)
-                        target_compile_definitions(smoke_multidraw_native PRIVATE
-                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
-                        target_link_libraries(smoke_multidraw_native PRIVATE dl ${SFPEW_TEST_EGL})
-                        add_dependencies(smoke_multidraw_native ${CMAKE_PROJECT_NAME})
-                        add_test(NAME smoke_multidraw_native COMMAND smoke_multidraw_native)
-                        set_tests_properties(smoke_multidraw_native PROPERTIES SKIP_RETURN_CODE 77)
 
 
 
@@ -368,13 +362,6 @@ if(NOT ANDROID)
 
 
 
-                        add_executable(smoke_mixed_translation_link tests/smoke_mixed_translation_link.c)
-                        target_compile_definitions(smoke_mixed_translation_link PRIVATE
-                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
-                        target_link_libraries(smoke_mixed_translation_link PRIVATE dl ${SFPEW_TEST_EGL})
-                        add_dependencies(smoke_mixed_translation_link ${CMAKE_PROJECT_NAME})
-                        add_test(NAME smoke_mixed_translation_link COMMAND smoke_mixed_translation_link)
-                        set_tests_properties(smoke_mixed_translation_link PROPERTIES SKIP_RETURN_CODE 77)
 
 
 

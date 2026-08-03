@@ -640,6 +640,18 @@ SFPEW_APIENTRY __eglMustCastToProperFunctionPointerType eglGetProcAddress(const 
         return (__eglMustCastToProperFunctionPointerType)glMultiTexCoord4sv;
     }
     GETPROC(glPointSize, name)
+    GETPROC(glPointParameterf, name)
+    GETPROC(glPointParameterfv, name)
+    GETPROC(glPointParameteri, name)
+    GETPROC(glPointParameteriv, name)
+    GETPROC_WRAPPER_ALIAS(glPointParameterfARB, glPointParameterf)
+    GETPROC_WRAPPER_ALIAS(glPointParameterfvARB, glPointParameterfv)
+    GETPROC_WRAPPER_ALIAS(glPointParameterfEXT, glPointParameterf)
+    GETPROC_WRAPPER_ALIAS(glPointParameterfvEXT, glPointParameterfv)
+    GETPROC_WRAPPER_ALIAS(glPointParameterfSGIS, glPointParameterf)
+    GETPROC_WRAPPER_ALIAS(glPointParameterfvSGIS, glPointParameterfv)
+    GETPROC_WRAPPER_ALIAS(glPointParameteriNV, glPointParameteri)
+    GETPROC_WRAPPER_ALIAS(glPointParameterivNV, glPointParameteriv)
     GETPROC(glPolygonMode, name)
     GETPROC(glPolygonStipple, name)
     GETPROC(glGetPolygonStipple, name)

@@ -891,10 +891,10 @@ class of bug as Group F: the extension string promises something absent.
 
 | Entry point | Status |
 |---|---|
-| `glPointParameterf` | [ ] |
-| `glPointParameterfv` | [ ] |
-| `glPointParameteri` | [ ] |
-| `glPointParameteriv` | [ ] |
+| `glPointParameterf` | [x] |
+| `glPointParameterfv` | [x] |
+| `glPointParameteri` | [x] |
+| `glPointParameteriv` | [x] |
 
 ### State — `fpe/types.h`
 
@@ -1864,12 +1864,12 @@ Group B; decide when you get there.
 | B — 1D/compressed/copy texture | 5 | 0 / 5 |
 | C — Texture residency | 2 | 2 / 2 |
 | D — Transpose matrices | 4 | 4 / 4 |
-| E — Point parameters | 4 | 0 / 4 |
+| E — Point parameters | 4 | 4 / 4 |
 | F — Secondary colour immediate | 16 | 16 / 16 |
 | G — Vertex attrib variants | 29 | 29 / 29 |
 | H — Half-implemented fixes | 3 | 3 / 3 |
 | I — Completing partial paths | 6 items | 0 / 6 |
-| **Total** | **95 entry points + 6 items** | **54 / 101** |
+| **Total** | **95 entry points + 6 items** | **58 / 101** |
 
 Update this table as groups complete. When it reads 95/95, the three-part API
 contract in §0.1 holds for everything `docs.gl`'s GL 2.1 pages describe, minus

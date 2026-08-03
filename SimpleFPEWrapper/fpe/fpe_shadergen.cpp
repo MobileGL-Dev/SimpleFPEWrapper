@@ -1418,8 +1418,13 @@ void add_vs_uniforms(const fixed_function_state_t& state, scratch_t& scratch, st
     // Transformation matrix
     vs += "uniform mat4 ModelViewProjMat;\n";
     vs += "uniform float PointSize;\n"; // GLES has no glPointSize state
+    if (state.point_attenuation_active) {
+        vs += "uniform float PointSizeMin;\n"
+              "uniform float PointSizeMax;\n"
+              "uniform vec3 PointDistanceAttenuation;\n";
+    }
     if (state.fpe_bools.fog_enable || state.fpe_bools.lighting_enable || texgen_needs_eye(state) ||
-        any_clip_plane(state)) {
+        any_clip_plane(state) || state.point_attenuation_active) {
         vs += "uniform mat4 ModelViewMat;\n"; // eye-space position source
     }
     for (int i = 0; i < 6; ++i) {
@@ -1557,11 +1562,20 @@ void add_lighting_calculation(const fixed_function_state_t& state, const std::st
 void add_vs_body(const fixed_function_state_t& state, scratch_t& scratch, std::string& vs) {
     vs += "void main() {\n"
           //            "   gl_Position = ProjMat * ModelViewMat * vec4(Position, 1.0);\n";
-          "    gl_Position = ModelViewProjMat * Position;\n"
-          "    gl_PointSize = PointSize;\n";
+          "    gl_Position = ModelViewProjMat * Position;\n";
     if (fog_needs_view_position(state) || state.fpe_bools.lighting_enable ||
-        texgen_needs_eye(state) || any_clip_plane(state)) {
+        texgen_needs_eye(state) || any_clip_plane(state) || state.point_attenuation_active) {
         vs += "    vec4 eyePosition = ModelViewMat * Position;\n";
+    }
+    if (state.point_attenuation_active) {
+        vs += "    float pointDistance = length(eyePosition.xyz);\n"
+              "    float pointAttenuation = PointDistanceAttenuation.x +\n"
+              "        PointDistanceAttenuation.y * pointDistance +\n"
+              "        PointDistanceAttenuation.z * pointDistance * pointDistance;\n"
+              "    float derivedPointSize = PointSize * inversesqrt(max(pointAttenuation, 1e-6));\n"
+              "    gl_PointSize = clamp(derivedPointSize, PointSizeMin, PointSizeMax);\n";
+    } else {
+        vs += "    gl_PointSize = PointSize;\n";
     }
     for (int i = 0; i < 6; ++i) {
         if (state.fpe_bools.clip_plane_enable[i])

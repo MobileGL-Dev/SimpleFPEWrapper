@@ -1391,14 +1391,14 @@ bool fixedFunctionState(GLenum pname, GLdouble* values, int* count, bool* colour
         values[1] = uni.polygon_mode_back;
         *count = 2;
         return true;
-    // glPointParameter is not implemented; these are its initial values.
-    case GL_POINT_SIZE_MIN: return scalar(0);
-    case GL_POINT_SIZE_MAX: return scalar(1);
-    case GL_POINT_FADE_THRESHOLD_SIZE: return scalar(1);
-    case GL_POINT_DISTANCE_ATTENUATION: {
-        static const GLfloat attenuation[3] = {1, 0, 0};
-        return vector(attenuation, 3);
-    }
+    case GL_POINT_SIZE_MIN: return scalar(uni.point_size_min);
+    case GL_POINT_SIZE_MAX:
+        sfpewInitializePointSizeMax(gs);
+        return scalar(uni.point_size_max);
+    case GL_POINT_FADE_THRESHOLD_SIZE: return scalar(uni.point_fade_threshold_size);
+    case GL_POINT_DISTANCE_ATTENUATION:
+        return vector(glm::value_ptr(uni.point_distance_attenuation), 3);
+    case GL_POINT_SPRITE_COORD_ORIGIN: return scalar(ff.point_sprite_coord_origin);
     case GL_LOGIC_OP_MODE: return scalar(GL_COPY);
     // GL 2.1 names the antialiased range GL_SMOOTH_*_RANGE and the plain one
     // GL_POINT_SIZE_RANGE / GL_LINE_WIDTH_RANGE - the same enum either way.

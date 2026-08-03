@@ -421,6 +421,10 @@ struct fixed_function_state_t {
     GLint fog_index = 0;                             // glFogi(GL_FOG_INDEX)
     GLenum fog_coord_src = GL_FRAGMENT_DEPTH;        // glFogi(GL_FOG_COORD_SRC)
     GLenum shade_model = GL_SMOOTH;                  // glShadeModel
+    // glPointParameter*: only the active/non-active attenuation shape is a
+    // shader key. Coefficients, limits and sizes remain uniforms.
+    bool point_attenuation_active = false;
+    GLenum point_sprite_coord_origin = GL_UPPER_LEFT;
     GLenum light_model_color_ctrl = GL_SINGLE_COLOR; // glLightModel(GL_LIGHT_MODEL_COLOR_CONTROL)
     int light_model_local_viewer = 0;                // glLightModel(GL_LIGHT_MODEL_LOCAL_VIEWER)
     int light_model_two_side = 0;                    // glLightModel(GL_LIGHT_MODEL_TWO_SIDE)
@@ -573,6 +577,11 @@ struct fixed_function_uniform_t {
     // glPointSize (GLES has no fixed point-size state; emitted as
     // gl_PointSize from the generated vertex shader)
     GLfloat point_size = 1.0f;
+    GLfloat point_size_min = 0.0f;
+    GLfloat point_size_max = 1.0f;
+    GLfloat point_fade_threshold_size = 1.0f;
+    glm::vec3 point_distance_attenuation = {1.0f, 0.0f, 0.0f};
+    bool point_size_max_initialized = false;
 
     // glMatrix*
     struct transformation_t transformation;
@@ -622,6 +631,9 @@ struct program_uniform_locations_t {
     GLint alpha_ref = -1;
     GLint alpha_func = -1;
     GLint point_size = -1;
+    GLint point_size_min = -1;
+    GLint point_size_max = -1;
+    GLint point_distance_attenuation = -1;
     bool initialized = false;
 
     void initialize(GLuint program);
@@ -658,6 +670,9 @@ struct program_uniform_values_t {
     // 1..7 = GL_NEVER..GL_GEQUAL); uniform-driven, never part of the key.
     GLint alpha_func = 0;
     GLfloat point_size = 1.0f;
+    GLfloat point_size_min = 0.0f;
+    GLfloat point_size_max = 1.0f;
+    glm::vec3 point_distance_attenuation = {1.0f, 0.0f, 0.0f};
     bool initialized = false;
 };
 
@@ -725,6 +740,7 @@ struct program_hash_cache_t {
     GLint fog_index = 0;
     GLenum fog_coord_src = 0;
     GLenum shade_model = 0;
+    bool point_attenuation_active = false;
     GLenum light_model_color_ctrl = 0;
     int light_model_local_viewer = 0;
     int light_model_two_side = 0;

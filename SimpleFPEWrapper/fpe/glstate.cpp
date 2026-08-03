@@ -45,6 +45,9 @@ void program_uniform_locations_t::initialize(GLuint program) {
     alpha_ref = location("alpharef");
     alpha_func = location("alphafunc");
     point_size = location("PointSize");
+    point_size_min = location("PointSizeMin");
+    point_size_max = location("PointSizeMax");
+    point_distance_attenuation = location("PointDistanceAttenuation");
     for (int i = 0; i < 6; ++i) clip_planes[i] = location(std::format("ClipPlane{}", i));
     polygon_stipple_rows = location("PolygonStipple");
 
@@ -269,6 +272,26 @@ void glstate_t::send_uniforms(program_t& program) {
         g_glFuncs.glUniform1f(locations.point_size, fpe_uniform.point_size);
         values.point_size = fpe_uniform.point_size;
     }
+    if (fpe_state.point_attenuation_active) {
+        if ((first_upload || fpe_uniform.point_size_min != values.point_size_min) &&
+            locations.point_size_min >= 0) {
+            g_glFuncs.glUniform1f(locations.point_size_min, fpe_uniform.point_size_min);
+            values.point_size_min = fpe_uniform.point_size_min;
+        }
+        if ((first_upload || fpe_uniform.point_size_max != values.point_size_max) &&
+            locations.point_size_max >= 0) {
+            g_glFuncs.glUniform1f(locations.point_size_max, fpe_uniform.point_size_max);
+            values.point_size_max = fpe_uniform.point_size_max;
+        }
+        if (differs(fpe_uniform.point_distance_attenuation,
+                    values.point_distance_attenuation)) {
+            if (locations.point_distance_attenuation >= 0) {
+                g_glFuncs.glUniform3fv(locations.point_distance_attenuation, 1,
+                                       glm::value_ptr(fpe_uniform.point_distance_attenuation));
+            }
+            values.point_distance_attenuation = fpe_uniform.point_distance_attenuation;
+        }
+    }
 
     values.initialized = true;
 }
@@ -308,6 +331,7 @@ program_key_t glstate_t::program_hash() {
                    cache.fog_index == canon_fog_index &&
                    cache.fog_coord_src == canon_fog_coord_src &&
                    cache.shade_model == fpe_state.shade_model &&
+                   cache.point_attenuation_active == fpe_state.point_attenuation_active &&
                    cache.light_model_color_ctrl == canon_lm_color_ctrl &&
                    cache.light_model_local_viewer == canon_lm_local_viewer &&
                    cache.light_model_two_side == canon_lm_two_side &&
@@ -422,6 +446,7 @@ program_key_t glstate_t::program_hash() {
     hash.add(&canon_fog_index, sizeof(canon_fog_index));
     hash.add(&canon_fog_coord_src, sizeof(canon_fog_coord_src));
     hash.add(&fpe_state.shade_model, sizeof(fpe_state.shade_model));
+    hash.add(&fpe_state.point_attenuation_active, sizeof(fpe_state.point_attenuation_active));
     hash.add(&canon_lm_color_ctrl, sizeof(canon_lm_color_ctrl));
     hash.add(&canon_lm_local_viewer, sizeof(canon_lm_local_viewer));
     hash.add(&canon_lm_two_side, sizeof(canon_lm_two_side));
@@ -468,6 +493,7 @@ program_key_t glstate_t::program_hash() {
     cache.fog_index = canon_fog_index;
     cache.fog_coord_src = canon_fog_coord_src;
     cache.shade_model = fpe_state.shade_model;
+    cache.point_attenuation_active = fpe_state.point_attenuation_active;
     cache.light_model_color_ctrl = canon_lm_color_ctrl;
     cache.light_model_local_viewer = canon_lm_local_viewer;
     cache.light_model_two_side = canon_lm_two_side;

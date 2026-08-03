@@ -52,7 +52,11 @@ struct attrib_snapshot_t {
     GLenum matrix_mode;
     glm::dvec4 clip_planes[6];
     // point / polygon
-    GLfloat point_size;
+    GLfloat point_size, point_size_min, point_size_max, point_fade_threshold_size;
+    glm::vec3 point_distance_attenuation;
+    bool point_size_max_initialized;
+    bool point_attenuation_active;
+    GLenum point_sprite_coord_origin;
     GLenum polygon_mode_front, polygon_mode_back;
     // current
     fixed_function_draw_data_t current_data;
@@ -162,7 +166,17 @@ void glPushAttrib(GLbitfield mask) {
         snap.matrix_mode = un.transformation.matrix_mode;
         copy_array(snap.clip_planes, un.clip_planes);
     }
-    if (mask & GL_POINT_BIT) snap.point_size = un.point_size;
+    if (mask & GL_POINT_BIT) {
+        sfpewInitializePointSizeMax(gs);
+        snap.point_size = un.point_size;
+        snap.point_size_min = un.point_size_min;
+        snap.point_size_max = un.point_size_max;
+        snap.point_fade_threshold_size = un.point_fade_threshold_size;
+        snap.point_distance_attenuation = un.point_distance_attenuation;
+        snap.point_size_max_initialized = un.point_size_max_initialized;
+        snap.point_attenuation_active = st.point_attenuation_active;
+        snap.point_sprite_coord_origin = st.point_sprite_coord_origin;
+    }
     if (mask & GL_POLYGON_BIT) {
         snap.polygon_mode_front = un.polygon_mode_front;
         snap.polygon_mode_back = un.polygon_mode_back;
@@ -252,7 +266,16 @@ void glPopAttrib() {
         copy_array(st.fpe_bools.clip_plane_enable, snap.bools.clip_plane_enable);
         copy_array(un.clip_planes, snap.clip_planes);
     }
-    if (mask & GL_POINT_BIT) un.point_size = snap.point_size;
+    if (mask & GL_POINT_BIT) {
+        un.point_size = snap.point_size;
+        un.point_size_min = snap.point_size_min;
+        un.point_size_max = snap.point_size_max;
+        un.point_fade_threshold_size = snap.point_fade_threshold_size;
+        un.point_distance_attenuation = snap.point_distance_attenuation;
+        un.point_size_max_initialized = snap.point_size_max_initialized;
+        st.point_attenuation_active = snap.point_attenuation_active;
+        st.point_sprite_coord_origin = snap.point_sprite_coord_origin;
+    }
     if (mask & GL_POLYGON_BIT) {
         un.polygon_mode_front = snap.polygon_mode_front;
         un.polygon_mode_back = snap.polygon_mode_back;

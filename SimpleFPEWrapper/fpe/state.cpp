@@ -124,6 +124,26 @@ void tex_env_set_int(glstate_t& gs, GLenum target, GLenum pname, GLint param) {
 
 } // namespace
 
+void sfpewInitializePointSizeMax(glstate_t& state) {
+    auto& uniform = state.fpe_uniform;
+    if (uniform.point_size_max_initialized) return;
+    if (sfpewCurrentContext() == EGL_NO_CONTEXT || !sfpewEnsureBackend() ||
+        g_glFuncs.glGetFloatv == nullptr) {
+        return;
+    }
+
+    // GL 2.1 initializes POINT_SIZE_MAX to the implementation's supported
+    // maximum, even though Table 6.10 prints 1.0. GLES exposes that limit as
+    // ALIASED_POINT_SIZE_RANGE; desktop compatibility uses POINT_SIZE_RANGE.
+    GLenum range_name = GL_POINT_SIZE_RANGE;
+    int major = 0, minor = 0;
+    if (sfpewDesktopGLVersion(&major, &minor)) range_name = GL_ALIASED_POINT_SIZE_RANGE;
+    GLfloat range[2] = {1.0f, 1.0f};
+    g_glFuncs.glGetFloatv(range_name, range);
+    uniform.point_size_max = std::max(1.0f, range[1]);
+    uniform.point_size_max_initialized = true;
+}
+
 // Replays a color-buffer snapshot onto the backend, skipping the calls
 // whose state already matches (glPopAttrib is frequent in legacy GUI code).
 void restore_color_buffer(const color_buffer_state_t& current,
@@ -1577,6 +1597,89 @@ void glPointSize(GLfloat size) {
     }
     LIST_RECORD(glPointSize, {}, size)
     gs.fpe_uniform.point_size = size;
+}
+
+void glPointParameterfv(GLenum pname, const GLfloat* params) {
+    auto& gs = g_glstate;
+    if (params == nullptr) return;
+    const size_t count = pname == GL_POINT_DISTANCE_ATTENUATION ? 3u : 1u;
+    LIST_RECORD(glPointParameterfv, {{1, count * sizeof(GLfloat)}}, pname, params)
+    sfpewEntryBarrier();
+    sfpewInitializePointSizeMax(gs);
+
+    auto& uniform = gs.fpe_uniform;
+    switch (pname) {
+    case GL_POINT_SIZE_MIN:
+        if (params[0] < 0.0f) {
+            gs.set_error(GL_INVALID_VALUE);
+            return;
+        }
+        uniform.point_size_min = params[0];
+        break;
+    case GL_POINT_SIZE_MAX:
+        if (params[0] < 0.0f) {
+            gs.set_error(GL_INVALID_VALUE);
+            return;
+        }
+        uniform.point_size_max = params[0];
+        uniform.point_size_max_initialized = true;
+        break;
+    case GL_POINT_FADE_THRESHOLD_SIZE:
+        if (params[0] < 0.0f) {
+            gs.set_error(GL_INVALID_VALUE);
+            return;
+        }
+        // The threshold is tracked exactly, but alpha fading remains outside
+        // this group's minimum rendering scope; distance sizing is real below.
+        uniform.point_fade_threshold_size = params[0];
+        break;
+    case GL_POINT_DISTANCE_ATTENUATION:
+        uniform.point_distance_attenuation = {params[0], params[1], params[2]};
+        gs.fpe_state.point_attenuation_active =
+            params[0] != 1.0f || params[1] != 0.0f || params[2] != 0.0f;
+        break;
+    case GL_POINT_SPRITE_COORD_ORIGIN:
+        if (params[0] != static_cast<GLfloat>(GL_LOWER_LEFT) &&
+            params[0] != static_cast<GLfloat>(GL_UPPER_LEFT)) {
+            gs.set_error(GL_INVALID_VALUE);
+            return;
+        }
+        gs.fpe_state.point_sprite_coord_origin = static_cast<GLenum>(params[0]);
+        break;
+    default:
+        gs.set_error(GL_INVALID_ENUM);
+        return;
+    }
+}
+
+void glPointParameterf(GLenum pname, GLfloat param) {
+    auto& gs = g_glstate;
+    if (pname == GL_POINT_DISTANCE_ATTENUATION) {
+        gs.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    LIST_RECORD(glPointParameterf, {}, pname, param)
+    SELF_CALL(glPointParameterfv, pname, &param)
+}
+
+void glPointParameteriv(GLenum pname, const GLint* params) {
+    if (params == nullptr) return;
+    const size_t count = pname == GL_POINT_DISTANCE_ATTENUATION ? 3u : 1u;
+    LIST_RECORD(glPointParameteriv, {{1, count * sizeof(GLint)}}, pname, params)
+    GLfloat converted[3] = {static_cast<GLfloat>(params[0]), 0.0f, 0.0f};
+    for (size_t i = 1; i < count; ++i) converted[i] = static_cast<GLfloat>(params[i]);
+    SELF_CALL(glPointParameterfv, pname, converted)
+}
+
+void glPointParameteri(GLenum pname, GLint param) {
+    auto& gs = g_glstate;
+    if (pname == GL_POINT_DISTANCE_ATTENUATION) {
+        gs.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    LIST_RECORD(glPointParameteri, {}, pname, param)
+    const GLfloat converted = static_cast<GLfloat>(param);
+    SELF_CALL(glPointParameterfv, pname, &converted)
 }
 
 // glRect: GL 2.1 defines it as the equivalent Begin/Vertex2/End sequence.

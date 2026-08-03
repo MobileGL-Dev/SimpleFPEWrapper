@@ -1,6 +1,6 @@
 {
  "source": "lookup.cpp",
- "count": 653,
+ "count": 665,
  "entries": {
   "eglSwapBuffersWithDamageKHR": {
    "status": "alias",
@@ -1477,6 +1477,54 @@
   "glPixelZoom": {
    "status": "resolvable",
    "target": "glPixelZoom"
+  },
+  "glPointParameterf": {
+   "status": "resolvable",
+   "target": "glPointParameterf"
+  },
+  "glPointParameterfARB": {
+   "status": "alias",
+   "target": "glPointParameterf"
+  },
+  "glPointParameterfEXT": {
+   "status": "alias",
+   "target": "glPointParameterf"
+  },
+  "glPointParameterfSGIS": {
+   "status": "alias",
+   "target": "glPointParameterf"
+  },
+  "glPointParameterfv": {
+   "status": "resolvable",
+   "target": "glPointParameterfv"
+  },
+  "glPointParameterfvARB": {
+   "status": "alias",
+   "target": "glPointParameterfv"
+  },
+  "glPointParameterfvEXT": {
+   "status": "alias",
+   "target": "glPointParameterfv"
+  },
+  "glPointParameterfvSGIS": {
+   "status": "alias",
+   "target": "glPointParameterfv"
+  },
+  "glPointParameteri": {
+   "status": "resolvable",
+   "target": "glPointParameteri"
+  },
+  "glPointParameteriNV": {
+   "status": "alias",
+   "target": "glPointParameteri"
+  },
+  "glPointParameteriv": {
+   "status": "resolvable",
+   "target": "glPointParameteriv"
+  },
+  "glPointParameterivNV": {
+   "status": "alias",
+   "target": "glPointParameteriv"
   },
   "glPointSize": {
    "status": "resolvable",

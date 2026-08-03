@@ -48,4 +48,8 @@ extern "C"
 
 #ifdef __cplusplus
 }
+
+// GL_POINT_SIZE_MAX starts at the implementation's supported maximum. It is
+// queried lazily because glstate_t can be constructed before a context exists.
+void sfpewInitializePointSizeMax(glstate_t& state);
 #endif

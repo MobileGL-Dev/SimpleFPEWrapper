@@ -316,7 +316,7 @@ if(NOT ANDROID)
                                        list_current_attr ffp_vbo_arrays bgra_color_array
                                        attrib_retire arraybuffer_heal element_binding_survives
                                        buffer_name_reuse display_list_chunks fog rastercolor
-                                       orthpos)
+                                       orthpos texgen_toggle polygon_mode)
                                 sfpew_add_gtest(sfpew_${suite}_test SOURCES tests/gtest_${suite}.cc
                                                 LIBRARIES ${SFPEW_TEST_EGL})
                         endforeach()
@@ -397,13 +397,6 @@ if(NOT ANDROID)
                         add_test(NAME smoke_beginend_coverage COMMAND smoke_beginend_coverage)
                         set_tests_properties(smoke_beginend_coverage PROPERTIES SKIP_RETURN_CODE 77)
 
-                        add_executable(smoke_polygon_mode tests/smoke_polygon_mode.c)
-                        target_compile_definitions(smoke_polygon_mode PRIVATE
-                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
-                        target_link_libraries(smoke_polygon_mode PRIVATE dl ${SFPEW_TEST_EGL})
-                        add_dependencies(smoke_polygon_mode ${CMAKE_PROJECT_NAME})
-                        add_test(NAME smoke_polygon_mode COMMAND smoke_polygon_mode)
-                        set_tests_properties(smoke_polygon_mode PROPERTIES SKIP_RETURN_CODE 77)
 
 
 
@@ -427,13 +420,6 @@ if(NOT ANDROID)
                         add_test(NAME smoke_uniform_cache COMMAND smoke_uniform_cache)
                         set_tests_properties(smoke_uniform_cache PROPERTIES SKIP_RETURN_CODE 77)
 
-                        add_executable(smoke_texgen_toggle tests/smoke_texgen_toggle.c)
-                        target_compile_definitions(smoke_texgen_toggle PRIVATE
-                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
-                        target_link_libraries(smoke_texgen_toggle PRIVATE dl ${SFPEW_TEST_EGL})
-                        add_dependencies(smoke_texgen_toggle ${CMAKE_PROJECT_NAME})
-                        add_test(NAME smoke_texgen_toggle COMMAND smoke_texgen_toggle)
-                        set_tests_properties(smoke_texgen_toggle PROPERTIES SKIP_RETURN_CODE 77)
 
                         add_executable(smoke_manual_mipgen tests/smoke_manual_mipgen.c)
                         target_compile_definitions(smoke_manual_mipgen PRIVATE

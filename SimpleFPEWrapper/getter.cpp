@@ -728,6 +728,7 @@ bool sfpewDesktopGLVersion(int* major, int* minor) {
 // points through {egl,glX}GetProcAddress (lookup.cpp aliases them).
 const char* const kDesktopExtensions[] = {
     "GL_ARB_compatibility",
+    "GL_ARB_transpose_matrix",
     // FCL-ecosystem probe tokens (pre-dating this list; keep for launchers
     // that detect the wrapper's desktop-GL level by these).
     "OpenGL11",

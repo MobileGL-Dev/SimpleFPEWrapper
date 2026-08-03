@@ -321,7 +321,8 @@ if(NOT ANDROID)
                                        uniform_cache userprog_enable_cache userobject_blit
                                        userprog_multiattrib userobject_quads gl3_core
                                        bgra_texture manual_mipgen mixed_translation_link
-                                       multidraw_native mixed_pipeline vbo_surface render)
+                                       multidraw_native mixed_pipeline vbo_surface render
+                                       transpose_matrix)
                                 sfpew_add_gtest(sfpew_${suite}_test SOURCES tests/gtest_${suite}.cc
                                                 LIBRARIES ${SFPEW_TEST_EGL})
                         endforeach()

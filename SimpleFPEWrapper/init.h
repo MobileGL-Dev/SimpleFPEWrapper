@@ -232,6 +232,10 @@ SFPEW_APIENTRY void glTexImage2D(GLenum target, GLint level, GLint internalforma
 SFPEW_APIENTRY void glGetTexLevelParameteriv(GLenum target, GLint level, GLenum pname, GLint* params);
 SFPEW_APIENTRY void glGenerateMipmap(GLenum target);
 SFPEW_APIENTRY void glGetTexLevelParameterfv(GLenum target, GLint level, GLenum pname, GLfloat* params);
+SFPEW_APIENTRY void glLoadTransposeMatrixf(const GLfloat* m);
+SFPEW_APIENTRY void glLoadTransposeMatrixd(const GLdouble* m);
+SFPEW_APIENTRY void glMultTransposeMatrixf(const GLfloat* m);
+SFPEW_APIENTRY void glMultTransposeMatrixd(const GLdouble* m);
 // The current EGL context for this thread. Exact (and free) once the app has
 // called eglMakeCurrent through the wrapper; otherwise resolved by asking
 // libEGL, which on some loaders costs a syscall per query.

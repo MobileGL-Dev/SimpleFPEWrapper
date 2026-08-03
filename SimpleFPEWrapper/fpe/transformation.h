@@ -38,6 +38,10 @@ extern "C"
     GLAPI GLAPIENTRY void glLoadMatrixf(const GLfloat* m);
     GLAPI GLAPIENTRY void glMultMatrixd(const GLdouble* m);
     GLAPI GLAPIENTRY void glMultMatrixf(const GLfloat* m);
+    GLAPI GLAPIENTRY void glLoadTransposeMatrixd(const GLdouble* m);
+    GLAPI GLAPIENTRY void glLoadTransposeMatrixf(const GLfloat* m);
+    GLAPI GLAPIENTRY void glMultTransposeMatrixd(const GLdouble* m);
+    GLAPI GLAPIENTRY void glMultTransposeMatrixf(const GLfloat* m);
 
     GLAPI GLAPIENTRY void glRotated(GLdouble angle, GLdouble x, GLdouble y, GLdouble z);
     GLAPI GLAPIENTRY void glScaled(GLdouble x, GLdouble y, GLdouble z);

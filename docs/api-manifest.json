@@ -1,6 +1,6 @@
 {
  "source": "lookup.cpp",
- "count": 539,
+ "count": 547,
  "entries": {
   "eglSwapBuffersWithDamageKHR": {
    "status": "alias",
@@ -958,6 +958,22 @@
    "status": "resolvable",
    "target": "glLoadName"
   },
+  "glLoadTransposeMatrixd": {
+   "status": "resolvable",
+   "target": "glLoadTransposeMatrixd"
+  },
+  "glLoadTransposeMatrixdARB": {
+   "status": "alias",
+   "target": "glLoadTransposeMatrixd"
+  },
+  "glLoadTransposeMatrixf": {
+   "status": "resolvable",
+   "target": "glLoadTransposeMatrixf"
+  },
+  "glLoadTransposeMatrixfARB": {
+   "status": "alias",
+   "target": "glLoadTransposeMatrixf"
+  },
   "glMap1d": {
    "status": "resolvable",
    "target": "glMap1d"
@@ -1029,6 +1045,22 @@
   "glMultMatrixf": {
    "status": "resolvable",
    "target": "glMultMatrixf"
+  },
+  "glMultTransposeMatrixd": {
+   "status": "resolvable",
+   "target": "glMultTransposeMatrixd"
+  },
+  "glMultTransposeMatrixdARB": {
+   "status": "alias",
+   "target": "glMultTransposeMatrixd"
+  },
+  "glMultTransposeMatrixf": {
+   "status": "resolvable",
+   "target": "glMultTransposeMatrixf"
+  },
+  "glMultTransposeMatrixfARB": {
+   "status": "alias",
+   "target": "glMultTransposeMatrixf"
   },
   "glMultiDrawArrays": {
    "status": "resolvable",

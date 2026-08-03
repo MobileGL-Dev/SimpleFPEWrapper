@@ -458,6 +458,53 @@ void glMultMatrixf(const GLfloat* m) {
     print_matrix(matrix);
 }
 
+// GL_ARB_transpose_matrix takes row-major input. Convert it to the
+// column-major layout used by the existing matrix entry points, then delegate
+// under SELF_CALL so a display list captures only the spelling the app used.
+void glLoadTransposeMatrixf(const GLfloat* m) {
+    if (m == nullptr) return;
+    LIST_RECORD(glLoadTransposeMatrixf, {{0, sizeof(GLfloat) * 16}}, m)
+
+    GLfloat column_major[16];
+    for (int row = 0; row < 4; ++row)
+        for (int column = 0; column < 4; ++column)
+            column_major[column * 4 + row] = m[row * 4 + column];
+    SELF_CALL(glLoadMatrixf, column_major)
+}
+
+void glLoadTransposeMatrixd(const GLdouble* m) {
+    if (m == nullptr) return;
+    LIST_RECORD(glLoadTransposeMatrixd, {{0, sizeof(GLdouble) * 16}}, m)
+
+    GLfloat column_major[16];
+    for (int row = 0; row < 4; ++row)
+        for (int column = 0; column < 4; ++column)
+            column_major[column * 4 + row] = (GLfloat)m[row * 4 + column];
+    SELF_CALL(glLoadMatrixf, column_major)
+}
+
+void glMultTransposeMatrixf(const GLfloat* m) {
+    if (m == nullptr) return;
+    LIST_RECORD(glMultTransposeMatrixf, {{0, sizeof(GLfloat) * 16}}, m)
+
+    GLfloat column_major[16];
+    for (int row = 0; row < 4; ++row)
+        for (int column = 0; column < 4; ++column)
+            column_major[column * 4 + row] = m[row * 4 + column];
+    SELF_CALL(glMultMatrixf, column_major)
+}
+
+void glMultTransposeMatrixd(const GLdouble* m) {
+    if (m == nullptr) return;
+    LIST_RECORD(glMultTransposeMatrixd, {{0, sizeof(GLdouble) * 16}}, m)
+
+    GLfloat column_major[16];
+    for (int row = 0; row < 4; ++row)
+        for (int column = 0; column < 4; ++column)
+            column_major[column * 4 + row] = (GLfloat)m[row * 4 + column];
+    SELF_CALL(glMultMatrixf, column_major)
+}
+
 void glPushMatrix(void) {
     sfpewClientStateBarrier();
     // LOG()

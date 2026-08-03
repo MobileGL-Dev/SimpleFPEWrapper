@@ -315,7 +315,8 @@ if(NOT ANDROID)
                                        dlist_shademodel dlist_beginend dlist_no_state_leak
                                        list_current_attr ffp_vbo_arrays bgra_color_array
                                        attrib_retire arraybuffer_heal element_binding_survives
-                                       buffer_name_reuse display_list_chunks)
+                                       buffer_name_reuse display_list_chunks fog rastercolor
+                                       orthpos)
                                 sfpew_add_gtest(sfpew_${suite}_test SOURCES tests/gtest_${suite}.cc
                                                 LIBRARIES ${SFPEW_TEST_EGL})
                         endforeach()
@@ -336,13 +337,6 @@ if(NOT ANDROID)
                         add_test(NAME smoke_gl3_core COMMAND smoke_gl3_core)
                         set_tests_properties(smoke_gl3_core PROPERTIES SKIP_RETURN_CODE 77)
 
-                        add_executable(smoke_fog tests/smoke_fog.c)
-                        target_compile_definitions(smoke_fog PRIVATE
-                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
-                        target_link_libraries(smoke_fog PRIVATE dl m ${SFPEW_TEST_EGL})
-                        add_dependencies(smoke_fog ${CMAKE_PROJECT_NAME})
-                        add_test(NAME smoke_fog COMMAND smoke_fog)
-                        set_tests_properties(smoke_fog PROPERTIES SKIP_RETURN_CODE 77)
 
                         add_executable(smoke_mixed_pipeline tests/smoke_mixed_pipeline.c)
                         target_compile_definitions(smoke_mixed_pipeline PRIVATE
@@ -412,21 +406,7 @@ if(NOT ANDROID)
                         set_tests_properties(smoke_polygon_mode PROPERTIES SKIP_RETURN_CODE 77)
 
 
-                        add_executable(smoke_rastercolor tests/smoke_rastercolor.c)
-                        target_compile_definitions(smoke_rastercolor PRIVATE
-                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
-                        target_link_libraries(smoke_rastercolor PRIVATE dl ${SFPEW_TEST_EGL})
-                        add_dependencies(smoke_rastercolor ${CMAKE_PROJECT_NAME})
-                        add_test(NAME smoke_rastercolor COMMAND smoke_rastercolor)
-                        set_tests_properties(smoke_rastercolor PROPERTIES SKIP_RETURN_CODE 77)
 
-                        add_executable(smoke_orthpos tests/smoke_orthpos.c)
-                        target_compile_definitions(smoke_orthpos PRIVATE
-                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
-                        target_link_libraries(smoke_orthpos PRIVATE dl ${SFPEW_TEST_EGL})
-                        add_dependencies(smoke_orthpos ${CMAKE_PROJECT_NAME})
-                        add_test(NAME smoke_orthpos COMMAND smoke_orthpos)
-                        set_tests_properties(smoke_orthpos PROPERTIES SKIP_RETURN_CODE 77)
 
                         add_executable(smoke_draw_batch tests/smoke_draw_batch.c)
                         target_compile_definitions(smoke_draw_batch PRIVATE

@@ -319,7 +319,7 @@ if(NOT ANDROID)
                                        orthpos texgen_toggle polygon_mode draw_batch
                                        swap_flushes_batch list_immediate lwjgl_surface
                                        uniform_cache userprog_enable_cache userobject_blit
-                                       userprog_multiattrib)
+                                       userprog_multiattrib userobject_quads)
                                 sfpew_add_gtest(sfpew_${suite}_test SOURCES tests/gtest_${suite}.cc
                                                 LIBRARIES ${SFPEW_TEST_EGL})
                         endforeach()
@@ -354,13 +354,6 @@ if(NOT ANDROID)
                         add_test(NAME smoke_multidraw_native COMMAND smoke_multidraw_native)
                         set_tests_properties(smoke_multidraw_native PROPERTIES SKIP_RETURN_CODE 77)
 
-                        add_executable(smoke_userobject_quads tests/smoke_userobject_quads.c)
-                        target_compile_definitions(smoke_userobject_quads PRIVATE
-                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
-                        target_link_libraries(smoke_userobject_quads PRIVATE dl ${SFPEW_TEST_EGL})
-                        add_dependencies(smoke_userobject_quads ${CMAKE_PROJECT_NAME})
-                        add_test(NAME smoke_userobject_quads COMMAND smoke_userobject_quads)
-                        set_tests_properties(smoke_userobject_quads PROPERTIES SKIP_RETURN_CODE 77)
 
 
 

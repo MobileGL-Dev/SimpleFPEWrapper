@@ -229,6 +229,12 @@ SFPEW_APIENTRY void glBlendFuncSeparate(GLenum sfactorRGB, GLenum dfactorRGB, GL
 SFPEW_APIENTRY void glGetFloatv(GLenum pname, GLfloat* params);
 SFPEW_APIENTRY void glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height,
                                 GLint border, GLenum format, GLenum type, const GLvoid* pixels);
+SFPEW_APIENTRY void glGetTexParameterfv(GLenum target, GLenum pname, GLfloat* params);
+SFPEW_APIENTRY void glGetTexParameteriv(GLenum target, GLenum pname, GLint* params);
+SFPEW_APIENTRY GLboolean glAreTexturesResident(GLsizei n, const GLuint* textures,
+                                                GLboolean* residences);
+SFPEW_APIENTRY void glPrioritizeTextures(GLsizei n, const GLuint* textures,
+                                         const GLclampf* priorities);
 SFPEW_APIENTRY void glGetTexLevelParameteriv(GLenum target, GLint level, GLenum pname, GLint* params);
 SFPEW_APIENTRY void glGenerateMipmap(GLenum target);
 SFPEW_APIENTRY void glGetTexLevelParameterfv(GLenum target, GLint level, GLenum pname, GLfloat* params);

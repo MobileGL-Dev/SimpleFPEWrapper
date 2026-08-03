@@ -794,6 +794,11 @@ struct glstate_t {
     bool pixel_store_pack_swap_bytes = false;
     bool pixel_store_pack_lsb_first = false;
 
+    // GL 2.1 texture residency is advisory and unavailable on either
+    // backend floor. Keep the priority per texture name so the legacy
+    // queries remain observable; absent entries use the specified default 1.
+    unordered_map<GLuint, GLclampf> texture_priorities;
+
     // Selection / feedback (plans/10 10.3). CPU transform results only;
     // nothing reaches the GPU while render_mode != GL_RENDER.
     GLenum render_mode = GL_RENDER;

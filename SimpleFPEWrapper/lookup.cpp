@@ -299,6 +299,12 @@ SFPEW_APIENTRY __eglMustCastToProperFunctionPointerType eglGetProcAddress(const 
     GETPROC(glTexParameterfv, name)
     GETPROC(glTexParameteri, name)
     GETPROC(glTexParameteriv, name)
+    GETPROC(glGetTexParameterfv, name)
+    GETPROC(glGetTexParameteriv, name)
+    GETPROC(glAreTexturesResident, name)
+    GETPROC(glPrioritizeTextures, name)
+    GETPROC_WRAPPER_ALIAS(glAreTexturesResidentEXT, glAreTexturesResident)
+    GETPROC_WRAPPER_ALIAS(glPrioritizeTexturesEXT, glPrioritizeTextures)
     GETPROC(glTexSubImage2D, name)
     GETPROC(glBindBuffer, name)
     // Wrapped so the fixed-function draw guard can restore the app's VAO

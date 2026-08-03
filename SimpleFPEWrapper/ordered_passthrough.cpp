@@ -301,6 +301,18 @@ bool isTextureWrapParameter(GLenum pname) {
     return pname == GL_TEXTURE_WRAP_S || pname == GL_TEXTURE_WRAP_T || pname == GL_TEXTURE_WRAP_R;
 }
 
+bool validTextureParameterTarget(GLenum target) {
+    switch (target) {
+    case GL_TEXTURE_1D:
+    case GL_TEXTURE_2D:
+    case GL_TEXTURE_3D:
+    case GL_TEXTURE_CUBE_MAP:
+        return true;
+    default:
+        return false;
+    }
+}
+
 GLint compatibleTextureParameter(GLenum pname, GLint param) {
     // GL_CLAMP was removed from the programmable/core and GLES profiles used
     // by SFPEW's backends.  Legacy games still use it for projected textures
@@ -323,10 +335,19 @@ bool sfpewHandleGenerateMipmapParam(GLenum target, GLenum pname, GLint param) {
 } // namespace
 
 void glTexParameterf(GLenum target, GLenum pname, GLfloat param) {
-    (void)g_glstate; // entry strict resolve; mipmap tracking reads the binding shadow
+    auto& gs = g_glstate;
     sfpewClientStateBarrier();
     LIST_RECORD(glTexParameterf, {}, target, pname, param)
     if (sfpewHandleGenerateMipmapParam(target, pname, (GLint)param)) return;
+    if (pname == GL_TEXTURE_PRIORITY) {
+        if (target == GL_TEXTURE_1D) target = GL_TEXTURE_2D;
+        if (!validTextureParameterTarget(target)) {
+            gs.set_error(GL_INVALID_ENUM);
+            return;
+        }
+        gs.texture_priorities[sfpewLogicalTextureBinding(target)] = std::clamp(param, 0.0f, 1.0f);
+        return;
+    }
     if (g_glFuncs.glTexParameterf == nullptr) return;
     if (isTextureWrapParameter(pname) && static_cast<GLint>(param) == GL_CLAMP)
         param = static_cast<GLfloat>(GL_CLAMP_TO_EDGE);
@@ -334,11 +355,22 @@ void glTexParameterf(GLenum target, GLenum pname, GLfloat param) {
 }
 
 void glTexParameterfv(GLenum target, GLenum pname, const GLfloat* params) {
+    auto& gs = g_glstate;
     sfpewClientStateBarrier();
-    if (g_glFuncs.glTexParameterfv == nullptr || params == nullptr) return;
+    if (params == nullptr) return;
     LIST_RECORD(glTexParameterfv,
                 {{2, (pname == GL_TEXTURE_BORDER_COLOR ? 4u : 1u) * sizeof(GLfloat)}}, target, pname,
                 params)
+    if (pname == GL_TEXTURE_PRIORITY) {
+        if (target == GL_TEXTURE_1D) target = GL_TEXTURE_2D;
+        if (!validTextureParameterTarget(target)) {
+            gs.set_error(GL_INVALID_ENUM);
+            return;
+        }
+        gs.texture_priorities[sfpewLogicalTextureBinding(target)] = std::clamp(params[0], 0.0f, 1.0f);
+        return;
+    }
+    if (g_glFuncs.glTexParameterfv == nullptr) return;
     if (isTextureWrapParameter(pname) && static_cast<GLint>(params[0]) == GL_CLAMP) {
         const GLfloat compatible = static_cast<GLfloat>(GL_CLAMP_TO_EDGE);
         g_glFuncs.glTexParameterfv(target, pname, &compatible);
@@ -348,20 +380,42 @@ void glTexParameterfv(GLenum target, GLenum pname, const GLfloat* params) {
 }
 
 void glTexParameteri(GLenum target, GLenum pname, GLint param) {
-    (void)g_glstate; // entry strict resolve; mipmap tracking reads the binding shadow
+    auto& gs = g_glstate;
     sfpewClientStateBarrier();
     LIST_RECORD(glTexParameteri, {}, target, pname, param)
     if (sfpewHandleGenerateMipmapParam(target, pname, param)) return;
+    if (pname == GL_TEXTURE_PRIORITY) {
+        if (target == GL_TEXTURE_1D) target = GL_TEXTURE_2D;
+        if (!validTextureParameterTarget(target)) {
+            gs.set_error(GL_INVALID_ENUM);
+            return;
+        }
+        gs.texture_priorities[sfpewLogicalTextureBinding(target)] =
+            std::clamp(static_cast<GLfloat>(param), 0.0f, 1.0f);
+        return;
+    }
     if (g_glFuncs.glTexParameteri != nullptr)
         g_glFuncs.glTexParameteri(target, pname, compatibleTextureParameter(pname, param));
 }
 
 void glTexParameteriv(GLenum target, GLenum pname, const GLint* params) {
+    auto& gs = g_glstate;
     sfpewClientStateBarrier();
-    if (g_glFuncs.glTexParameteriv == nullptr || params == nullptr) return;
+    if (params == nullptr) return;
     LIST_RECORD(glTexParameteriv,
                 {{2, (pname == GL_TEXTURE_BORDER_COLOR ? 4u : 1u) * sizeof(GLint)}}, target, pname,
                 params)
+    if (pname == GL_TEXTURE_PRIORITY) {
+        if (target == GL_TEXTURE_1D) target = GL_TEXTURE_2D;
+        if (!validTextureParameterTarget(target)) {
+            gs.set_error(GL_INVALID_ENUM);
+            return;
+        }
+        gs.texture_priorities[sfpewLogicalTextureBinding(target)] =
+            std::clamp(static_cast<GLfloat>(params[0]), 0.0f, 1.0f);
+        return;
+    }
+    if (g_glFuncs.glTexParameteriv == nullptr) return;
     if (isTextureWrapParameter(pname) && params[0] == GL_CLAMP) {
         const GLint compatible = GL_CLAMP_TO_EDGE;
         g_glFuncs.glTexParameteriv(target, pname, &compatible);

@@ -1,6 +1,6 @@
 {
  "source": "lookup.cpp",
- "count": 547,
+ "count": 553,
  "entries": {
   "eglSwapBuffersWithDamageKHR": {
    "status": "alias",
@@ -21,6 +21,14 @@
   "glAlphaFunc": {
    "status": "resolvable",
    "target": "glAlphaFunc"
+  },
+  "glAreTexturesResident": {
+   "status": "resolvable",
+   "target": "glAreTexturesResident"
+  },
+  "glAreTexturesResidentEXT": {
+   "status": "alias",
+   "target": "glAreTexturesResident"
   },
   "glArrayElement": {
    "status": "resolvable",
@@ -838,6 +846,14 @@
    "status": "resolvable",
    "target": "glGetTexLevelParameteriv"
   },
+  "glGetTexParameterfv": {
+   "status": "resolvable",
+   "target": "glGetTexParameterfv"
+  },
+  "glGetTexParameteriv": {
+   "status": "resolvable",
+   "target": "glGetTexParameteriv"
+  },
   "glGetUniformLocation": {
    "status": "resolvable",
    "target": "glGetUniformLocation"
@@ -1445,6 +1461,14 @@
   "glPopName": {
    "status": "resolvable",
    "target": "glPopName"
+  },
+  "glPrioritizeTextures": {
+   "status": "resolvable",
+   "target": "glPrioritizeTextures"
+  },
+  "glPrioritizeTexturesEXT": {
+   "status": "alias",
+   "target": "glPrioritizeTextures"
   },
   "glPushAttrib": {
    "status": "resolvable",

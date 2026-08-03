@@ -679,6 +679,67 @@ GLuint sfpewLogicalTextureBinding(GLenum target) {
     return binding->second;
 }
 
+namespace {
+
+bool validTextureParameterTarget(GLenum target) {
+    if (target == GL_TEXTURE_1D) return true;
+    return textureBindingQuery(target) != GL_NONE;
+}
+
+GLenum textureParameterTarget(GLenum target) {
+    return target == GL_TEXTURE_1D ? GL_TEXTURE_2D : target;
+}
+
+GLclampf texturePriority(GLuint texture) {
+    const auto& priorities = g_glstate_c.texture_priorities;
+    const auto it = priorities.find(texture);
+    return it == priorities.end() ? 1.0f : it->second;
+}
+
+} // namespace
+
+void glGetTexParameterfv(GLenum target, GLenum pname, GLfloat* params) {
+    auto& gs = g_glstate;
+    if (params == nullptr) return;
+    if (pname == GL_TEXTURE_PRIORITY || pname == GL_TEXTURE_RESIDENT) {
+        if (!validTextureParameterTarget(target)) {
+            gs.set_error(GL_INVALID_ENUM);
+            return;
+        }
+        sfpewEntryBarrier();
+        if (pname == GL_TEXTURE_PRIORITY)
+            params[0] = texturePriority(sfpewLogicalTextureBinding(textureParameterTarget(target)));
+        else
+            params[0] = 1.0f; // all live and default textures are reported resident
+        return;
+    }
+    if (!sfpewEnsureBackend() || g_glFuncs.glGetTexParameterfv == nullptr) return;
+    sfpewEntryBarrier();
+    g_glFuncs.glGetTexParameterfv(textureParameterTarget(target), pname, params);
+}
+
+void glGetTexParameteriv(GLenum target, GLenum pname, GLint* params) {
+    auto& gs = g_glstate;
+    if (params == nullptr) return;
+    if (pname == GL_TEXTURE_PRIORITY || pname == GL_TEXTURE_RESIDENT) {
+        if (!validTextureParameterTarget(target)) {
+            gs.set_error(GL_INVALID_ENUM);
+            return;
+        }
+        sfpewEntryBarrier();
+        if (pname == GL_TEXTURE_PRIORITY) {
+            const GLfloat value = texturePriority(sfpewLogicalTextureBinding(textureParameterTarget(target)));
+            *params = static_cast<GLint>(std::lround(value));
+        } else {
+            *params = GL_TRUE;
+        }
+        return;
+    }
+    if (!sfpewEnsureBackend() || g_glFuncs.glGetTexParameteriv == nullptr) return;
+    sfpewEntryBarrier();
+    g_glFuncs.glGetTexParameteriv(textureParameterTarget(target), pname, params);
+}
+
 inline bool containsMobileGLDev(const std::string& str) {
     return str.find("MobileGL-Dev") != std::string::npos;
 }
@@ -1954,6 +2015,7 @@ void glDeleteTextures(GLsizei n, const GLuint* textures) {
     if (n <= 0 || textures == nullptr) return;
 
     auto& state = getLogicalTextureBindings();
+    auto& gs = g_glstate_c;
     for (auto& [key, binding] : state.bindings) {
         for (GLsizei i = 0; i < n; ++i) {
             if (binding == textures[i]) {
@@ -1962,6 +2024,47 @@ void glDeleteTextures(GLsizei n, const GLuint* textures) {
                 break;
             }
         }
+    }
+    for (GLsizei i = 0; i < n; ++i) gs.texture_priorities.erase(textures[i]);
+}
+
+GLboolean glAreTexturesResident(GLsizei n, const GLuint* textures, GLboolean* residences) {
+    auto& gs = g_glstate;
+    if (n < 0) {
+        gs.set_error(GL_INVALID_VALUE);
+        return GL_FALSE;
+    }
+    if (n == 0) return GL_TRUE;
+    if (textures == nullptr || residences == nullptr) return GL_FALSE;
+    sfpewEntryBarrier();
+    // Validate the complete input before touching the caller's output buffer.
+    for (GLsizei i = 0; i < n; ++i) {
+        if (textures[i] == 0 || g_glFuncs.glIsTexture == nullptr ||
+            g_glFuncs.glIsTexture(textures[i]) == GL_FALSE) {
+            gs.set_error(GL_INVALID_VALUE);
+            return GL_FALSE;
+        }
+    }
+    for (GLsizei i = 0; i < n; ++i) residences[i] = GL_TRUE;
+    return GL_TRUE;
+}
+
+void glPrioritizeTextures(GLsizei n, const GLuint* textures, const GLclampf* priorities) {
+    auto& gs = g_glstate;
+    if (n < 0) {
+        gs.set_error(GL_INVALID_VALUE);
+        return;
+    }
+    LIST_RECORD(glPrioritizeTextures,
+                {{1, (size_t)n * sizeof(GLuint)}, {2, (size_t)n * sizeof(GLclampf)}},
+                n, textures, priorities)
+    if (n == 0 || textures == nullptr || priorities == nullptr) return;
+    sfpewEntryBarrier();
+    for (GLsizei i = 0; i < n; ++i) {
+        if (textures[i] == 0) continue;
+        if (g_glFuncs.glIsTexture != nullptr && g_glFuncs.glIsTexture(textures[i]) == GL_FALSE)
+            continue;
+        gs.texture_priorities[textures[i]] = std::clamp(priorities[i], 0.0f, 1.0f);
     }
 }
 

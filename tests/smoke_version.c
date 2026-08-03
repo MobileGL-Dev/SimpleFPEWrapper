@@ -92,9 +92,17 @@ int main(int argc, char** argv) {
         printf("SKIP: no %s API\n", desktop ? "desktop GL" : "ES");
         return 77;
     }
+    // A core profile, not whatever the driver hands out by default: a
+    // compatibility context still answers everything GL 2.1 ever had, so it
+    // cannot show whether the wrapper stands on the floor it claims.
+    const EGLint core[] = {0x3098 /* EGL_CONTEXT_MAJOR_VERSION */, 3,
+                           0x30FB /* EGL_CONTEXT_MINOR_VERSION */, 3,
+                           0x30FD /* EGL_CONTEXT_OPENGL_PROFILE_MASK */,
+                           0x00000001 /* CORE_PROFILE_BIT */, EGL_NONE};
     const EGLint esa[] = {EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE};
-    EGLContext x = eglCreateContext(d, c, EGL_NO_CONTEXT, desktop ? NULL : esa);
-    if (x == EGL_NO_CONTEXT || !eglMakeCurrent(d, s, s, x)) { printf("SKIP: no current context\n"); return 77; }
+    EGLContext x = eglCreateContext(d, c, EGL_NO_CONTEXT, desktop ? core : esa);
+    if (x == EGL_NO_CONTEXT) { printf("SKIP: no %s context\n", desktop ? "core profile" : "ES3"); return 77; }
+    if (!eglMakeCurrent(d, s, s, x)) { printf("SKIP: no current context\n"); return 77; }
 
     const GLubyte* (*fGetString)(GLenum);
     *(void**)(&fGetString) = resolve("glGetString");

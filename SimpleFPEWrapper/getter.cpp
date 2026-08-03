@@ -1086,6 +1086,69 @@ namespace {
 // `colour` reports.
 enum array_field_t { kArrayEnabled, kArraySize, kArrayType, kArrayStride, kArrayBuffer };
 
+// GL_RED_BITS and its family: ES 3 still answers them, GL 3.1 core removed
+// them, so neither backend can be asked directly without breaking on the
+// other. The framebuffer knows, and both backends answer THAT - which is
+// also the more correct answer, since the depth of what is being drawn into
+// is a property of the bound framebuffer, not of the context.
+bool framebufferBits(GLenum pname, GLdouble* out) {
+    GLenum size_pname = 0;
+    int attachment_kind = 0; // 0 colour, 1 depth, 2 stencil
+    switch (pname) {
+    case GL_RED_BITS: size_pname = GL_FRAMEBUFFER_ATTACHMENT_RED_SIZE; break;
+    case GL_GREEN_BITS: size_pname = GL_FRAMEBUFFER_ATTACHMENT_GREEN_SIZE; break;
+    case GL_BLUE_BITS: size_pname = GL_FRAMEBUFFER_ATTACHMENT_BLUE_SIZE; break;
+    case GL_ALPHA_BITS: size_pname = GL_FRAMEBUFFER_ATTACHMENT_ALPHA_SIZE; break;
+    case GL_DEPTH_BITS:
+        size_pname = GL_FRAMEBUFFER_ATTACHMENT_DEPTH_SIZE;
+        attachment_kind = 1;
+        break;
+    case GL_STENCIL_BITS:
+        size_pname = GL_FRAMEBUFFER_ATTACHMENT_STENCIL_SIZE;
+        attachment_kind = 2;
+        break;
+    default:
+        return false;
+    }
+
+    *out = 0;
+    if (!sfpewEnsureBackend() || g_glFuncs.glGetFramebufferAttachmentParameteriv == nullptr ||
+        g_glFuncs.glGetIntegerv == nullptr) {
+        return true;
+    }
+
+    GLint framebuffer = 0;
+    g_glFuncs.glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &framebuffer);
+    GLenum attachment;
+    if (framebuffer == 0) {
+        // The default framebuffer names its colour buffer differently on the
+        // two backends; depth and stencil agree.
+        int major = 0, minor = 0;
+        const bool es_backend = sfpewDesktopGLVersion(&major, &minor);
+        attachment = attachment_kind == 1   ? GL_DEPTH
+                     : attachment_kind == 2 ? GL_STENCIL
+                     : es_backend           ? GL_BACK
+                                            : GL_BACK_LEFT;
+    } else {
+        attachment = attachment_kind == 1   ? GL_DEPTH_ATTACHMENT
+                     : attachment_kind == 2 ? GL_STENCIL_ATTACHMENT
+                                            : GL_COLOR_ATTACHMENT0;
+    }
+
+    // Asking a size of an attachment that holds nothing is an error, so ask
+    // what is there first. Nothing attached means nothing to be deep.
+    GLint object_type = GL_NONE;
+    g_glFuncs.glGetFramebufferAttachmentParameteriv(
+        GL_DRAW_FRAMEBUFFER, attachment, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE, &object_type);
+    if (object_type == GL_NONE) return true;
+
+    GLint bits = 0;
+    g_glFuncs.glGetFramebufferAttachmentParameteriv(GL_DRAW_FRAMEBUFFER, attachment, size_pname,
+                                                    &bits);
+    *out = bits;
+    return true;
+}
+
 // `enable` marks the subset glIsEnabled may answer for: a capability, not
 // just any state that happens to be 0 or 1. Without it glIsEnabled(GL_FOG_MODE)
 // would return a value where the spec wants GL_INVALID_ENUM.
@@ -1274,15 +1337,21 @@ bool fixedFunctionState(GLenum pname, GLdouble* values, int* count, bool* colour
     case GL_LOGIC_OP_MODE: return scalar(GL_COPY);
     // GL 2.1 names the antialiased range GL_SMOOTH_*_RANGE and the plain one
     // GL_POINT_SIZE_RANGE / GL_LINE_WIDTH_RANGE - the same enum either way.
-    // GLES reports only its aliased range, which is the range that actually
-    // applies here, since neither smooth points nor smooth lines exist.
+    // A GLES backend reports only its aliased range, which is the range that
+    // actually applies here since neither smooth points nor smooth lines
+    // exist; a desktop backend knows these names itself, and does not know
+    // GL_ALIASED_POINT_SIZE_RANGE at all.
     case GL_POINT_SIZE_RANGE:
     case GL_LINE_WIDTH_RANGE: {
         GLfloat range[2] = {1.0f, 1.0f};
-        if (sfpewEnsureBackend() && g_glFuncs.glGetFloatv != nullptr)
-            g_glFuncs.glGetFloatv(pname == GL_LINE_WIDTH_RANGE ? GL_ALIASED_LINE_WIDTH_RANGE
-                                                               : GL_ALIASED_POINT_SIZE_RANGE,
-                                  range);
+        if (sfpewEnsureBackend() && g_glFuncs.glGetFloatv != nullptr) {
+            int major = 0, minor = 0;
+            GLenum ask = pname;
+            if (sfpewDesktopGLVersion(&major, &minor))
+                ask = pname == GL_LINE_WIDTH_RANGE ? GL_ALIASED_LINE_WIDTH_RANGE
+                                                   : GL_ALIASED_POINT_SIZE_RANGE;
+            g_glFuncs.glGetFloatv(ask, range);
+        }
         return vector(range, 2);
     }
     // No backend reports a step size, and a step of one is the claim that
@@ -1495,6 +1564,13 @@ bool fixedFunctionState(GLenum pname, GLdouble* values, int* count, bool* colour
     }
 
     // ---- framebuffer and context properties GLES has no query for ----
+    case GL_RED_BITS:
+    case GL_GREEN_BITS:
+    case GL_BLUE_BITS:
+    case GL_ALPHA_BITS:
+    case GL_DEPTH_BITS:
+    case GL_STENCIL_BITS:
+        return framebufferBits(pname, values);
     case GL_RGBA_MODE: return scalar(1);
     case GL_INDEX_MODE: return scalar(0);
     case GL_STEREO: return scalar(0);

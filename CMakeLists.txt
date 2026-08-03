@@ -247,6 +247,10 @@ if(NOT ANDROID)
                         add_dependencies(smoke_ffp_getters ${CMAKE_PROJECT_NAME})
                         add_test(NAME smoke_ffp_getters COMMAND smoke_ffp_getters)
                         set_tests_properties(smoke_ffp_getters PROPERTIES SKIP_RETURN_CODE 77)
+                        # The same sweep over a GL 3.3 core context: the other
+                        # backend floor, and the one that removed the queries ES kept.
+                        add_test(NAME smoke_ffp_getters_desktop COMMAND smoke_ffp_getters desktop)
+                        set_tests_properties(smoke_ffp_getters_desktop PROPERTIES SKIP_RETURN_CODE 77)
 
                         add_executable(smoke_version tests/smoke_version.c)
                         target_compile_definitions(smoke_version PRIVATE

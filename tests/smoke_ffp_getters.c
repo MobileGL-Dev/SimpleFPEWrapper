@@ -17,6 +17,12 @@
 // fog occlusion came to cull the world against a cutoff it never read - it
 // asks for GL_FOG_MODE, then the matching fog distance, and does the rest on
 // the CPU. That sequence is checked on its own below.
+//
+// Run with "desktop" it does the same over a GL 3.3 CORE context, which is
+// the other floor this wrapper builds on and the stricter one: core removed
+// the queries ES kept (the *_BITS family) and never had the ones ES added
+// (the aliased ranges), so whatever the wrapper forwards has to be right for
+// both. A compatibility context would answer everything and prove nothing.
 #include <dlfcn.h>
 #include <stdio.h>
 #include <string.h>
@@ -167,7 +173,8 @@ static void expectInt(const char* what, GLenum pname, GLint want) {
     }
 }
 
-int main(void) {
+int main(int argc, char** argv) {
+    const int desktop = argc > 1 && strcmp(argv[1], "desktop") == 0;
     void* h = dlopen(WRAPPER_LIB_PATH, RTLD_NOW | RTLD_LOCAL);
     if (!h) { fprintf(stderr, "dlopen: %s\n", dlerror()); return 1; }
     void* (*resolve)(const char*);
@@ -176,15 +183,28 @@ int main(void) {
 
     EGLDisplay d = eglGetDisplay(EGL_DEFAULT_DISPLAY);
     if (d == EGL_NO_DISPLAY || !eglInitialize(d, NULL, NULL)) { printf("SKIP: no EGL display\n"); return 77; }
-    const EGLint ca[] = {EGL_SURFACE_TYPE, EGL_PBUFFER_BIT, EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT,
-                         EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8, EGL_ALPHA_SIZE, 8, EGL_NONE};
+    const EGLint ca[] = {EGL_SURFACE_TYPE, EGL_PBUFFER_BIT, EGL_RENDERABLE_TYPE,
+                         desktop ? EGL_OPENGL_BIT : EGL_OPENGL_ES3_BIT, EGL_RED_SIZE, 8,
+                         EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8, EGL_ALPHA_SIZE, 8, EGL_NONE};
     EGLConfig c; EGLint n = 0;
-    if (!eglChooseConfig(d, ca, &c, 1, &n) || n == 0) { printf("SKIP: no ES3 config\n"); return 77; }
+    if (!eglChooseConfig(d, ca, &c, 1, &n) || n == 0) {
+        printf("SKIP: no %s config\n", desktop ? "desktop GL" : "ES3");
+        return 77;
+    }
     const EGLint pa[] = {EGL_WIDTH, WIN, EGL_HEIGHT, WIN, EGL_NONE};
     EGLSurface s = eglCreatePbufferSurface(d, c, pa);
-    eglBindAPI(EGL_OPENGL_ES_API);
-    const EGLint xa[] = {EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE};
-    EGLContext x = eglCreateContext(d, c, EGL_NO_CONTEXT, xa);
+    if (!eglBindAPI(desktop ? EGL_OPENGL_API : EGL_OPENGL_ES_API)) {
+        printf("SKIP: no %s API\n", desktop ? "desktop GL" : "ES");
+        return 77;
+    }
+    // EGL 1.5 spelling; a 3.3 core profile is the floor this has to hold on.
+    const EGLint core[] = {0x3098 /* EGL_CONTEXT_MAJOR_VERSION */, 3,
+                           0x30FB /* EGL_CONTEXT_MINOR_VERSION */, 3,
+                           0x30FD /* EGL_CONTEXT_OPENGL_PROFILE_MASK */,
+                           0x00000001 /* CORE_PROFILE_BIT */, EGL_NONE};
+    const EGLint es[] = {EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE};
+    EGLContext x = eglCreateContext(d, c, EGL_NO_CONTEXT, desktop ? core : es);
+    if (x == EGL_NO_CONTEXT) { printf("SKIP: no %s context\n", desktop ? "core profile" : "ES3"); return 77; }
     if (!eglMakeCurrent(d, s, s, x)) { printf("SKIP: no current context\n"); return 77; }
 
 #define R(v, nm) *(void**)(&v) = resolve(nm); if (!v) { fprintf(stderr, "*** MISSING %s\n", nm); return 1; }

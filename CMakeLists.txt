@@ -8,10 +8,19 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# Executables are linked -static-libstdc++ below so one can run away from the
+# toolchain that built it. That needs the static library to exist, which it
+# does not on every machine able to build the wrapper - and until the test
+# suites became C++, nothing here linked a C++ executable, so a missing one
+# was invisible. Ask before asking for it.
+find_library(SFPEW_LIBSTDCXX_STATIC NAMES libstdc++.a)
+
 if(APPLE)
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fvisibility=default -funwind-tables -g -D_THREAD_SAFE -fPIC -stdlib=libc++")
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -std=gnu99 -funwind-tables -O3 -fvisibility=hidden")
-        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libstdc++")
+        if(SFPEW_LIBSTDCXX_STATIC)
+                set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libstdc++")
+        endif()
 else()
         # FCL's `fordebug` variant intentionally keeps symbols and Java-side
         # debugging enabled, but AGP otherwise compiles this native library at
@@ -21,7 +30,9 @@ else()
         # production code.
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fvisibility=hidden -fno-semantic-interposition -funwind-tables -g -O3 -fno-math-errno -DNDEBUG -D_THREAD_SAFE -fPIC")
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -std=gnu99 -funwind-tables -O3 -fvisibility=hidden")
-        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libstdc++")
+        if(SFPEW_LIBSTDCXX_STATIC)
+                set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libstdc++")
+        endif()
         if(ANDROID)
                 # Only meaningful for CMake's native Android support; AGP/NDK
                 # toolchains read ANDROID_STL from Gradle instead.
@@ -197,6 +208,48 @@ target_include_directories(${CMAKE_PROJECT_NAME} SYSTEM PRIVATE
 )
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE
         glslang glslang-default-resource-limits SPIRV spirv-cross-glsl spirv-cross-core)
+# GoogleTest, vendored like every other dependency; its install rules and
+# gmock are of no use here. The suites are the same source on either side:
+# the host runs them through ctest, the device gets them pushed.
+set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
+set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+add_subdirectory(3rdparty/googletest EXCLUDE_FROM_ALL)
+include(GoogleTest)
+
+# Every test case runs in its own process, and has to: the wrapper resolves
+# its backend once per process and caches the identity strings, the
+# desktop-or-GLES decision and the MobileGlues probe behind function-local
+# statics. Two cases sharing a process would have the second one inherit the
+# first one's backend. gtest_discover_tests gives exactly that - one ctest
+# per TEST, each a fresh --gtest_filter run - which is why the suites are
+# registered through it and never through a bare add_test on the binary.
+#
+# Running a suite binary directly still runs its cases in one process. That
+# is fine within one backend and wrong across them; ctest is the supported
+# way to run these, and on the device --gtest_filter is.
+function(sfpew_add_gtest name)
+        cmake_parse_arguments(ARG "" "" "SOURCES;LIBRARIES" ${ARGN})
+        add_executable(${name} ${ARG_SOURCES})
+        # On the device the library sits next to the binary; on the host it
+        # is wherever this build put it.
+        if(ANDROID)
+                target_compile_definitions(${name} PRIVATE
+                        WRAPPER_LIB_PATH="lib${CMAKE_PROJECT_NAME}.so")
+        else()
+                target_compile_definitions(${name} PRIVATE
+                        WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
+        endif()
+        target_include_directories(${name} PRIVATE ${CMAKE_SOURCE_DIR}/tests)
+        target_link_libraries(${name} PRIVATE GTest::gtest_main dl ${ARG_LIBRARIES})
+        add_dependencies(${name} ${CMAKE_PROJECT_NAME})
+        # Discovery runs the binary, which a cross build cannot do.
+        if(NOT ANDROID)
+                # A driver that has to spin up a context per case is not
+                # fast; llvmpipe needs the room.
+                gtest_discover_tests(${name} DISCOVERY_TIMEOUT 120 PROPERTIES TIMEOUT 300)
+        endif()
+endfunction()
+
 if(ANDROID)
         target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE log)
 
@@ -204,14 +257,11 @@ if(ANDROID)
         # verified against Mesa on the host, but which state a driver can be
         # asked for is exactly what differs between one GLES stack and the
         # next - and the stack this ships on is not the one CI runs. They are
-        # plain executables to adb push and run, not ctests: the host cannot
-        # run them, and the device has no ctest.
-        foreach(t smoke_ffp_getters smoke_version)
-                add_executable(${t} tests/${t}.c)
-                target_compile_definitions(${t} PRIVATE
-                        WRAPPER_LIB_PATH="lib${CMAKE_PROJECT_NAME}.so")
-                target_link_libraries(${t} PRIVATE dl m EGL)
-                add_dependencies(${t} ${CMAKE_PROJECT_NAME})
+        # pushed and run with --gtest_filter one case at a time, since the
+        # device has no ctest to keep the cases in separate processes.
+        foreach(suite version ffp_getters)
+                sfpew_add_gtest(sfpew_${suite}_test SOURCES tests/gtest_${suite}.cc
+                                LIBRARIES EGL)
         endforeach()
 endif()
 
@@ -219,14 +269,27 @@ endif()
 if(NOT ANDROID)
         include(CTest)
         if(BUILD_TESTING)
-                foreach(t smoke_dlopen smoke_error smoke_list_recursion smoke_list_replay)
-                        add_executable(${t} tests/${t}.c)
-                        target_compile_definitions(${t} PRIVATE
-                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
-                        target_link_libraries(${t} PRIVATE dl)
-                        add_dependencies(${t} ${CMAKE_PROJECT_NAME})
-                        add_test(NAME ${t} COMMAND ${t})
+                # Every test case runs in its own process, and has to: the
+                # wrapper resolves its backend once per process and caches the
+                # identity strings, the desktop-or-GLES decision and the
+                # MobileGlues probe behind function-local statics. Two cases
+                # sharing a process would have the second one inherit the
+                # first one's backend. gtest_discover_tests gives exactly
+                # that - one ctest per TEST, each a fresh --gtest_filter run -
+                # which is why the suites below are registered through it and
+                # never through a bare add_test on the binary.
+                #
+                # Running a suite binary directly still runs its cases in one
+                # process. That is fine within one backend and wrong across
+                # them; ctest is the supported way to run these.
+
+                # Migrated suites. Each file is one area of behaviour; the
+                # backend a case needs is chosen by its fixture. These need no
+                # driver at all - the wrapper's own bookkeeping.
+                foreach(suite load error display_list_cpu)
+                        sfpew_add_gtest(sfpew_${suite}_test SOURCES tests/gtest_${suite}.cc)
                 endforeach()
+
 
                 # tools/glbench: standalone CPU-overhead benchmark for ANY
                 # library exporting GL 1.x (this wrapper, gl4es, a system
@@ -246,6 +309,12 @@ if(NOT ANDROID)
                 find_library(SFPEW_TEST_EGL EGL)
                 find_library(SFPEW_TEST_GLES GLESv2)
                 if(SFPEW_TEST_EGL AND SFPEW_TEST_GLES)
+                        # Suites that need a driver underneath.
+                        foreach(suite version ffp_getters)
+                                sfpew_add_gtest(sfpew_${suite}_test SOURCES tests/gtest_${suite}.cc
+                                                LIBRARIES ${SFPEW_TEST_EGL})
+                        endforeach()
+
                         add_executable(smoke_list_immediate tests/smoke_list_immediate.c)
                         target_compile_definitions(smoke_list_immediate PRIVATE
                                 WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
@@ -253,30 +322,6 @@ if(NOT ANDROID)
                         add_dependencies(smoke_list_immediate ${CMAKE_PROJECT_NAME})
                         add_test(NAME smoke_list_immediate COMMAND smoke_list_immediate)
                         set_tests_properties(smoke_list_immediate PROPERTIES SKIP_RETURN_CODE 77)
-
-                        add_executable(smoke_ffp_getters tests/smoke_ffp_getters.c)
-                        target_compile_definitions(smoke_ffp_getters PRIVATE
-                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
-                        target_link_libraries(smoke_ffp_getters PRIVATE dl m ${SFPEW_TEST_EGL})
-                        add_dependencies(smoke_ffp_getters ${CMAKE_PROJECT_NAME})
-                        add_test(NAME smoke_ffp_getters COMMAND smoke_ffp_getters)
-                        set_tests_properties(smoke_ffp_getters PROPERTIES SKIP_RETURN_CODE 77)
-                        # The same sweep over a GL 3.3 core context: the other
-                        # backend floor, and the one that removed the queries ES kept.
-                        add_test(NAME smoke_ffp_getters_desktop COMMAND smoke_ffp_getters desktop)
-                        set_tests_properties(smoke_ffp_getters_desktop PROPERTIES SKIP_RETURN_CODE 77)
-
-                        add_executable(smoke_version tests/smoke_version.c)
-                        target_compile_definitions(smoke_version PRIVATE
-                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
-                        target_link_libraries(smoke_version PRIVATE dl ${SFPEW_TEST_EGL})
-                        add_dependencies(smoke_version ${CMAKE_PROJECT_NAME})
-                        add_test(NAME smoke_version COMMAND smoke_version)
-                        set_tests_properties(smoke_version PROPERTIES SKIP_RETURN_CODE 77)
-                        # The other half of glGetString: a backend whose version already
-                        # parses, reported verbatim with the wrapper appended.
-                        add_test(NAME smoke_version_desktop COMMAND smoke_version desktop)
-                        set_tests_properties(smoke_version_desktop PROPERTIES SKIP_RETURN_CODE 77)
 
                         add_executable(smoke_gl3_core tests/smoke_gl3_core.c)
                         target_compile_definitions(smoke_gl3_core PRIVATE

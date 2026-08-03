@@ -137,6 +137,7 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         SimpleFPEWrapper/shader/translator.cpp
         SimpleFPEWrapper/shader/shaderobjects.cpp
         SimpleFPEWrapper/shader/userprogram.cpp
+        SimpleFPEWrapper/shader/vertexattrib.cpp
         SimpleFPEWrapper/fpe/pointer_utils.cpp
         SimpleFPEWrapper/fpe/drawing1x.cpp
         SimpleFPEWrapper/fpe/vertexpointer_utils.cpp
@@ -323,7 +324,7 @@ if(NOT ANDROID)
                                        bgra_texture manual_mipgen mixed_translation_link
                                        multidraw_native mixed_pipeline vbo_surface render
                                        transpose_matrix texture_residency clear_depth_drawbuffer
-                                       secondary_color)
+                                       secondary_color vertex_attrib_variants)
                                 sfpew_add_gtest(sfpew_${suite}_test SOURCES tests/gtest_${suite}.cc
                                                 LIBRARIES ${SFPEW_TEST_EGL})
                         endforeach()

@@ -1,6 +1,6 @@
 {
  "source": "lookup.cpp",
- "count": 595,
+ "count": 653,
  "entries": {
   "eglSwapBuffersWithDamageKHR": {
    "status": "alias",
@@ -909,6 +909,14 @@
   "glGetUniformivARB": {
    "status": "backend-alias",
    "target": "glGetUniformiv"
+  },
+  "glGetVertexAttribdv": {
+   "status": "resolvable",
+   "target": "glGetVertexAttribdv"
+  },
+  "glGetVertexAttribdvARB": {
+   "status": "alias",
+   "target": "glGetVertexAttribdv"
   },
   "glHint": {
    "status": "resolvable",
@@ -2266,6 +2274,22 @@
    "status": "resolvable",
    "target": "glVertex4sv"
   },
+  "glVertexAttrib1d": {
+   "status": "resolvable",
+   "target": "glVertexAttrib1d"
+  },
+  "glVertexAttrib1dARB": {
+   "status": "alias",
+   "target": "glVertexAttrib1d"
+  },
+  "glVertexAttrib1dv": {
+   "status": "resolvable",
+   "target": "glVertexAttrib1dv"
+  },
+  "glVertexAttrib1dvARB": {
+   "status": "alias",
+   "target": "glVertexAttrib1dv"
+  },
   "glVertexAttrib1fARB": {
    "status": "backend-alias",
    "target": "glVertexAttrib1f"
@@ -2273,6 +2297,38 @@
   "glVertexAttrib1fvARB": {
    "status": "backend-alias",
    "target": "glVertexAttrib1fv"
+  },
+  "glVertexAttrib1s": {
+   "status": "resolvable",
+   "target": "glVertexAttrib1s"
+  },
+  "glVertexAttrib1sARB": {
+   "status": "alias",
+   "target": "glVertexAttrib1s"
+  },
+  "glVertexAttrib1sv": {
+   "status": "resolvable",
+   "target": "glVertexAttrib1sv"
+  },
+  "glVertexAttrib1svARB": {
+   "status": "alias",
+   "target": "glVertexAttrib1sv"
+  },
+  "glVertexAttrib2d": {
+   "status": "resolvable",
+   "target": "glVertexAttrib2d"
+  },
+  "glVertexAttrib2dARB": {
+   "status": "alias",
+   "target": "glVertexAttrib2d"
+  },
+  "glVertexAttrib2dv": {
+   "status": "resolvable",
+   "target": "glVertexAttrib2dv"
+  },
+  "glVertexAttrib2dvARB": {
+   "status": "alias",
+   "target": "glVertexAttrib2dv"
   },
   "glVertexAttrib2fARB": {
    "status": "backend-alias",
@@ -2282,6 +2338,38 @@
    "status": "backend-alias",
    "target": "glVertexAttrib2fv"
   },
+  "glVertexAttrib2s": {
+   "status": "resolvable",
+   "target": "glVertexAttrib2s"
+  },
+  "glVertexAttrib2sARB": {
+   "status": "alias",
+   "target": "glVertexAttrib2s"
+  },
+  "glVertexAttrib2sv": {
+   "status": "resolvable",
+   "target": "glVertexAttrib2sv"
+  },
+  "glVertexAttrib2svARB": {
+   "status": "alias",
+   "target": "glVertexAttrib2sv"
+  },
+  "glVertexAttrib3d": {
+   "status": "resolvable",
+   "target": "glVertexAttrib3d"
+  },
+  "glVertexAttrib3dARB": {
+   "status": "alias",
+   "target": "glVertexAttrib3d"
+  },
+  "glVertexAttrib3dv": {
+   "status": "resolvable",
+   "target": "glVertexAttrib3dv"
+  },
+  "glVertexAttrib3dvARB": {
+   "status": "alias",
+   "target": "glVertexAttrib3dv"
+  },
   "glVertexAttrib3fARB": {
    "status": "backend-alias",
    "target": "glVertexAttrib3f"
@@ -2290,6 +2378,102 @@
    "status": "backend-alias",
    "target": "glVertexAttrib3fv"
   },
+  "glVertexAttrib3s": {
+   "status": "resolvable",
+   "target": "glVertexAttrib3s"
+  },
+  "glVertexAttrib3sARB": {
+   "status": "alias",
+   "target": "glVertexAttrib3s"
+  },
+  "glVertexAttrib3sv": {
+   "status": "resolvable",
+   "target": "glVertexAttrib3sv"
+  },
+  "glVertexAttrib3svARB": {
+   "status": "alias",
+   "target": "glVertexAttrib3sv"
+  },
+  "glVertexAttrib4Nbv": {
+   "status": "resolvable",
+   "target": "glVertexAttrib4Nbv"
+  },
+  "glVertexAttrib4NbvARB": {
+   "status": "alias",
+   "target": "glVertexAttrib4Nbv"
+  },
+  "glVertexAttrib4Niv": {
+   "status": "resolvable",
+   "target": "glVertexAttrib4Niv"
+  },
+  "glVertexAttrib4NivARB": {
+   "status": "alias",
+   "target": "glVertexAttrib4Niv"
+  },
+  "glVertexAttrib4Nsv": {
+   "status": "resolvable",
+   "target": "glVertexAttrib4Nsv"
+  },
+  "glVertexAttrib4NsvARB": {
+   "status": "alias",
+   "target": "glVertexAttrib4Nsv"
+  },
+  "glVertexAttrib4Nub": {
+   "status": "resolvable",
+   "target": "glVertexAttrib4Nub"
+  },
+  "glVertexAttrib4NubARB": {
+   "status": "alias",
+   "target": "glVertexAttrib4Nub"
+  },
+  "glVertexAttrib4Nubv": {
+   "status": "resolvable",
+   "target": "glVertexAttrib4Nubv"
+  },
+  "glVertexAttrib4NubvARB": {
+   "status": "alias",
+   "target": "glVertexAttrib4Nubv"
+  },
+  "glVertexAttrib4Nuiv": {
+   "status": "resolvable",
+   "target": "glVertexAttrib4Nuiv"
+  },
+  "glVertexAttrib4NuivARB": {
+   "status": "alias",
+   "target": "glVertexAttrib4Nuiv"
+  },
+  "glVertexAttrib4Nusv": {
+   "status": "resolvable",
+   "target": "glVertexAttrib4Nusv"
+  },
+  "glVertexAttrib4NusvARB": {
+   "status": "alias",
+   "target": "glVertexAttrib4Nusv"
+  },
+  "glVertexAttrib4bv": {
+   "status": "resolvable",
+   "target": "glVertexAttrib4bv"
+  },
+  "glVertexAttrib4bvARB": {
+   "status": "alias",
+   "target": "glVertexAttrib4bv"
+  },
+  "glVertexAttrib4d": {
+   "status": "resolvable",
+   "target": "glVertexAttrib4d"
+  },
+  "glVertexAttrib4dARB": {
+   "status": "alias",
+   "target": "glVertexAttrib4d"
+  },
+  "glVertexAttrib4dv": {
+   "status": "resolvable",
+   "target": "glVertexAttrib4dv"
+  },
+  "glVertexAttrib4dvARB": {
+   "status": "alias",
+   "target": "glVertexAttrib4dv"
+  },
   "glVertexAttrib4fARB": {
    "status": "backend-alias",
    "target": "glVertexAttrib4f"
@@ -2297,6 +2481,54 @@
   "glVertexAttrib4fvARB": {
    "status": "backend-alias",
    "target": "glVertexAttrib4fv"
+  },
+  "glVertexAttrib4iv": {
+   "status": "resolvable",
+   "target": "glVertexAttrib4iv"
+  },
+  "glVertexAttrib4ivARB": {
+   "status": "alias",
+   "target": "glVertexAttrib4iv"
+  },
+  "glVertexAttrib4s": {
+   "status": "resolvable",
+   "target": "glVertexAttrib4s"
+  },
+  "glVertexAttrib4sARB": {
+   "status": "alias",
+   "target": "glVertexAttrib4s"
+  },
+  "glVertexAttrib4sv": {
+   "status": "resolvable",
+   "target": "glVertexAttrib4sv"
+  },
+  "glVertexAttrib4svARB": {
+   "status": "alias",
+   "target": "glVertexAttrib4sv"
+  },
+  "glVertexAttrib4ubv": {
+   "status": "resolvable",
+   "target": "glVertexAttrib4ubv"
+  },
+  "glVertexAttrib4ubvARB": {
+   "status": "alias",
+   "target": "glVertexAttrib4ubv"
+  },
+  "glVertexAttrib4uiv": {
+   "status": "resolvable",
+   "target": "glVertexAttrib4uiv"
+  },
+  "glVertexAttrib4uivARB": {
+   "status": "alias",
+   "target": "glVertexAttrib4uiv"
+  },
+  "glVertexAttrib4usv": {
+   "status": "resolvable",
+   "target": "glVertexAttrib4usv"
+  },
+  "glVertexAttrib4usvARB": {
+   "status": "alias",
+   "target": "glVertexAttrib4usv"
   },
   "glVertexAttribIPointer": {
    "status": "resolvable",

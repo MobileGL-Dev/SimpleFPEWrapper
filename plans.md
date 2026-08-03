@@ -740,14 +740,14 @@ four-component float attribute.
 
 | Entry point | Status | | Entry point | Status |
 |---|---|---|---|---|
-| `glVertexAttrib1d` | [ ] | | `glVertexAttrib1dv` | [ ] |
-| `glVertexAttrib2d` | [ ] | | `glVertexAttrib2dv` | [ ] |
-| `glVertexAttrib3d` | [ ] | | `glVertexAttrib3dv` | [ ] |
-| `glVertexAttrib4d` | [ ] | | `glVertexAttrib4dv` | [ ] |
-| `glVertexAttrib1s` | [ ] | | `glVertexAttrib1sv` | [ ] |
-| `glVertexAttrib2s` | [ ] | | `glVertexAttrib2sv` | [ ] |
-| `glVertexAttrib3s` | [ ] | | `glVertexAttrib3sv` | [ ] |
-| `glVertexAttrib4s` | [ ] | | `glVertexAttrib4sv` | [ ] |
+| `glVertexAttrib1d` | [x] | | `glVertexAttrib1dv` | [x] |
+| `glVertexAttrib2d` | [x] | | `glVertexAttrib2dv` | [x] |
+| `glVertexAttrib3d` | [x] | | `glVertexAttrib3dv` | [x] |
+| `glVertexAttrib4d` | [x] | | `glVertexAttrib4dv` | [x] |
+| `glVertexAttrib1s` | [x] | | `glVertexAttrib1sv` | [x] |
+| `glVertexAttrib2s` | [x] | | `glVertexAttrib2sv` | [x] |
+| `glVertexAttrib3s` | [x] | | `glVertexAttrib3sv` | [x] |
+| `glVertexAttrib4s` | [x] | | `glVertexAttrib4sv` | [x] |
 
 **Critical: `s` and `d` are NOT normalized.** `glVertexAttrib1s(index, 5)`
 delivers `5.0`, not `5/32767`. Only the explicitly-named `N` forms in G.2
@@ -759,19 +759,19 @@ Default expansion for the missing components: `(0, 0, 0, 1)`.
 
 | Entry point | Status | Conversion |
 |---|---|---|
-| `glVertexAttrib4Nbv` | [ ] | `c/127`, clamp [−1,1] |
-| `glVertexAttrib4Nsv` | [ ] | `c/32767` |
-| `glVertexAttrib4Niv` | [ ] | `c/2147483647` |
-| `glVertexAttrib4Nub` | [ ] | `c/255` |
-| `glVertexAttrib4Nubv` | [ ] | `c/255` |
-| `glVertexAttrib4Nusv` | [ ] | `c/65535` |
-| `glVertexAttrib4Nuiv` | [ ] | `c/4294967295` |
-| `glVertexAttrib4bv` | [ ] | direct cast |
-| `glVertexAttrib4iv` | [ ] | direct cast |
-| `glVertexAttrib4sv` | [ ] | direct cast (also in G.1) |
-| `glVertexAttrib4ubv` | [ ] | direct cast |
-| `glVertexAttrib4uiv` | [ ] | direct cast |
-| `glVertexAttrib4usv` | [ ] | direct cast |
+| `glVertexAttrib4Nbv` | [x] | `c/127`, clamp [−1,1] |
+| `glVertexAttrib4Nsv` | [x] | `c/32767` |
+| `glVertexAttrib4Niv` | [x] | `c/2147483647` |
+| `glVertexAttrib4Nub` | [x] | `c/255` |
+| `glVertexAttrib4Nubv` | [x] | `c/255` |
+| `glVertexAttrib4Nusv` | [x] | `c/65535` |
+| `glVertexAttrib4Nuiv` | [x] | `c/4294967295` |
+| `glVertexAttrib4bv` | [x] | direct cast |
+| `glVertexAttrib4iv` | [x] | direct cast |
+| `glVertexAttrib4sv` | [x] | direct cast (also in G.1) |
+| `glVertexAttrib4ubv` | [x] | direct cast |
+| `glVertexAttrib4uiv` | [x] | direct cast |
+| `glVertexAttrib4usv` | [x] | direct cast |
 
 The `N` prefix means normalized; its absence means a direct numeric cast. Reuse
 `sfpewNormalizeColorComponent` from Group F for the `N` forms — it is the same
@@ -781,7 +781,7 @@ Table 2.6 rule.
 
 | Entry point | Status |
 |---|---|
-| `glGetVertexAttribdv` | [ ] |
+| `glGetVertexAttribdv` | [x] |
 
 Neither floor has it. Read through `glGetVertexAttribfv` (which is in the
 intersection, `loader.h:241`) and widen each float to double.
@@ -1866,10 +1866,10 @@ Group B; decide when you get there.
 | D — Transpose matrices | 4 | 4 / 4 |
 | E — Point parameters | 4 | 0 / 4 |
 | F — Secondary colour immediate | 16 | 16 / 16 |
-| G — Vertex attrib variants | 29 | 0 / 29 |
+| G — Vertex attrib variants | 29 | 29 / 29 |
 | H — Half-implemented fixes | 3 | 3 / 3 |
 | I — Completing partial paths | 6 items | 0 / 6 |
-| **Total** | **95 entry points + 6 items** | **25 / 101** |
+| **Total** | **95 entry points + 6 items** | **54 / 101** |
 
 Update this table as groups complete. When it reads 95/95, the three-part API
 contract in §0.1 holds for everything `docs.gl`'s GL 2.1 pages describe, minus

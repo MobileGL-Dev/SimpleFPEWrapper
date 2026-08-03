@@ -285,6 +285,36 @@ SFPEW_APIENTRY void glVertexAttribIPointer(GLuint index, GLint size, GLenum type
                                            const void* pointer);
 SFPEW_APIENTRY void glEnableVertexAttribArray(GLuint index);
 SFPEW_APIENTRY void glDisableVertexAttribArray(GLuint index);
+SFPEW_APIENTRY void glVertexAttrib1d(GLuint index, GLdouble x);
+SFPEW_APIENTRY void glVertexAttrib1dv(GLuint index, const GLdouble* value);
+SFPEW_APIENTRY void glVertexAttrib2d(GLuint index, GLdouble x, GLdouble y);
+SFPEW_APIENTRY void glVertexAttrib2dv(GLuint index, const GLdouble* value);
+SFPEW_APIENTRY void glVertexAttrib3d(GLuint index, GLdouble x, GLdouble y, GLdouble z);
+SFPEW_APIENTRY void glVertexAttrib3dv(GLuint index, const GLdouble* value);
+SFPEW_APIENTRY void glVertexAttrib4d(GLuint index, GLdouble x, GLdouble y, GLdouble z, GLdouble w);
+SFPEW_APIENTRY void glVertexAttrib4dv(GLuint index, const GLdouble* value);
+SFPEW_APIENTRY void glVertexAttrib1s(GLuint index, GLshort x);
+SFPEW_APIENTRY void glVertexAttrib1sv(GLuint index, const GLshort* value);
+SFPEW_APIENTRY void glVertexAttrib2s(GLuint index, GLshort x, GLshort y);
+SFPEW_APIENTRY void glVertexAttrib2sv(GLuint index, const GLshort* value);
+SFPEW_APIENTRY void glVertexAttrib3s(GLuint index, GLshort x, GLshort y, GLshort z);
+SFPEW_APIENTRY void glVertexAttrib3sv(GLuint index, const GLshort* value);
+SFPEW_APIENTRY void glVertexAttrib4s(GLuint index, GLshort x, GLshort y, GLshort z, GLshort w);
+SFPEW_APIENTRY void glVertexAttrib4sv(GLuint index, const GLshort* value);
+SFPEW_APIENTRY void glVertexAttrib4Nbv(GLuint index, const GLbyte* value);
+SFPEW_APIENTRY void glVertexAttrib4Nsv(GLuint index, const GLshort* value);
+SFPEW_APIENTRY void glVertexAttrib4Niv(GLuint index, const GLint* value);
+SFPEW_APIENTRY void glVertexAttrib4Nub(GLuint index, GLubyte x, GLubyte y, GLubyte z,
+                                      GLubyte w);
+SFPEW_APIENTRY void glVertexAttrib4Nubv(GLuint index, const GLubyte* value);
+SFPEW_APIENTRY void glVertexAttrib4Nusv(GLuint index, const GLushort* value);
+SFPEW_APIENTRY void glVertexAttrib4Nuiv(GLuint index, const GLuint* value);
+SFPEW_APIENTRY void glVertexAttrib4bv(GLuint index, const GLbyte* value);
+SFPEW_APIENTRY void glVertexAttrib4iv(GLuint index, const GLint* value);
+SFPEW_APIENTRY void glVertexAttrib4ubv(GLuint index, const GLubyte* value);
+SFPEW_APIENTRY void glVertexAttrib4uiv(GLuint index, const GLuint* value);
+SFPEW_APIENTRY void glVertexAttrib4usv(GLuint index, const GLushort* value);
+SFPEW_APIENTRY void glGetVertexAttribdv(GLuint index, GLenum pname, GLdouble* params);
 
 EGLContext sfpewCurrentContext();
 void sfpewNoteCurrentContext(EGLContext context);

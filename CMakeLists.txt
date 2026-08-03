@@ -319,7 +319,7 @@ if(NOT ANDROID)
                                        orthpos texgen_toggle polygon_mode draw_batch
                                        swap_flushes_batch list_immediate lwjgl_surface
                                        uniform_cache userprog_enable_cache userobject_blit
-                                       userprog_multiattrib userobject_quads)
+                                       userprog_multiattrib userobject_quads gl3_core)
                                 sfpew_add_gtest(sfpew_${suite}_test SOURCES tests/gtest_${suite}.cc
                                                 LIBRARIES ${SFPEW_TEST_EGL})
                         endforeach()
@@ -329,13 +329,6 @@ if(NOT ANDROID)
                                         LIBRARIES ${SFPEW_TEST_EGL} ${SFPEW_TEST_GLES})
 
 
-                        add_executable(smoke_gl3_core tests/smoke_gl3_core.c)
-                        target_compile_definitions(smoke_gl3_core PRIVATE
-                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
-                        target_link_libraries(smoke_gl3_core PRIVATE dl ${SFPEW_TEST_EGL})
-                        add_dependencies(smoke_gl3_core ${CMAKE_PROJECT_NAME})
-                        add_test(NAME smoke_gl3_core COMMAND smoke_gl3_core)
-                        set_tests_properties(smoke_gl3_core PROPERTIES SKIP_RETURN_CODE 77)
 
 
                         add_executable(smoke_mixed_pipeline tests/smoke_mixed_pipeline.c)

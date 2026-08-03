@@ -321,7 +321,7 @@ if(NOT ANDROID)
                                        uniform_cache userprog_enable_cache userobject_blit
                                        userprog_multiattrib userobject_quads gl3_core
                                        bgra_texture manual_mipgen mixed_translation_link
-                                       multidraw_native)
+                                       multidraw_native mixed_pipeline)
                                 sfpew_add_gtest(sfpew_${suite}_test SOURCES tests/gtest_${suite}.cc
                                                 LIBRARIES ${SFPEW_TEST_EGL})
                         endforeach()
@@ -333,13 +333,6 @@ if(NOT ANDROID)
 
 
 
-                        add_executable(smoke_mixed_pipeline tests/smoke_mixed_pipeline.c)
-                        target_compile_definitions(smoke_mixed_pipeline PRIVATE
-                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
-                        target_link_libraries(smoke_mixed_pipeline PRIVATE dl ${SFPEW_TEST_EGL})
-                        add_dependencies(smoke_mixed_pipeline ${CMAKE_PROJECT_NAME})
-                        add_test(NAME smoke_mixed_pipeline COMMAND smoke_mixed_pipeline)
-                        set_tests_properties(smoke_mixed_pipeline PROPERTIES SKIP_RETURN_CODE 77)
 
 
 

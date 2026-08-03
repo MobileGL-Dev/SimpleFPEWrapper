@@ -319,7 +319,8 @@ if(NOT ANDROID)
                                        orthpos texgen_toggle polygon_mode draw_batch
                                        swap_flushes_batch list_immediate lwjgl_surface
                                        uniform_cache userprog_enable_cache userobject_blit
-                                       userprog_multiattrib userobject_quads gl3_core)
+                                       userprog_multiattrib userobject_quads gl3_core
+                                       bgra_texture manual_mipgen)
                                 sfpew_add_gtest(sfpew_${suite}_test SOURCES tests/gtest_${suite}.cc
                                                 LIBRARIES ${SFPEW_TEST_EGL})
                         endforeach()
@@ -365,35 +366,6 @@ if(NOT ANDROID)
 
 
 
-
-
-
-
-
-
-
-                        add_executable(smoke_manual_mipgen tests/smoke_manual_mipgen.c)
-                        target_compile_definitions(smoke_manual_mipgen PRIVATE
-                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
-                        target_link_libraries(smoke_manual_mipgen PRIVATE dl ${SFPEW_TEST_EGL})
-                        add_dependencies(smoke_manual_mipgen ${CMAKE_PROJECT_NAME})
-                        add_test(NAME smoke_manual_mipgen COMMAND smoke_manual_mipgen)
-                        set_tests_properties(smoke_manual_mipgen PROPERTIES SKIP_RETURN_CODE 77)
-                        # The blit chain alone must produce every level: the
-                        # "only" hook skips the backend mipgen, simulating the
-                        # driver that leaves high levels stale.
-                        add_test(NAME smoke_manual_mipgen_only COMMAND smoke_manual_mipgen)
-                        set_tests_properties(smoke_manual_mipgen_only PROPERTIES
-                                SKIP_RETURN_CODE 77
-                                ENVIRONMENT "SFPEW_MANUAL_MIPGEN=only")
-
-                        add_executable(smoke_bgra_texture tests/smoke_bgra_texture.c)
-                        target_compile_definitions(smoke_bgra_texture PRIVATE
-                                WRAPPER_LIB_PATH="$<TARGET_FILE:${CMAKE_PROJECT_NAME}>")
-                        target_link_libraries(smoke_bgra_texture PRIVATE dl ${SFPEW_TEST_EGL})
-                        add_dependencies(smoke_bgra_texture ${CMAKE_PROJECT_NAME})
-                        add_test(NAME smoke_bgra_texture COMMAND smoke_bgra_texture)
-                        set_tests_properties(smoke_bgra_texture PROPERTIES SKIP_RETURN_CODE 77)
 
 
                         add_executable(smoke_mixed_translation_link tests/smoke_mixed_translation_link.c)

@@ -6,27 +6,19 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 // End of Source File Header
 
-// A shader whose translation fails is passed through with the app's own
-// #version, while translated shaders carry the backend's target version -
-// and GLSL ES refuses to link a program mixing the two (Mesa enforces it;
-// NVIDIA happens to be lenient, which hid this for a long time). The
-// wrapper therefore falls back to the ORIGINAL source for every shader of
-// a mixed program at link, and restores the translated form when the same
-// shader next links into a fully-translated program.
+// Program-level native pass-through:
 //
-// The pass-through member here is a fragment shader that redefines the
-// prelude's `fpe_FogParameters` STRUCT: the redefinition retry only yields
-// single-line uniform/in/out declarations, so a struct-type collision
-// still fails translation - deliberately, as the stable way to force a
-// pass-through from an otherwise backend-legal source.
+//   all-native program -> magenta
+//     Both shaders are #version 300 es and directly acceptable to a GLES
+//     backend. The fragment deliberately redefines the prelude's
+//     `fpe_FogParameters` STRUCT, so translating it would fail; it must be
+//     left as the original native source.
 //
-// The vertex shader is shared by both programs, so alternating links must
-// re-upload it in whichever form the linking program needs:
-//
-//   link A (mixed)      draw -> magenta  (VS fell back to original)
-//   link B (translated)  draw -> green    (VS restored to translated ESSL)
-//   link A again         draw -> magenta  (VS fell back again)
-//   link B again         draw -> green
+//   mixed program -> green
+//     A desktop #version 120 vertex shader is paired with an ESSL 300 es
+//     fragment. The program is not entirely pass-through, so the native
+//     fragment is re-translated to the backend target at link time and the
+//     program links from one uniform version.
 //
 // Probe colors keep R == B: llvmpipe swaps R/B in fragment output on
 // surfaceless BGRA pbuffer configs (a driver bug, reproduced without the
@@ -163,13 +155,13 @@ int main(void) {
     R(fVertexPointer,"glVertexPointer") R(fFogfv,"glFogfv")
 #undef R
 
-    // Translates cleanly (self-declared fpe_Vertex yields to the prelude).
-    static const char* vsSrc =
+    // Native ESSL 300 es (self-declared fpe_Vertex yields to the prelude).
+    static const char* vsNativeSrc =
         "#version 300 es\n"
         "in vec4 fpe_Vertex;\n"
         "void main() { gl_Position = fpe_Vertex; }\n";
-    // Redefines the prelude's STRUCT type, so translation fails and the
-    // backend-legal original is passed through (see the header comment).
+    // Redefines the prelude's STRUCT type, so translation fails; the
+    // backend-legal original must be passed through instead.
     static const char* fsPassSrc =
         "#version 300 es\n"
         "precision mediump float;\n"
@@ -177,22 +169,27 @@ int main(void) {
         "uniform fpe_FogParameters fpe_Fog;\n"
         "out vec4 o;\n"
         "void main() { o = vec4(fpe_Fog.color.rgb, 1.0); }\n";
-    // Translates cleanly and ignores fog entirely.
+    // Desktop GLSL that cannot pass through to a GLES backend.
+    static const char* vsDesktopSrc =
+        "#version 120\n"
+        "void main() { gl_Position = ftransform(); }\n";
+    // Native ESSL 300 es that also translates cleanly.
     static const char* fsGreenSrc =
         "#version 300 es\n"
         "precision mediump float;\n"
         "out vec4 o;\n"
         "void main() { o = vec4(0.0, 1.0, 0.0, 1.0); }\n";
 
-    GLuint vs = compileShader(GL_VERTEX_SHADER, vsSrc, "VS");
-    GLuint fsPass = compileShader(GL_FRAGMENT_SHADER, fsPassSrc, "FS (pass-through)");
-    GLuint fsGreen = compileShader(GL_FRAGMENT_SHADER, fsGreenSrc, "FS (translated)");
+    GLuint vsNative = compileShader(GL_VERTEX_SHADER, vsNativeSrc, "VS (native)");
+    GLuint fsPass = compileShader(GL_FRAGMENT_SHADER, fsPassSrc, "FS (native pass-through)");
+    GLuint vsDesktop = compileShader(GL_VERTEX_SHADER, vsDesktopSrc, "VS (desktop 120)");
+    GLuint fsGreen = compileShader(GL_FRAGMENT_SHADER, fsGreenSrc, "FS (native+translatable)");
     if (failures) return 1;
 
+    GLuint progNative = fCreateProgram();
+    fAttachShader(progNative, vsNative); fAttachShader(progNative, fsPass);
     GLuint progMixed = fCreateProgram();
-    fAttachShader(progMixed, vs); fAttachShader(progMixed, fsPass);
-    GLuint progClean = fCreateProgram();
-    fAttachShader(progClean, vs); fAttachShader(progClean, fsGreen);
+    fAttachShader(progMixed, vsDesktop); fAttachShader(progMixed, fsGreen);
 
     static const GLfloat pos[] = { -1,-1,  1,-1,  1,1,   -1,-1,  1,1,  -1,1 };
     fVertexPointer(2, GL_FLOAT, 0, pos);
@@ -203,23 +200,25 @@ int main(void) {
 
     for (int round = 1; round <= 2; ++round) {
         char what[128];
-        snprintf(what, sizeof what, "round %d: mixed program links (all-original fallback)", round);
+        snprintf(what, sizeof what, "round %d: all-native program links from original sources",
+                 round);
+        if (linkOk(progNative, what)) {
+            fUseProgram(progNative);
+            fClear(GL_COLOR_BUFFER_BIT);
+            fDrawArrays(GL_TRIANGLES, 0, 6);
+            fFinish();
+            snprintf(what, sizeof what, "round %d: all-native program draws the fed fog color",
+                     round);
+            expect(1, 0, 1, what);
+        }
+        snprintf(what, sizeof what, "round %d: mixed program links after re-translating all",
+                 round);
         if (linkOk(progMixed, what)) {
             fUseProgram(progMixed);
             fClear(GL_COLOR_BUFFER_BIT);
             fDrawArrays(GL_TRIANGLES, 0, 6);
             fFinish();
-            snprintf(what, sizeof what, "round %d: mixed program draws the fed fog color", round);
-            expect(1, 0, 1, what);
-        }
-        snprintf(what, sizeof what, "round %d: clean program links (translated form restored)",
-                 round);
-        if (linkOk(progClean, what)) {
-            fUseProgram(progClean);
-            fClear(GL_COLOR_BUFFER_BIT);
-            fDrawArrays(GL_TRIANGLES, 0, 6);
-            fFinish();
-            snprintf(what, sizeof what, "round %d: clean program draws green", round);
+            snprintf(what, sizeof what, "round %d: mixed program draws green", round);
             expect(0, 1, 0, what);
         }
     }
@@ -239,6 +238,6 @@ int main(void) {
         fprintf(stderr, "FAIL: %d check(s) failed\n", failures);
         return 1;
     }
-    printf("OK: mixed translated/pass-through programs link consistently\n");
+    printf("OK: native and re-translated programs link consistently\n");
     return 0;
 }

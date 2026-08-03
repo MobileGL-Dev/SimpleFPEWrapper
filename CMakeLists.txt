@@ -321,6 +321,10 @@ if(NOT ANDROID)
                                 sfpew_add_gtest(sfpew_${suite}_test SOURCES tests/gtest_${suite}.cc
                                                 LIBRARIES ${SFPEW_TEST_EGL})
                         endforeach()
+                        # The translator feeds its output to the REAL driver's
+                        # glCompileShader, so it links the system GLES too.
+                        sfpew_add_gtest(sfpew_translator_test SOURCES tests/gtest_translator.cc
+                                        LIBRARIES ${SFPEW_TEST_EGL} ${SFPEW_TEST_GLES})
 
 
                         add_executable(smoke_gl3_core tests/smoke_gl3_core.c)

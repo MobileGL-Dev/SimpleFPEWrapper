@@ -24,6 +24,7 @@
 #include <EGL/egl.h>
 
 #include <string>
+#include <vector>
 
 namespace sfpew_test {
 
@@ -201,5 +202,82 @@ class DesktopContextTest : public ContextTest {
 protected:
     DesktopContextTest() : ContextTest(Backend::DesktopCore) {}
 };
+
+// What most of these tests do to check a draw landed: read one pixel back
+// and ask whether it is lit. "Lit" is the green channel past a threshold,
+// which is what every ported piglit case here already agreed on - green
+// because it is the channel every other piece of wrapper state (alpha
+// blending, the clear colour, texturing) is least likely to touch by
+// accident.
+class PixelProbe {
+public:
+    using ReadPixelsFn = void (*)(GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, void*);
+
+    explicit PixelProbe(ReadPixelsFn read_pixels) : read_pixels_(read_pixels) {}
+
+    struct Rgba {
+        GLubyte r = 0, g = 0, b = 0, a = 0;
+    };
+
+    Rgba At(int x, int y) const {
+        Rgba pixel;
+        read_pixels_(x, y, 1, 1, /*GL_RGBA*/ 0x1908, /*GL_UNSIGNED_BYTE*/ 0x1401, &pixel);
+        return pixel;
+    }
+
+    // True when the green channel is past the threshold every ported piglit
+    // probe in this suite has used.
+    bool IsLitAt(int x, int y) const { return At(x, y).g > 150; }
+
+    // Every pixel in an axis-aligned region, or nullptr if all of it is
+    // black (RGB channels <= 20). What "nothing was drawn" checks read.
+    struct LitPixel {
+        int x = -1, y = -1;
+        int count = 0;
+    };
+    LitPixel FindLit(int x, int y, int width, int height) const {
+        std::vector<Rgba> pixels(static_cast<size_t>(width) * static_cast<size_t>(height));
+        read_pixels_(x, y, width, height, /*GL_RGBA*/ 0x1908, /*GL_UNSIGNED_BYTE*/ 0x1401,
+                    pixels.data());
+        LitPixel result;
+        for (int i = 0; i < width * height; ++i) {
+            const Rgba& p = pixels[static_cast<size_t>(i)];
+            if (p.r > 20 || p.g > 20 || p.b > 20) {
+                if (result.count == 0) {
+                    result.x = x + i % width;
+                    result.y = y + i / width;
+                }
+                ++result.count;
+            }
+        }
+        return result;
+    }
+
+    // The opposite check: at least one pixel in the region is non-black.
+    bool AnyLit(int x, int y, int width, int height) const {
+        return FindLit(x, y, width, height).count > 0;
+    }
+
+private:
+    ReadPixelsFn read_pixels_;
+};
+
+// EXPECT_EQ(probe.IsLitAt(x, y), want) with a message that names the pixel,
+// for the common case of many probes in a row.
+#define SFPEW_EXPECT_LIT(probe, x, y, want, what)                                                   \
+    EXPECT_EQ((probe).IsLitAt((x), (y)), (want)) << (what) << " at (" << (x) << ", " << (y) << ")"
+
+// The whole region must be black: nothing there was drawable. Parameters are
+// suffixed _sfpew_ because these expand into a plain do/while, textually -
+// FindLit's own x/y arguments would otherwise collide with LitPixel's x/y
+// members inside this body.
+#define SFPEW_EXPECT_BLANK(probe, sfpew_x_, sfpew_y_, sfpew_w_, sfpew_h_, what)                     \
+    do {                                                                                            \
+        const auto sfpew_lit_ =                                                                     \
+            (probe).FindLit((sfpew_x_), (sfpew_y_), (sfpew_w_), (sfpew_h_));                        \
+        EXPECT_EQ(sfpew_lit_.count, 0)                                                              \
+            << (what) << ": " << sfpew_lit_.count << " lit pixel(s), first at (" << sfpew_lit_.x    \
+            << ", " << sfpew_lit_.y << ")";                                                          \
+    } while (0)
 
 } // namespace sfpew_test

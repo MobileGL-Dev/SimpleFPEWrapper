@@ -1522,8 +1522,16 @@ GLenum scratchPlaneFormat(GLenum type, GLint framebuffer, const framebuffer_plan
     if (type == GL_STENCIL) return requested.bits <= 8 ? GL_STENCIL_INDEX8 : GL_NONE;
     if (requested.bits <= 16) return GL_DEPTH_COMPONENT16;
     if (requested.bits <= 24) return GL_DEPTH_COMPONENT24;
-    return requested.component_type == GL_FLOAT ? GL_DEPTH_COMPONENT32F
-                                                : 0x81A7 /* GL_DEPTH_COMPONENT32 */;
+    // >24 bits and not float would otherwise fall to the legacy, non-float
+    // GL_DEPTH_COMPONENT32 (0x81A7) - never a valid GLES3 sized internal
+    // format (its renderbuffer/texture tables only have 16/24/32F) and not
+    // in desktop GL4's core-required table either. This return value feeds
+    // straight into ensureCopyPixelsScratch's raw g_glFuncs.glRenderbufferStorage
+    // call below, bypassing fbo.cpp's own glRenderbufferStorage wrapper -
+    // which already remaps this exact enum to GL_DEPTH_COMPONENT32F for the
+    // same reason. 32F is a safe, universally valid choice for this ">24
+    // bits" bucket regardless of the source plane's own component type.
+    return GL_DEPTH_COMPONENT32F;
 }
 
 struct copy_pixels_scratch_t {

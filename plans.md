@@ -1080,11 +1080,11 @@ unchanged.
 
 | Entry point | Status |
 |---|---|
-| `glCopyTexImage1D` | [ ] |
-| `glCopyTexSubImage1D` | [ ] |
-| `glCompressedTexImage1D` | [ ] |
-| `glCompressedTexSubImage1D` | [ ] |
-| `glGetCompressedTexImage` | [ ] |
+| `glCopyTexImage1D` | [x] |
+| `glCopyTexSubImage1D` | [x] |
+| `glCompressedTexImage1D` | [x] |
+| `glCompressedTexSubImage1D` | [x] |
+| `glGetCompressedTexImage` | [x] |
 
 `glCopyTexImage1D` appears once in the tree (a mention, not an implementation —
 `grep` it). All five follow the N×1 convention of §0.6.
@@ -1861,7 +1861,7 @@ Group B; decide when you get there.
 | Group | Entry points | Done |
 |---|---|---|
 | A — Imaging subset | 32 | 0 / 32 |
-| B — 1D/compressed/copy texture | 5 | 0 / 5 |
+| B — 1D/compressed/copy texture | 5 | 5 / 5 |
 | C — Texture residency | 2 | 2 / 2 |
 | D — Transpose matrices | 4 | 4 / 4 |
 | E — Point parameters | 4 | 4 / 4 |
@@ -1869,7 +1869,7 @@ Group B; decide when you get there.
 | G — Vertex attrib variants | 29 | 29 / 29 |
 | H — Half-implemented fixes | 3 | 3 / 3 |
 | I — Completing partial paths | 6 items | 0 / 6 |
-| **Total** | **95 entry points + 6 items** | **58 / 101** |
+| **Total** | **95 entry points + 6 items** | **63 / 101** |
 
 Update this table as groups complete. When it reads 95/95, the three-part API
 contract in §0.1 holds for everything `docs.gl`'s GL 2.1 pages describe, minus

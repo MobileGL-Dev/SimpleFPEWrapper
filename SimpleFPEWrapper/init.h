@@ -224,6 +224,17 @@ SFPEW_APIENTRY void glTexImage1D(GLenum target, GLint level, GLint internalforma
                                  GLenum format, GLenum type, const GLvoid* pixels);
 SFPEW_APIENTRY void glTexSubImage1D(GLenum target, GLint level, GLint xoffset, GLsizei width, GLenum format,
                                     GLenum type, const GLvoid* pixels);
+SFPEW_APIENTRY void glCopyTexImage1D(GLenum target, GLint level, GLenum internalformat, GLint x,
+                                    GLint y, GLsizei width, GLint border);
+SFPEW_APIENTRY void glCopyTexSubImage1D(GLenum target, GLint level, GLint xoffset, GLint x, GLint y,
+                                       GLsizei width);
+SFPEW_APIENTRY void glCompressedTexImage1D(GLenum target, GLint level, GLenum internalformat,
+                                          GLsizei width, GLint border, GLsizei imageSize,
+                                          const GLvoid* data);
+SFPEW_APIENTRY void glCompressedTexSubImage1D(GLenum target, GLint level, GLint xoffset,
+                                             GLsizei width, GLenum format, GLsizei imageSize,
+                                             const GLvoid* data);
+SFPEW_APIENTRY void glGetCompressedTexImage(GLenum target, GLint level, GLvoid* pixels);
 SFPEW_APIENTRY void glTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width,
                                     GLsizei height, GLenum format, GLenum type, const GLvoid* pixels);
 SFPEW_APIENTRY const GLubyte* glGetString(GLenum name);

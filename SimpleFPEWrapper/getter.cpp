@@ -259,14 +259,55 @@ thread_local std::unordered_map<GLuint, bool> generateMipmapTextures;
 } // namespace
 
 namespace {
-// Level-0 dimensions per texture name, recorded at upload time: ES 3.0 has
-// no glGetTexLevelParameter, so readback sizes must come from the shadow.
+// Texture image metadata recorded at definition time. ES 3.0 has no
+// glGetTexLevelParameter, so the wrapper answers the level properties it can
+// know without retaining a second copy of the texture payload.
 struct texture_size_t { GLsizei width = 0, height = 0; };
-thread_local std::unordered_map<GLuint, texture_size_t> textureSizes;
+struct texture_level_t {
+    GLsizei width = 0;
+    GLsizei height = 0;
+    GLint internal_format = 0;
+    GLint border = 0;
+    bool compressed = false;
+    GLsizei compressed_size = 0;
+};
+struct texture_metadata_cache_t {
+    EGLContext context = EGL_NO_CONTEXT;
+    std::unordered_map<GLuint, texture_size_t> sizes;
+    std::unordered_map<GLuint, std::unordered_map<GLint, texture_level_t>> levels;
+};
+thread_local texture_metadata_cache_t textureMetadataCache;
+
+texture_metadata_cache_t& textureMetadata() {
+    const EGLContext context = (EGLContext)glstate_t::cached_context();
+    if (textureMetadataCache.context != context) {
+        textureMetadataCache = {};
+        textureMetadataCache.context = context;
+    }
+    return textureMetadataCache;
+}
+
+void rememberTextureLevel(GLuint texture, GLint level, GLsizei width, GLsizei height,
+                          GLint internal_format, GLint border, bool compressed,
+                          GLsizei compressed_size) {
+    if (texture == 0 || level < 0) return;
+    auto& metadata = textureMetadata();
+    metadata.levels[texture][level] =
+        {width, height, internal_format, border, compressed, compressed_size};
+    if (level == 0) metadata.sizes[texture] = {width, height};
+}
+
+const texture_level_t* findTextureLevel(GLuint texture, GLint level) {
+    auto& levels = textureMetadata().levels;
+    const auto texture_it = levels.find(texture);
+    if (texture_it == levels.end()) return nullptr;
+    const auto level_it = texture_it->second.find(level);
+    return level_it == texture_it->second.end() ? nullptr : &level_it->second;
+}
 } // namespace
 
 void sfpewRememberTextureSize(GLuint texture, GLsizei width, GLsizei height) {
-    if (texture != 0) textureSizes[texture] = {width, height};
+    if (texture != 0) textureMetadata().sizes[texture] = {width, height};
 }
 
 void sfpewSetGenerateMipmap(GLenum, GLuint texture, bool enable) {
@@ -375,8 +416,9 @@ void repairMipmapChain2D() {
     if (texture == 0) return;
 
     GLsizei width = 0, height = 0;
-    const auto size_it = textureSizes.find(texture);
-    if (size_it != textureSizes.end()) {
+    const auto& texture_sizes = textureMetadata().sizes;
+    const auto size_it = texture_sizes.find(texture);
+    if (size_it != texture_sizes.end()) {
         width = size_it->second.width;
         height = size_it->second.height;
     } else {
@@ -1082,6 +1124,188 @@ void glTexSubImage1D(GLenum target, GLint level, GLint xoffset, GLsizei width, G
         return;
     }
     glTexSubImage2D(GL_TEXTURE_2D, level, xoffset, 0, width, 1, format, type, pixels);
+}
+
+namespace {
+
+bool isGenericCompressedFormat(GLenum format) {
+    switch (format) {
+    case GL_COMPRESSED_ALPHA:
+    case GL_COMPRESSED_LUMINANCE:
+    case GL_COMPRESSED_LUMINANCE_ALPHA:
+    case GL_COMPRESSED_INTENSITY:
+    case GL_COMPRESSED_RGB:
+    case GL_COMPRESSED_RGBA:
+    case 0x8C48: // GL_COMPRESSED_SRGB
+    case 0x8C49: // GL_COMPRESSED_SRGB_ALPHA
+    case 0x8C4A: // GL_COMPRESSED_SLUMINANCE
+    case 0x8C4B: // GL_COMPRESSED_SLUMINANCE_ALPHA
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool isBlockCompressedFormat(GLenum format) {
+    // Every format guaranteed by ES 3.0, plus the formats commonly exposed
+    // by desktop drivers, uses a block at least four texels high. Keep the
+    // range tests explicit so newly added formats do not accidentally become
+    // a driver call with a one-row payload.
+    if ((format >= 0x9270 && format <= 0x9279) || // ETC2 / EAC
+        (format >= 0x83F0 && format <= 0x83F3) || // S3TC / DXT
+        (format >= 0x8C4C && format <= 0x8C4F) || // sRGB S3TC
+        (format >= 0x8C70 && format <= 0x8C73) || // LATC
+        (format >= 0x8DBB && format <= 0x8DBE) || // RGTC
+        (format >= 0x8E8C && format <= 0x8E8F) || // BPTC
+        (format >= 0x93B0 && format <= 0x93BD) || // linear ASTC
+        (format >= 0x93D0 && format <= 0x93DD) || // sRGB ASTC
+        format == 0x86B0 || format == 0x86B1 ||   // FXT1
+        format == 0x8D64) {                       // ETC1
+        return true;
+    }
+    // Unknown compressed formats are conservatively block-compressed. A
+    // guessed layout can make a driver read beyond the supplied payload.
+    return true;
+}
+
+} // namespace
+
+void glCopyTexImage1D(GLenum target, GLint level, GLenum internalformat, GLint x, GLint y,
+                      GLsizei width, GLint border) {
+    auto& gs = g_glstate;
+    if (target != GL_TEXTURE_1D) {
+        gs.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    if (border != 0 || level < 0 || width < 0) {
+        gs.set_error(GL_INVALID_VALUE);
+        return;
+    }
+    LIST_RECORD(glCopyTexImage1D, {}, target, level, internalformat, x, y, width, border)
+    sfpewEntryBarrier();
+    if (!sfpewEnsureBackend() || g_glFuncs.glCopyTexImage2D == nullptr) return;
+    g_glFuncs.glCopyTexImage2D(GL_TEXTURE_2D, level, internalformat, x, y, width, 1, border);
+    rememberTextureLevel(sfpewLogicalTextureBinding(GL_TEXTURE_2D), level, width, 1,
+                         static_cast<GLint>(internalformat), border, false, 0);
+    sfpewMaybeGenerateMipmap(GL_TEXTURE_2D);
+}
+
+void glCopyTexSubImage1D(GLenum target, GLint level, GLint xoffset, GLint x, GLint y,
+                         GLsizei width) {
+    auto& gs = g_glstate;
+    if (target != GL_TEXTURE_1D) {
+        gs.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    if (level < 0 || xoffset < 0 || width < 0) {
+        gs.set_error(GL_INVALID_VALUE);
+        return;
+    }
+    LIST_RECORD(glCopyTexSubImage1D, {}, target, level, xoffset, x, y, width)
+    sfpewEntryBarrier();
+    if (!sfpewEnsureBackend() || g_glFuncs.glCopyTexSubImage2D == nullptr) return;
+    g_glFuncs.glCopyTexSubImage2D(GL_TEXTURE_2D, level, xoffset, 0, x, y, width, 1);
+    sfpewMaybeGenerateMipmap(GL_TEXTURE_2D);
+}
+
+void glCompressedTexImage1D(GLenum target, GLint level, GLenum internalformat, GLsizei width,
+                            GLint border, GLsizei imageSize, const GLvoid* data) {
+    auto& gs = g_glstate;
+    if (target != GL_TEXTURE_1D && target != GL_PROXY_TEXTURE_1D) {
+        gs.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    if (border != 0 || imageSize < 0 || level < 0 || width < 0) {
+        gs.set_error(GL_INVALID_VALUE);
+        return;
+    }
+    if (isGenericCompressedFormat(internalformat)) {
+        gs.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    LIST_RECORD(glCompressedTexImage1D,
+                {{6, static_cast<size_t>(imageSize > 0 ? imageSize : 0)}}, target, level,
+                internalformat, width, border, imageSize, data)
+    sfpewEntryBarrier();
+    if (target == GL_PROXY_TEXTURE_1D) return;
+
+    // A 1D image is represented by a one-row 2D image here. No block format
+    // exposed by either backend floor can represent that height.
+    if (isBlockCompressedFormat(internalformat)) {
+        gs.set_error(GL_INVALID_OPERATION);
+        return;
+    }
+    if (!sfpewEnsureBackend() || g_glFuncs.glCompressedTexImage2D == nullptr) return;
+    g_glFuncs.glCompressedTexImage2D(GL_TEXTURE_2D, level, internalformat, width, 1, border,
+                                     imageSize, data);
+    rememberTextureLevel(sfpewLogicalTextureBinding(GL_TEXTURE_2D), level, width, 1,
+                         static_cast<GLint>(internalformat), border, true, imageSize);
+    sfpewMaybeGenerateMipmap(GL_TEXTURE_2D);
+}
+
+void glCompressedTexSubImage1D(GLenum target, GLint level, GLint xoffset, GLsizei width,
+                               GLenum format, GLsizei imageSize, const GLvoid* data) {
+    auto& gs = g_glstate;
+    if (target != GL_TEXTURE_1D) {
+        gs.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    if (imageSize < 0 || level < 0 || xoffset < 0 || width < 0) {
+        gs.set_error(GL_INVALID_VALUE);
+        return;
+    }
+    if (isGenericCompressedFormat(format)) {
+        gs.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    LIST_RECORD(glCompressedTexSubImage1D,
+                {{6, static_cast<size_t>(imageSize > 0 ? imageSize : 0)}}, target, level,
+                xoffset, width, format, imageSize, data)
+    sfpewEntryBarrier();
+    if (isBlockCompressedFormat(format)) {
+        gs.set_error(GL_INVALID_OPERATION);
+        return;
+    }
+    if (!sfpewEnsureBackend() || g_glFuncs.glCompressedTexSubImage2D == nullptr) return;
+    g_glFuncs.glCompressedTexSubImage2D(GL_TEXTURE_2D, level, xoffset, 0, width, 1, format,
+                                        imageSize, data);
+    sfpewMaybeGenerateMipmap(GL_TEXTURE_2D);
+}
+
+void glGetCompressedTexImage(GLenum target, GLint level, GLvoid* pixels) {
+    auto& gs = g_glstate;
+    if (pixels == nullptr) return;
+    switch (target) {
+    case GL_TEXTURE_1D:
+    case GL_TEXTURE_2D:
+    case GL_TEXTURE_3D:
+    case GL_TEXTURE_CUBE_MAP_POSITIVE_X:
+    case GL_TEXTURE_CUBE_MAP_NEGATIVE_X:
+    case GL_TEXTURE_CUBE_MAP_POSITIVE_Y:
+    case GL_TEXTURE_CUBE_MAP_NEGATIVE_Y:
+    case GL_TEXTURE_CUBE_MAP_POSITIVE_Z:
+    case GL_TEXTURE_CUBE_MAP_NEGATIVE_Z:
+        break;
+    default:
+        gs.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    if (level < 0) {
+        gs.set_error(GL_INVALID_VALUE);
+        return;
+    }
+    sfpewEntryBarrier();
+    if (!sfpewEnsureBackend()) return;
+
+    // GLES 3.0 has no texture readback. Retaining every compressed payload on
+    // the CPU would double the footprint of the largest texture allocations,
+    // so GLES fails loudly while desktop GL forwards exactly.
+    if (!sfpewBackendIsES() && g_glFuncs.glGetCompressedTexImage != nullptr) {
+        const GLenum backend_target = target == GL_TEXTURE_1D ? GL_TEXTURE_2D : target;
+        g_glFuncs.glGetCompressedTexImage(backend_target, level, pixels);
+        return;
+    }
+    gs.set_error(GL_INVALID_OPERATION);
 }
 
 void glGetTexGenfv(GLenum coord, GLenum pname, GLfloat* params) {
@@ -2028,7 +2252,12 @@ void glDeleteTextures(GLsizei n, const GLuint* textures) {
             }
         }
     }
-    for (GLsizei i = 0; i < n; ++i) gs.texture_priorities.erase(textures[i]);
+    auto& metadata = textureMetadata();
+    for (GLsizei i = 0; i < n; ++i) {
+        gs.texture_priorities.erase(textures[i]);
+        metadata.sizes.erase(textures[i]);
+        metadata.levels.erase(textures[i]);
+    }
 }
 
 GLboolean glAreTexturesResident(GLsizei n, const GLuint* textures, GLboolean* residences) {
@@ -2353,6 +2582,9 @@ void glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei widt
             else if (format == GL_LUMINANCE_ALPHA) upload_format = GL_RG;
             g_glFuncs.glTexImage2D(target, level, mapping.internalformat, width, height, border,
                                    upload_format, type, pixels);
+            if (target == GL_TEXTURE_2D)
+                rememberTextureLevel(sfpewLogicalTextureBinding(GL_TEXTURE_2D), level, width,
+                                     height, internalformat, border, false, 0);
             if (g_glFuncs.glTexParameteriv != nullptr)
                 g_glFuncs.glTexParameteriv(swizzleTargetFor(target), GL_TEXTURE_SWIZZLE_RGBA, mapping.swizzle);
             sfpewMaybeGenerateMipmap(target);
@@ -2360,7 +2592,9 @@ void glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei widt
         }
 
         g_glFuncs.glTexImage2D(target, level, internalformat, width, height, border, format, type, pixels);
-        if (level == 0) sfpewRememberTextureSize(sfpewLogicalTextureBinding(GL_TEXTURE_2D), width, height);
+        if (target == GL_TEXTURE_2D)
+            rememberTextureLevel(sfpewLogicalTextureBinding(GL_TEXTURE_2D), level, width, height,
+                                 internalformat, border, false, 0);
         sfpewMaybeGenerateMipmap(target);
         return;
     }
@@ -2406,8 +2640,9 @@ void glGetTexImage(GLenum target, GLint level, GLenum format, GLenum type, GLvoi
         return;
     }
     const GLuint texture = sfpewLogicalTextureBinding(GL_TEXTURE_2D);
-    const auto size_it = textureSizes.find(texture);
-    if (texture == 0 || size_it == textureSizes.end()) {
+    const auto& texture_sizes = textureMetadata().sizes;
+    const auto size_it = texture_sizes.find(texture);
+    if (texture == 0 || size_it == texture_sizes.end()) {
         gs.set_error(GL_INVALID_OPERATION);
         return;
     }
@@ -2430,33 +2665,71 @@ void glGetTexImage(GLenum target, GLint level, GLenum format, GLenum type, GLvoi
 }
 
 void glGetTexLevelParameteriv(GLenum target, GLint level, GLenum pname, GLint* params) {
-    if (!sfpewEnsureBackend() || g_glFuncs.glGetTexLevelParameteriv == nullptr) return;
-    (void)g_glstate; // entry strict resolve; the proxy cache reads the snapshot
-    if (target != GL_PROXY_TEXTURE_2D) {
+    if (params == nullptr) return;
+    auto& gs = g_glstate;
+    sfpewEntryBarrier();
+    if (!sfpewEnsureBackend()) return;
+
+    if (target == GL_PROXY_TEXTURE_1D) target = GL_PROXY_TEXTURE_2D;
+    if (target == GL_PROXY_TEXTURE_2D) {
+        GLint value = 0;
+        if (getProxyTextureLevelParameter(level, pname, value)) {
+            *params = value;
+            return;
+        }
+        if (g_glFuncs.glGetTexLevelParameteriv != nullptr)
+            g_glFuncs.glGetTexLevelParameteriv(target, level, pname, params);
+        else
+            gs.set_error(GL_INVALID_OPERATION);
+        return;
+    }
+
+    if (target == GL_TEXTURE_1D) target = GL_TEXTURE_2D;
+    if (!sfpewBackendIsES() && g_glFuncs.glGetTexLevelParameteriv != nullptr) {
         g_glFuncs.glGetTexLevelParameteriv(target, level, pname, params);
         return;
     }
 
-    GLint value = 0;
-    if (!getProxyTextureLevelParameter(level, pname, value)) {
-        g_glFuncs.glGetTexLevelParameteriv(target, level, pname, params);
+    // ES 3.0 has no level query. The N x 1 texture paths record the properties
+    // observable without retaining image bytes; unknown targets/levels are
+    // refused instead of returning an invented value.
+    if (target != GL_TEXTURE_2D) {
+        gs.set_error(GL_INVALID_OPERATION);
         return;
     }
-    if (params) *params = value;
+    if (level < 0) {
+        gs.set_error(GL_INVALID_VALUE);
+        return;
+    }
+    const texture_level_t* info =
+        findTextureLevel(sfpewLogicalTextureBinding(GL_TEXTURE_2D), level);
+    if (info == nullptr) {
+        gs.set_error(GL_INVALID_OPERATION);
+        return;
+    }
+    switch (pname) {
+    case GL_TEXTURE_WIDTH: *params = info->width; break;
+    case GL_TEXTURE_HEIGHT: *params = info->height; break;
+    case GL_TEXTURE_DEPTH: *params = 1; break;
+    case GL_TEXTURE_INTERNAL_FORMAT: *params = info->internal_format; break;
+    case GL_TEXTURE_BORDER: *params = info->border; break;
+    case GL_TEXTURE_COMPRESSED: *params = info->compressed ? GL_TRUE : GL_FALSE; break;
+    case GL_TEXTURE_COMPRESSED_IMAGE_SIZE:
+        if (!info->compressed) {
+            gs.set_error(GL_INVALID_OPERATION);
+            return;
+        }
+        *params = info->compressed_size;
+        break;
+    default:
+        gs.set_error(GL_INVALID_OPERATION);
+        break;
+    }
 }
 
 void glGetTexLevelParameterfv(GLenum target, GLint level, GLenum pname, GLfloat* params) {
-    if (!sfpewEnsureBackend() || g_glFuncs.glGetTexLevelParameterfv == nullptr) return;
-    (void)g_glstate; // entry strict resolve; the proxy cache reads the snapshot
-    if (target != GL_PROXY_TEXTURE_2D) {
-        g_glFuncs.glGetTexLevelParameterfv(target, level, pname, params);
-        return;
-    }
-
+    if (params == nullptr) return;
     GLint value = 0;
-    if (!getProxyTextureLevelParameter(level, pname, value)) {
-        g_glFuncs.glGetTexLevelParameterfv(target, level, pname, params);
-        return;
-    }
-    if (params) *params = static_cast<GLfloat>(value);
+    glGetTexLevelParameteriv(target, level, pname, &value);
+    *params = static_cast<GLfloat>(value);
 }

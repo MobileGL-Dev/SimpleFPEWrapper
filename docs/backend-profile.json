@@ -1,5 +1,5 @@
 {
-  "declared_entry_points": 375,
+  "declared_entry_points": 376,
   "doc": "docs/backend-support.md",
   "entry_points": [
     "glActiveShaderProgram",
@@ -135,6 +135,7 @@
     "glGetBufferParameteri64v",
     "glGetBufferParameteriv",
     "glGetBufferPointerv",
+    "glGetCompressedTexImage",
     "glGetDebugMessageLog",
     "glGetError",
     "glGetFloatv",
@@ -438,6 +439,10 @@
     "glFramebufferTexture": {
       "availability": "GL 3.2 / ES 3.2",
       "call_sites": 0
+    },
+    "glGetCompressedTexImage": {
+      "availability": "GL only: ES has no texture readback",
+      "call_sites": 1
     },
     "glGetQueryObjecti64vEXT": {
       "availability": "vendor/extension suffix: never core",

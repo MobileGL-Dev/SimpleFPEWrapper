@@ -1,6 +1,6 @@
 {
  "source": "lookup.cpp",
- "count": 665,
+ "count": 675,
  "entries": {
   "eglSwapBuffersWithDamageKHR": {
    "status": "alias",
@@ -326,9 +326,41 @@
    "status": "alias",
    "target": "glCompileShader"
   },
+  "glCompressedTexImage1D": {
+   "status": "resolvable",
+   "target": "glCompressedTexImage1D"
+  },
+  "glCompressedTexImage1DARB": {
+   "status": "alias",
+   "target": "glCompressedTexImage1D"
+  },
+  "glCompressedTexSubImage1D": {
+   "status": "resolvable",
+   "target": "glCompressedTexSubImage1D"
+  },
+  "glCompressedTexSubImage1DARB": {
+   "status": "alias",
+   "target": "glCompressedTexSubImage1D"
+  },
   "glCopyPixels": {
    "status": "resolvable",
    "target": "glCopyPixels"
+  },
+  "glCopyTexImage1D": {
+   "status": "resolvable",
+   "target": "glCopyTexImage1D"
+  },
+  "glCopyTexImage1DEXT": {
+   "status": "alias",
+   "target": "glCopyTexImage1D"
+  },
+  "glCopyTexSubImage1D": {
+   "status": "resolvable",
+   "target": "glCopyTexSubImage1D"
+  },
+  "glCopyTexSubImage1DEXT": {
+   "status": "alias",
+   "target": "glCopyTexSubImage1D"
   },
   "glCreateProgramObjectARB": {
    "status": "alias",
@@ -709,6 +741,14 @@
   "glGetClipPlane": {
    "status": "resolvable",
    "target": "glGetClipPlane"
+  },
+  "glGetCompressedTexImage": {
+   "status": "resolvable",
+   "target": "glGetCompressedTexImage"
+  },
+  "glGetCompressedTexImageARB": {
+   "status": "alias",
+   "target": "glGetCompressedTexImage"
   },
   "glGetDoublev": {
    "status": "resolvable",

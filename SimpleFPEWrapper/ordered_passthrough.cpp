@@ -517,6 +517,7 @@ void glTexParameterf(GLenum target, GLenum pname, GLfloat param) {
         gs.texture_priorities[sfpewLogicalTextureBinding(target)] = std::clamp(param, 0.0f, 1.0f);
         return;
     }
+    if (target == GL_TEXTURE_1D) target = GL_TEXTURE_2D;
     if (g_glFuncs.glTexParameterf == nullptr) return;
     if (isTextureWrapParameter(pname) && static_cast<GLint>(param) == GL_CLAMP)
         param = static_cast<GLfloat>(GL_CLAMP_TO_EDGE);
@@ -539,6 +540,7 @@ void glTexParameterfv(GLenum target, GLenum pname, const GLfloat* params) {
         gs.texture_priorities[sfpewLogicalTextureBinding(target)] = std::clamp(params[0], 0.0f, 1.0f);
         return;
     }
+    if (target == GL_TEXTURE_1D) target = GL_TEXTURE_2D;
     if (g_glFuncs.glTexParameterfv == nullptr) return;
     if (isTextureWrapParameter(pname) && static_cast<GLint>(params[0]) == GL_CLAMP) {
         const GLfloat compatible = static_cast<GLfloat>(GL_CLAMP_TO_EDGE);
@@ -563,6 +565,7 @@ void glTexParameteri(GLenum target, GLenum pname, GLint param) {
             std::clamp(static_cast<GLfloat>(param), 0.0f, 1.0f);
         return;
     }
+    if (target == GL_TEXTURE_1D) target = GL_TEXTURE_2D;
     if (g_glFuncs.glTexParameteri != nullptr)
         g_glFuncs.glTexParameteri(target, pname, compatibleTextureParameter(pname, param));
 }
@@ -584,6 +587,7 @@ void glTexParameteriv(GLenum target, GLenum pname, const GLint* params) {
             std::clamp(static_cast<GLfloat>(params[0]), 0.0f, 1.0f);
         return;
     }
+    if (target == GL_TEXTURE_1D) target = GL_TEXTURE_2D;
     if (g_glFuncs.glTexParameteriv == nullptr) return;
     if (isTextureWrapParameter(pname) && params[0] == GL_CLAMP) {
         const GLint compatible = GL_CLAMP_TO_EDGE;

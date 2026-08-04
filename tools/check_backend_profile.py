@@ -57,6 +57,7 @@ NON_UNIVERSAL = {
     "glDrawElementsBaseVertex": "GL 3.2 / ES 3.2",
     "glEnablei": "GL 3.0 / ES 3.2",
     "glFramebufferTexture": "GL 3.2 / ES 3.2",
+    "glGetCompressedTexImage": "GL only: ES has no texture readback",
     "glGetTexLevelParameteriv": "GL 1.0 / ES 3.1",
     "glMemoryBarrier": "GL 4.2 / ES 3.1",
     "glMinSampleShading": "GL 4.0 / ES 3.2",

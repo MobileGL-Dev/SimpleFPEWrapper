@@ -330,7 +330,7 @@ if(NOT ANDROID)
                                        feedback_payloads selection_vbo pixel_maps
                                        imaging_color_table imaging_convolution
                                        imaging_histogram_minmax imaging_pipeline
-                                       pushattrib_depth_stencil_scissor)
+                                       pushattrib_depth_stencil_scissor getteximage_3d_cube)
                                 sfpew_add_gtest(sfpew_${suite}_test SOURCES tests/gtest_${suite}.cc
                                                 LIBRARIES ${SFPEW_TEST_EGL})
                         endforeach()

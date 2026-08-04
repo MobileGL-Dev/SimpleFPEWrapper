@@ -2742,6 +2742,32 @@ void glGetTexImage(GLenum target, GLint level, GLenum format, GLenum type, GLvoi
     }
     auto& gs = g_glstate;
     if (target == GL_TEXTURE_1D) target = GL_TEXTURE_2D; // Nx1 emulation
+
+    // GL_TEXTURE_3D and the six cube faces: same "GLES has no texture
+    // readback" ceiling as glGetCompressedTexImage, plus GLES has no
+    // per-level size query either (the 2D path below covers that with
+    // texture_metadata_cache_t, which nothing populates for these targets
+    // yet). Forward exactly on desktop, where glGetTexImage handles every
+    // target and size natively; refuse loudly on GLES rather than guessing
+    // a size or reading the wrong slice.
+    switch (target) {
+    case GL_TEXTURE_3D:
+    case GL_TEXTURE_CUBE_MAP_POSITIVE_X:
+    case GL_TEXTURE_CUBE_MAP_NEGATIVE_X:
+    case GL_TEXTURE_CUBE_MAP_POSITIVE_Y:
+    case GL_TEXTURE_CUBE_MAP_NEGATIVE_Y:
+    case GL_TEXTURE_CUBE_MAP_POSITIVE_Z:
+    case GL_TEXTURE_CUBE_MAP_NEGATIVE_Z:
+        if (!sfpewBackendIsES() && g_glFuncs.glGetTexImage != nullptr) {
+            g_glFuncs.glGetTexImage(target, level, format, type, pixels);
+            return;
+        }
+        gs.set_error(GL_INVALID_OPERATION);
+        return;
+    default:
+        break;
+    }
+
     if (target != GL_TEXTURE_2D) {
         SFPEW_LOGW("glGetTexImage: target 0x%x not supported", target);
         gs.set_error(GL_INVALID_ENUM);

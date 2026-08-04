@@ -1,5 +1,5 @@
 {
-  "declared_entry_points": 376,
+  "declared_entry_points": 377,
   "doc": "docs/backend-support.md",
   "entry_points": [
     "glActiveShaderProgram",
@@ -179,6 +179,7 @@
     "glGetString",
     "glGetStringi",
     "glGetSynciv",
+    "glGetTexImage",
     "glGetTexLevelParameterfv",
     "glGetTexLevelParameteriv",
     "glGetTexParameterIiv",
@@ -454,6 +455,10 @@
     },
     "glGetQueryObjectui64vEXT": {
       "availability": "vendor/extension suffix: never core",
+      "call_sites": 1
+    },
+    "glGetTexImage": {
+      "availability": "GL only: ES has no texture readback",
       "call_sites": 1
     },
     "glGetTexLevelParameteriv": {

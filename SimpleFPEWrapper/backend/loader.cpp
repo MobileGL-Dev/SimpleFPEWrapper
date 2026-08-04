@@ -116,6 +116,7 @@ namespace SFPEW::Utils::BackendLoader {
             INIT_BACKENDGL_FUNC(glGetBooleanv)
             INIT_BACKENDGL_FUNC(glGetBufferParameteriv)
             INIT_BACKENDGL_FUNC(glGetCompressedTexImage)
+            INIT_BACKENDGL_FUNC(glGetTexImage)
             INIT_BACKENDGL_FUNC(glGetError)
             INIT_BACKENDGL_FUNC(glGetString)
             INIT_BACKENDGL_FUNC(glGetStringi)

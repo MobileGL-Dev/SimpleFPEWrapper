@@ -130,7 +130,7 @@ reality — which glPopAttrib's restore does, and which turned out to be
 **the actual root cause of the `glDrawPixels(GL_DEPTH_COMPONENT)` "known
 failing" bug from the previous session (§1.3)** — see that section.
 
-### 1.2 `glGetTexImage`: no 3D/cube path
+### 1.2 [x] `glGetTexImage`: no 3D/cube path
 
 **File:** `SimpleFPEWrapper/getter.cpp:2737`. Currently only `GL_TEXTURE_2D`
 (with 1D silently remapped to it); everything else is `GL_INVALID_ENUM`.
@@ -143,10 +143,19 @@ accept `GL_TEXTURE_3D`, `GL_TEXTURE_CUBE_MAP_POSITIVE_X` through
 GL-only, ES-absent set — guard it), else `GL_INVALID_OPERATION` with a comment
 matching `glGetCompressedTexImage`'s.
 
-**Test:** extend `tests/gtest_getter_*` (find the getter suite covering
-`glGetTexImage` today) with a `DesktopContextTest` round-trip for a 3D texture
-and a cube face, and a `ContextTest` (GLES3) case asserting
-`GL_INVALID_OPERATION` and an untouched output buffer.
+**Done as planned.** `glGetTexImage` was entirely absent from
+`backend/loader.h`/`.cpp` (never called on the backend before — the 2D path
+reads through a scratch-FBO + `glReadPixels`, not a native readback call), so
+this also added the `GL_FUNC_TYPEDEF`/`GL_FUNC_DECL`/`INIT_BACKENDGL_FUNC`
+triplet and a `tools/check_backend_profile.py` `NON_UNIVERSAL` entry
+(`"GL only: ES has no texture readback"`, matching `glGetCompressedTexImage`'s
+wording), then regenerated `docs/backend-profile.json`.
+
+**Test:** `tests/gtest_getteximage_3d_cube.cc` — a `DesktopContextTest`
+round-trip for a distinguishable 2×2×2 3D texture and a distinguishable cube
+face (both against the real NVIDIA driver, not llvmpipe), and a `ContextTest`
+(GLES3) case asserting `GL_INVALID_OPERATION` and a byte-for-byte untouched
+output buffer for both `GL_TEXTURE_3D` and a cube face.
 
 ### 1.3 [x] `glDrawPixels(GL_DEPTH_COMPONENT)`: depth write never reaches the buffer
 

@@ -25,6 +25,47 @@ bool sfpewImagingReadRgba(GLint x, GLint y, GLsizei width, GLsizei height,
 bool sfpewImagingReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format,
                             GLenum type, GLvoid* pixels);
 
+// defects-plan-3.md: GL 2.1's basic (non-ARB_imaging) pixel transfer -
+// GL_*_SCALE/GL_*_BIAS and GL_MAP_COLOR/GL_MAP_STENCIL's pixel maps -
+// applied to the READ direction (glReadPixels, glCopyPixels), which had
+// none of it: sfpewImagingReadRgba/ReadPixels above only ever ran the
+// ARB_imaging-specific stages, gated on ARB_imaging state alone, so an app
+// that set GL_RED_SCALE without ever touching a colour table/convolution/
+// histogram got it silently ignored on readback (the write direction,
+// glDrawPixels, already applies this same transfer unconditionally - see
+// its own decode loop in pixelops.cpp). Colour reuses this file's existing
+// encode/decode/readFramebuffer machinery with the basic step spliced in
+// first, spec order (3.6.3); depth and stencil (glCopyPixels only, in
+// pixelops.cpp - GL_MAP_STENCIL is not a colour-table concept this file
+// otherwise deals with) are separate, since GLES/desktop have no shared
+// "arbitrary pixel format" encoder for those the way colour tables do.
+// Each *Active() check lets a caller's existing fast (real backend call,
+// or blit) path stay exactly as it was in the overwhelmingly common case
+// where the corresponding transfer is at its default (no-op) values -
+// only a caller that actually set a non-default scale/bias/map pays for
+// the CPU round trip.
+bool sfpewBasicColorTransferActive();
+// Exposed alongside sfpewFullColorReadPixels below (not just kept file-
+// local like sfpewImagingReadRgba's own analogous helper) because
+// glCopyPixels(GL_COLOR) in pixelops.cpp needs the raw transferred RGBA
+// float buffer itself, to feed into its own quad-drawer - not a buffer
+// already encoded into a caller's requested pixel format/type.
+bool sfpewFullColorReadRgba(GLint x, GLint y, GLsizei width, GLsizei height,
+                            std::vector<GLfloat>* rgba, GLsizei* output_width,
+                            GLsizei* output_height);
+bool sfpewFullColorReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format,
+                              GLenum type, GLvoid* pixels);
+bool sfpewDepthPixelTransferActive();
+bool sfpewDepthPixelTransferReadPixels(GLint x, GLint y, GLsizei width, GLsizei height,
+                                       GLenum format, GLenum type, GLvoid* pixels);
+// Depth read + GL_DEPTH_SCALE/BIAS + clamp, as a tightly packed float
+// buffer - the piece glCopyPixels(GL_DEPTH) needs to feed into the
+// existing depth quad-drawer instead of a raw blit. False means the
+// backend/allocation failed (GL error already set); true always resizes
+// `out` to width*height on success.
+bool sfpewReadTransformedDepth(GLint x, GLint y, GLsizei width, GLsizei height,
+                               std::vector<GLfloat>* out);
+
 struct sfpew_imaging_upload_t {
     std::vector<GLfloat> rgba;
     GLsizei width = 0, height = 0;

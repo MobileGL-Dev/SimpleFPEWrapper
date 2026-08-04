@@ -349,7 +349,15 @@ void glReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format
                   GLvoid* pixels) {
     if (!sfpewEnsureBackend() || g_glFuncs.glReadPixels == nullptr) return;
     sfpewEntryBarrier();
-    if (sfpewImagingReadPixels(x, y, width, height, format, type, pixels)) return;
+    // defects-plan-3.md: full GL 2.1 3.6.3 pixel transfer for colour reads
+    // (scale/bias/map, then whatever ARB_imaging stages are active -
+    // supersedes sfpewImagingReadPixels, which only ever ran the second
+    // half); GL_DEPTH_SCALE/BIAS for depth reads. Both return false
+    // (nothing to do) whenever the corresponding transfer sits at its
+    // default no-op values - the overwhelmingly common case - so the raw
+    // passthrough below stays exactly as it always was for that case.
+    if (sfpewFullColorReadPixels(x, y, width, height, format, type, pixels)) return;
+    if (sfpewDepthPixelTransferReadPixels(x, y, width, height, format, type, pixels)) return;
     // Desktop apps read GL_BGRA, which GLES3 core does not offer: read RGBA
     // and swap in place (tight rows, the common screenshot/AWT case). A
     // desktop GL backend reads it directly.

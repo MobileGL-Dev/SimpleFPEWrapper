@@ -215,6 +215,12 @@ TEST_F(PixelMapContextTest, MapColorTransformsDrawPixelsAfterScaleAndBias) {
     const std::array<GLubyte, 4> source = {0, 255, 128, 255};
     draw_pixels(1, 1, GL_RGBA_, GL_UNSIGNED_BYTE_, source.data());
 
+    // defects-plan-3.md: glReadPixels now applies GL_MAP_COLOR too (GL 2.1
+    // 4.3.1 requires it, same as glDrawPixels/glCopyPixels) - left enabled,
+    // the verification read below would run the already-mapped stored
+    // pixel back through the table a second time. Disabling it first
+    // isolates what this test is actually about: what glDrawPixels wrote.
+    pixel_transfer(GL_MAP_COLOR_, 0);
     const auto pixel = PixelProbe(read_pixels).At(16, 16);
     EXPECT_NEAR(pixel.r, 255, 8);
     EXPECT_NEAR(pixel.g, 255, 8);

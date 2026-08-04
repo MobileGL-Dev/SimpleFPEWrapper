@@ -1640,6 +1640,225 @@ bool sfpewImagingReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLe
     return true;
 }
 
+// defects-plan-3.md: GL 2.1 3.6.3's basic pixel transfer - RGBA scale/bias,
+// then GL_MAP_COLOR's per-channel table lookup - applied before any
+// ARB_imaging stage, exactly the formula glDrawPixels' own decode loop
+// already uses on the write side (pixelops.cpp).
+bool sfpewBasicColorTransferActive() {
+    const auto& un = g_glstate.fpe_uniform;
+    return un.pixel_scale[0] != 1.0f || un.pixel_scale[1] != 1.0f || un.pixel_scale[2] != 1.0f ||
+           un.pixel_scale[3] != 1.0f || un.pixel_bias[0] != 0.0f || un.pixel_bias[1] != 0.0f ||
+           un.pixel_bias[2] != 0.0f || un.pixel_bias[3] != 0.0f || un.pixel_map_color;
+}
+
+void applyBasicColorTransfer(glm::vec4* pixel) {
+    const auto& un = g_glstate.fpe_uniform;
+    for (int channel = 0; channel < 4; ++channel) {
+        float transferred =
+            std::clamp((*pixel)[channel] * un.pixel_scale[channel] + un.pixel_bias[channel], 0.0f, 1.0f);
+        if (un.pixel_map_color) {
+            const auto& map = g_glstate.pixel_maps[
+                static_cast<size_t>(GL_PIXEL_MAP_R_TO_R - GL_PIXEL_MAP_I_TO_I) +
+                static_cast<size_t>(channel)];
+            const size_t map_index =
+                std::min(static_cast<size_t>(std::floor(transferred * map.size())), map.size() - 1u);
+            transferred = map[map_index];
+        }
+        (*pixel)[channel] = transferred;
+    }
+}
+
+// Supersedes sfpewImagingReadRgba above for glReadPixels/glCopyPixels
+// specifically: runs the basic transfer THEN (unchanged) whatever
+// ARB_imaging stages are active, the full GL 2.1 pipeline in spec order.
+// sfpewImagingReadRgba/ReadPixels themselves stay untouched - they still
+// back glCopyTexImage2D/glCopyTexSubImage2D's own imaging hook
+// (getter.cpp), which this fix does not extend to (out of scope: the
+// user asked to fix glCopyPixels and glReadPixels specifically).
+bool sfpewFullColorReadRgba(GLint x, GLint y, GLsizei width, GLsizei height,
+                            std::vector<GLfloat>* rgba, GLsizei* output_width,
+                            GLsizei* output_height) {
+    if (!sfpewBasicColorTransferActive() && !sfpewImagingActive()) return false;
+    std::vector<glm::vec4> readback;
+    if (!readFramebuffer(x, y, width, height, &readback)) return true;
+    for (auto& pixel : readback) applyBasicColorTransfer(&pixel);
+    try {
+        rgba->resize(readback.size() * 4u);
+    } catch (const std::bad_alloc&) {
+        g_glstate.set_error(GL_OUT_OF_MEMORY);
+        return true;
+    }
+    std::memcpy(rgba->data(), readback.data(), rgba->size() * sizeof(GLfloat));
+    *output_width = width;
+    *output_height = height;
+    sfpewImagingTransfer(rgba->data(), output_width, output_height);
+    rgba->resize(static_cast<size_t>(*output_width) * *output_height * 4u);
+    return true;
+}
+
+bool sfpewFullColorReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format,
+                              GLenum type, GLvoid* pixels) {
+    pixel_format_t info; // GL_DEPTH_COMPONENT/GL_STENCIL_INDEX are not
+                         // colour formats - not this function's concern.
+    if (!pixelFormat(format, &info)) return false;
+    std::vector<GLfloat> rgba;
+    GLsizei output_width = width, output_height = height;
+    if (!sfpewFullColorReadRgba(x, y, width, height, &rgba, &output_width, &output_height))
+        return false;
+    if (sfpewImagingSink() || rgba.empty()) return true;
+    encodePixels(output_width, output_height, format, type,
+                reinterpret_cast<const glm::vec4*>(rgba.data()), pixels);
+    return true;
+}
+
+// GL_DEPTH_SCALE/BIAS (GL 2.1 3.6.3), applied to a tightly packed float
+// depth buffer already read from the backend.
+bool sfpewDepthPixelTransferActive() {
+    const auto& un = g_glstate.fpe_uniform;
+    return un.pixel_scale[4] != 1.0f || un.pixel_bias[4] != 0.0f;
+}
+
+bool sfpewReadTransformedDepth(GLint x, GLint y, GLsizei width, GLsizei height,
+                               std::vector<GLfloat>* out) {
+    if (!sfpewEnsureBackend() || g_glFuncs.glReadPixels == nullptr ||
+        g_glFuncs.glGetIntegerv == nullptr || g_glFuncs.glPixelStorei == nullptr ||
+        g_glFuncs.glBindBuffer == nullptr || width <= 0 || height <= 0) {
+        return false;
+    }
+    try {
+        out->resize(static_cast<size_t>(width) * static_cast<size_t>(height));
+    } catch (const std::bad_alloc&) {
+        g_glstate.set_error(GL_OUT_OF_MEMORY);
+        return false;
+    }
+    // Matches readFramebuffer above: `out` is our own tightly packed buffer,
+    // not the caller's, so the caller's GL_PACK_* layout and any bound pack
+    // PBO must be neutralized around the backend call (else it either pads
+    // rows the tight width*height loop below doesn't expect, or - with a
+    // PBO bound - treats out->data() as a byte offset instead of a client
+    // pointer) and then restored.
+    GLint alignment = 4, row_length = 0, skip_rows = 0, skip_pixels = 0, pbo = 0;
+    g_glFuncs.glGetIntegerv(GL_PACK_ALIGNMENT, &alignment);
+    g_glFuncs.glGetIntegerv(GL_PACK_ROW_LENGTH, &row_length);
+    g_glFuncs.glGetIntegerv(GL_PACK_SKIP_ROWS, &skip_rows);
+    g_glFuncs.glGetIntegerv(GL_PACK_SKIP_PIXELS, &skip_pixels);
+    g_glFuncs.glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING, &pbo);
+    if (pbo != 0) g_glFuncs.glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+    g_glFuncs.glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    g_glFuncs.glPixelStorei(GL_PACK_ROW_LENGTH, 0);
+    g_glFuncs.glPixelStorei(GL_PACK_SKIP_ROWS, 0);
+    g_glFuncs.glPixelStorei(GL_PACK_SKIP_PIXELS, 0);
+    g_glFuncs.glReadPixels(x, y, width, height, GL_DEPTH_COMPONENT, GL_FLOAT, out->data());
+    // Some backends reject a raw GL_DEPTH_COMPONENT read outright regardless
+    // of the framebuffer (observed on this project's own dev/test driver -
+    // see gtest_copypixels_depth.cc's DepthAt() comment). That is the
+    // backend's own error, not this call's - drain it here so it cannot
+    // leak into the caller's next glGetError() as if the caller had done
+    // something wrong.
+    drainBackendErrors();
+    g_glFuncs.glPixelStorei(GL_PACK_ALIGNMENT, alignment);
+    g_glFuncs.glPixelStorei(GL_PACK_ROW_LENGTH, row_length);
+    g_glFuncs.glPixelStorei(GL_PACK_SKIP_ROWS, skip_rows);
+    g_glFuncs.glPixelStorei(GL_PACK_SKIP_PIXELS, skip_pixels);
+    if (pbo != 0) g_glFuncs.glBindBuffer(GL_PIXEL_PACK_BUFFER, static_cast<GLuint>(pbo));
+    const auto& un = g_glstate.fpe_uniform;
+    for (auto& value : *out) value = std::clamp(value * un.pixel_scale[4] + un.pixel_bias[4], 0.0f, 1.0f);
+    return true;
+}
+
+namespace {
+size_t depthScalarBytes(GLenum type) {
+    switch (type) {
+    case GL_UNSIGNED_BYTE: return 1;
+    case GL_UNSIGNED_SHORT: return 2;
+    case GL_UNSIGNED_INT:
+    case GL_FLOAT: return 4;
+    default: return 0;
+    }
+}
+
+// GL 2.1 table 3.7's DEPTH_COMPONENT encodings: float stays exact, the
+// unsigned integer types normalize [0,1] -> their full range like every
+// other normalized colour channel already does elsewhere in this file.
+void encodeDepthScalar(uint8_t* dest, GLenum type, float value, bool swap) {
+    switch (type) {
+    case GL_FLOAT: {
+        GLfloat v = value;
+        if (swap) {
+            uint8_t bytes[4];
+            std::memcpy(bytes, &v, 4);
+            std::reverse(bytes, bytes + 4);
+            std::memcpy(dest, bytes, 4);
+        } else {
+            std::memcpy(dest, &v, 4);
+        }
+        return;
+    }
+    case GL_UNSIGNED_BYTE:
+        *dest = static_cast<GLubyte>(value * 255.0f + 0.5f);
+        return;
+    case GL_UNSIGNED_SHORT: {
+        GLushort v = static_cast<GLushort>(value * 65535.0f + 0.5f);
+        if (swap) {
+            uint8_t bytes[2];
+            std::memcpy(bytes, &v, 2);
+            std::reverse(bytes, bytes + 2);
+            std::memcpy(dest, bytes, 2);
+        } else {
+            std::memcpy(dest, &v, 2);
+        }
+        return;
+    }
+    case GL_UNSIGNED_INT: {
+        GLuint v = static_cast<GLuint>(static_cast<double>(value) * 4294967295.0 + 0.5);
+        if (swap) {
+            uint8_t bytes[4];
+            std::memcpy(bytes, &v, 4);
+            std::reverse(bytes, bytes + 4);
+            std::memcpy(dest, bytes, 4);
+        } else {
+            std::memcpy(dest, &v, 4);
+        }
+        return;
+    }
+    default:
+        return;
+    }
+}
+} // namespace
+
+bool sfpewDepthPixelTransferReadPixels(GLint x, GLint y, GLsizei width, GLsizei height,
+                                       GLenum format, GLenum type, GLvoid* pixels) {
+    // format must be checked here, not left to the caller: `type` alone
+    // (GL_UNSIGNED_BYTE etc.) is also a legal type for plenty of colour
+    // formats, so without this a glReadPixels(GL_RGBA, GL_UNSIGNED_BYTE)
+    // done while some unrelated earlier call had set GL_DEPTH_SCALE/BIAS
+    // would otherwise get silently hijacked into writing reinterpreted
+    // depth data over the caller's requested colour output.
+    if (format != GL_DEPTH_COMPONENT || !sfpewDepthPixelTransferActive()) return false;
+    const size_t scalar_bytes = depthScalarBytes(type);
+    if (scalar_bytes == 0 || pixels == nullptr) return false;
+
+    std::vector<GLfloat> depth;
+    if (!sfpewReadTransformedDepth(x, y, width, height, &depth)) return true;
+
+    pixel_layout_t layout;
+    if (!pixelLayout(/*pack=*/true, width, height, scalar_bytes, &layout)) return true;
+    mapped_pixels_t mapped;
+    uint8_t* base = nullptr;
+    if (!mapPixelBuffer(/*pack=*/true, pixels, layout, &mapped, &base)) return true;
+    const bool swap = g_glstate.pixel_store_pack_swap_bytes;
+    uint8_t* first = base + layout.start;
+    for (GLsizei row = 0; row < height; ++row) {
+        uint8_t* dest_row = first + static_cast<size_t>(row) * layout.stride;
+        for (GLsizei column = 0; column < width; ++column) {
+            encodeDepthScalar(dest_row + static_cast<size_t>(column) * scalar_bytes, type,
+                              depth[static_cast<size_t>(row) * width + column], swap);
+        }
+    }
+    return true;
+}
+
 bool sfpewPrepareImagingUpload(GLsizei width, GLsizei height, GLenum format, GLenum type,
                                const GLvoid* pixels, sfpew_imaging_upload_t* upload) {
     *upload = {};

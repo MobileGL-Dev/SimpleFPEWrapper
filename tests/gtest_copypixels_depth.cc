@@ -52,6 +52,9 @@ constexpr GLenum GL_RGBA8_ = 0x8058;
 constexpr GLenum GL_TEXTURE_MIN_FILTER_ = 0x2801;
 constexpr GLenum GL_TEXTURE_MAG_FILTER_ = 0x2800;
 constexpr GLenum GL_NEAREST_ = 0x2600;
+constexpr GLenum GL_MAP_STENCIL_ = 0x0D11;
+constexpr GLenum GL_PIXEL_MAP_S_TO_S_ = 0x0C71;
+constexpr GLenum GL_DEPTH_BIAS_ = 0x0D1F;
 
 class CopyPixelsLibraryTest : public LibraryTest {};
 
@@ -96,6 +99,9 @@ protected:
         read_pixels_ = Get<void (*)(GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, void*)>(
             "glReadPixels");
         get_integer_ = Get<void (*)(GLenum, GLint*)>("glGetIntegerv");
+        pixel_transferf_ = Get<void (*)(GLenum, GLfloat)>("glPixelTransferf");
+        pixel_transferi_ = Get<void (*)(GLenum, GLint)>("glPixelTransferi");
+        pixel_mapuiv_ = Get<void (*)(GLenum, GLsizei, const GLuint*)>("glPixelMapuiv");
 
         gen_framebuffers_ = Get<void (*)(GLsizei, GLuint*)>("glGenFramebuffers");
         delete_framebuffers_ = Get<void (*)(GLsizei, const GLuint*)>("glDeleteFramebuffers");
@@ -186,6 +192,9 @@ protected:
     void (*tex_image_)(GLenum, GLint, GLint, GLsizei, GLsizei, GLint, GLenum, GLenum,
                        const void*) = nullptr;
     void (*tex_parameter_)(GLenum, GLenum, GLint) = nullptr;
+    void (*pixel_transferf_)(GLenum, GLfloat) = nullptr;
+    void (*pixel_transferi_)(GLenum, GLint) = nullptr;
+    void (*pixel_mapuiv_)(GLenum, GLsizei, const GLuint*) = nullptr;
 };
 
 TEST_F(CopyPixelsDepthTest, OverlappingDepthCopyUsesStableSnapshotAndRestoresBindings) {
@@ -275,6 +284,99 @@ TEST_F(CopyPixelsDepthTest, StencilCopyWorksOnPackedAttachmentAndMissingPlaneIsE
     window_pos_(32, 32);
     copy_pixels_(0, 0, 1, 1, GL_STENCIL_);
     EXPECT_EQ(get_error_(), GL_INVALID_OPERATION_);
+
+    bind_framebuffer_(GL_FRAMEBUFFER_, 0);
+    bind_renderbuffer_(GL_RENDERBUFFER_, 0);
+    bind_texture_(GL_TEXTURE_2D_, 0);
+    delete_framebuffers_(1, &framebuffer);
+    delete_renderbuffers_(1, &renderbuffer);
+    delete_textures_(1, &texture);
+}
+
+// defects-plan-3.md: glCopyPixels(GL_DEPTH) + GL_DEPTH_BIAS. Same driver
+// limitation as OverlappingDepthCopyUsesStableSnapshotAndRestoresBindings
+// above rules out a direct DepthAt() readback, so this checks the same way:
+// a depth-tested probe quad at a window depth between the biased and the
+// (bug) unbiased outcome. A bias that got silently skipped - the actual
+// regression this guards against - copies the raw 0.9 through unchanged
+// and the probe would incorrectly win instead of lose.
+TEST_F(CopyPixelsDepthTest, DepthCopyAppliesBias) {
+    ASSERT_NE(pixel_transferf_, nullptr);
+    clear_color_(0.0f, 0.0f, 0.0f, 1.0f);
+    clear_depth_(1.0f);
+    clear_(GL_COLOR_BUFFER_BIT_ | GL_DEPTH_BUFFER_BIT_);
+    ClearDepthRect(4, 4, 16, 16, 0.9f);
+
+    pixel_transferf_(GL_DEPTH_BIAS_, -0.5f); // correctly-copied depth: 0.4
+    window_pos_(40, 4);
+    copy_pixels_(4, 4, 16, 16, GL_DEPTH_);
+    EXPECT_EQ(get_error_(), GL_NO_ERROR_);
+    pixel_transferf_(GL_DEPTH_BIAS_, 0.0f);
+
+    enable_(GL_DEPTH_TEST_);
+    depth_func_(GL_LESS_);
+    depth_mask_(sfpew_test::GL_TRUE_);
+    color4f_(1.0f, 1.0f, 1.0f, 1.0f);
+    begin_(GL_QUADS_);
+    vertex3f_(-1.0f, -1.0f, 0.0f);
+    vertex3f_(1.0f, -1.0f, 0.0f);
+    vertex3f_(1.0f, 1.0f, 0.0f);
+    vertex3f_(-1.0f, 1.0f, 0.0f);
+    end_();
+    // ndc.z=0 -> window depth 0.5: must lose (0.5 is not < 0.4) and leave
+    // the copied region black. Only the (unbiased, buggy) 0.9 outcome
+    // would let it win here.
+    const auto probe = sfpew_test::PixelProbe(read_pixels_);
+    const auto copied = probe.At(48, 12);
+    EXPECT_LT(copied.r, 40);
+    disable_(GL_DEPTH_TEST_);
+}
+
+// defects-plan-3.md: glCopyPixels(GL_STENCIL) + GL_MAP_STENCIL, mirroring
+// StencilCopyWorksOnPackedAttachmentAndMissingPlaneIsExplicit's FBO setup.
+// One copy runs with the map disabled (the untouched fast blit path must
+// keep passing raw values through) and a second with it enabled, matching
+// GL_PIXEL_MAP_S_TO_S's raw-index-lookup convention already established
+// for glDrawPixels(GL_STENCIL_INDEX) in gtest_drawpixels_stencil.cc.
+TEST_F(CopyPixelsDepthTest, StencilCopyAppliesMapStencilAndDefaultPathStaysRaw) {
+    ASSERT_NE(pixel_transferi_, nullptr);
+    ASSERT_NE(pixel_mapuiv_, nullptr);
+    GLuint texture = 0, renderbuffer = 0, framebuffer = 0;
+    gen_textures_(1, &texture);
+    bind_texture_(GL_TEXTURE_2D_, texture);
+    tex_parameter_(GL_TEXTURE_2D_, GL_TEXTURE_MIN_FILTER_, GL_NEAREST_);
+    tex_parameter_(GL_TEXTURE_2D_, GL_TEXTURE_MAG_FILTER_, GL_NEAREST_);
+    tex_image_(GL_TEXTURE_2D_, 0, GL_RGBA8_, size(), size(), 0, GL_RGBA_, GL_UNSIGNED_BYTE_,
+               nullptr);
+
+    gen_renderbuffers_(1, &renderbuffer);
+    bind_renderbuffer_(GL_RENDERBUFFER_, renderbuffer);
+    renderbuffer_storage_(GL_RENDERBUFFER_, GL_DEPTH24_STENCIL8_, size(), size());
+    gen_framebuffers_(1, &framebuffer);
+    bind_framebuffer_(GL_FRAMEBUFFER_, framebuffer);
+    framebuffer_texture_(GL_FRAMEBUFFER_, GL_COLOR_ATTACHMENT0_, GL_TEXTURE_2D_, texture, 0);
+    framebuffer_renderbuffer_(GL_FRAMEBUFFER_, GL_DEPTH_STENCIL_ATTACHMENT_, GL_RENDERBUFFER_,
+                              renderbuffer);
+    ASSERT_EQ(check_framebuffer_(GL_FRAMEBUFFER_), GL_FRAMEBUFFER_COMPLETE_);
+
+    stencil_mask_(0xFFu);
+    clear_stencil_(0);
+    clear_(GL_COLOR_BUFFER_BIT_ | GL_DEPTH_BUFFER_BIT_ | GL_STENCIL_BUFFER_BIT_);
+    ClearStencilRect(4, 4, 16, 16, 3);
+
+    window_pos_(40, 4);
+    copy_pixels_(4, 4, 16, 16, GL_STENCIL_);
+    EXPECT_EQ(get_error_(), GL_NO_ERROR_);
+    EXPECT_EQ(StencilAt(48, 12), 3) << "map disabled: the fast blit path must stay untouched";
+
+    const GLuint table[8] = {0, 1, 2, 0x99u, 4, 5, 6, 7};
+    pixel_mapuiv_(GL_PIXEL_MAP_S_TO_S_, 8, table);
+    pixel_transferi_(GL_MAP_STENCIL_, 1);
+    window_pos_(40, 24);
+    copy_pixels_(4, 4, 16, 16, GL_STENCIL_);
+    EXPECT_EQ(get_error_(), GL_NO_ERROR_);
+    pixel_transferi_(GL_MAP_STENCIL_, 0);
+    EXPECT_EQ(StencilAt(48, 32), 0x99u) << "map enabled: index 3 must remap through the table";
 
     bind_framebuffer_(GL_FRAMEBUFFER_, 0);
     bind_renderbuffer_(GL_RENDERBUFFER_, 0);

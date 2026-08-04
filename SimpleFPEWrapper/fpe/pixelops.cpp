@@ -1647,6 +1647,59 @@ bool rectanglesOverlap(GLint ax0, GLint ay0, GLint ax1, GLint ay1, GLint bx0, GL
            std::max(amin_y, bmin_y) < std::min(amax_y, bmax_y);
 }
 
+// defects-plan-3.md: glCopyPixels(GL_STENCIL) + GL_MAP_STENCIL. Raw index
+// bytes read straight off the framebuffer - like drawStencilPixels above,
+// the S_TO_S map stores and looks up raw index values directly, no
+// normalization. GL_INDEX_SHIFT/GL_INDEX_OFFSET stay unapplied, same
+// project-wide colour-index-mode boundary drawStencilPixels documents.
+bool readStencilIndices(GLint x, GLint y, GLsizei width, GLsizei height,
+                        std::vector<GLubyte>* out) {
+    if (!sfpewEnsureBackend() || g_glFuncs.glReadPixels == nullptr ||
+        g_glFuncs.glGetIntegerv == nullptr || g_glFuncs.glPixelStorei == nullptr ||
+        g_glFuncs.glBindBuffer == nullptr || width <= 0 || height <= 0) {
+        return false;
+    }
+    try {
+        out->resize(static_cast<size_t>(width) * static_cast<size_t>(height));
+    } catch (const std::bad_alloc&) {
+        g_glstate.set_error(GL_OUT_OF_MEMORY);
+        return false;
+    }
+    // `out` is our own tightly packed buffer, not the caller's: neutralize
+    // GL_PACK_* state and any bound pack PBO around the backend call (see
+    // imaging.cpp's readFramebuffer/sfpewReadTransformedDepth for the same
+    // pattern), then restore both.
+    GLint alignment = 4, row_length = 0, skip_rows = 0, skip_pixels = 0, pbo = 0;
+    g_glFuncs.glGetIntegerv(GL_PACK_ALIGNMENT, &alignment);
+    g_glFuncs.glGetIntegerv(GL_PACK_ROW_LENGTH, &row_length);
+    g_glFuncs.glGetIntegerv(GL_PACK_SKIP_ROWS, &skip_rows);
+    g_glFuncs.glGetIntegerv(GL_PACK_SKIP_PIXELS, &skip_pixels);
+    g_glFuncs.glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING, &pbo);
+    if (pbo != 0) g_glFuncs.glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+    g_glFuncs.glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    g_glFuncs.glPixelStorei(GL_PACK_ROW_LENGTH, 0);
+    g_glFuncs.glPixelStorei(GL_PACK_SKIP_ROWS, 0);
+    g_glFuncs.glPixelStorei(GL_PACK_SKIP_PIXELS, 0);
+    g_glFuncs.glReadPixels(x, y, width, height, GL_STENCIL_INDEX, GL_UNSIGNED_BYTE, out->data());
+    // A backend that rejects this raw read (some do, for GL_DEPTH_COMPONENT
+    // at least - see imaging.cpp's sfpewReadTransformedDepth) must not leak
+    // its own error into the caller's next glGetError().
+    drainFailedMapError();
+    g_glFuncs.glPixelStorei(GL_PACK_ALIGNMENT, alignment);
+    g_glFuncs.glPixelStorei(GL_PACK_ROW_LENGTH, row_length);
+    g_glFuncs.glPixelStorei(GL_PACK_SKIP_ROWS, skip_rows);
+    g_glFuncs.glPixelStorei(GL_PACK_SKIP_PIXELS, skip_pixels);
+    if (pbo != 0) g_glFuncs.glBindBuffer(GL_PIXEL_PACK_BUFFER, static_cast<GLuint>(pbo));
+    return true;
+}
+
+bool sfpewStencilPixelTransferActive() {
+    if (!g_glstate.fpe_uniform.pixel_map_stencil) return false;
+    const auto& map =
+        g_glstate.pixel_maps[static_cast<size_t>(GL_PIXEL_MAP_S_TO_S - GL_PIXEL_MAP_I_TO_I)];
+    return !map.empty();
+}
+
 } // namespace
 
 void glCopyPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum type) {
@@ -1672,16 +1725,60 @@ void glCopyPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum type) 
                             : type == GL_DEPTH   ? GL_DEPTH_BUFFER_BIT
                                                 : GL_STENCIL_BUFFER_BIT;
 
-    if (type == GL_COLOR && sfpewImagingActive()) {
+    // defects-plan-3.md: full GL 2.1 3.6.3 pixel transfer for GL_COLOR
+    // (scale/bias/map, then whatever ARB_imaging stages are active -
+    // sfpewFullColorReadRgba returns false, unchanged fast path below,
+    // whenever neither is active); GL_DEPTH_SCALE/BIAS for GL_DEPTH;
+    // GL_MAP_STENCIL for GL_STENCIL. Each new branch reads fully into a CPU
+    // buffer before writing anything to the destination, so - unlike the
+    // blit path below - it is inherently safe when source and destination
+    // overlap in the same framebuffer, with no separate scratch-FBO copy
+    // needed.
+    if (type == GL_COLOR) {
         std::vector<GLfloat> rgba;
         GLsizei output_width = width, output_height = height;
-        if (!sfpewImagingReadRgba(x, y, width, height, &rgba, &output_width, &output_height))
+        if (sfpewFullColorReadRgba(x, y, width, height, &rgba, &output_width, &output_height)) {
+            if (sfpewImagingSink() || rgba.empty()) return;
+            drawQuad(rgba.data(), output_width, output_height, GL_RGBA, GL_FLOAT,
+                     un.raster_position.x, un.raster_position.y,
+                     output_width * un.pixel_zoom_x, output_height * un.pixel_zoom_y,
+                     un.raster_position.z, quad_mode_t::color, glm::vec4(1.0f));
             return;
-        if (sfpewImagingSink() || rgba.empty()) return;
-        drawQuad(rgba.data(), output_width, output_height, GL_RGBA, GL_FLOAT,
-                 un.raster_position.x, un.raster_position.y,
-                 output_width * un.pixel_zoom_x, output_height * un.pixel_zoom_y,
-                 un.raster_position.z, quad_mode_t::color, glm::vec4(1.0f));
+        }
+    }
+    if ((type == GL_DEPTH && sfpewDepthPixelTransferActive()) ||
+        (type == GL_STENCIL && sfpewStencilPixelTransferActive())) {
+        // Same presence contract as the blit path below: a plane missing on
+        // either end is GL_INVALID_OPERATION, not a silent no-op reading
+        // garbage off a nonexistent attachment.
+        GLint read_fbo = 0, draw_fbo = 0;
+        g_glFuncs.glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &read_fbo);
+        g_glFuncs.glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &draw_fbo);
+        framebuffer_plane_t source_plane, destination_plane;
+        if (!queryFramebufferPlane(GL_READ_FRAMEBUFFER, read_fbo, type, &source_plane) ||
+            !queryFramebufferPlane(GL_DRAW_FRAMEBUFFER, draw_fbo, type, &destination_plane) ||
+            !source_plane.present || !destination_plane.present) {
+            g_glstate.set_error(GL_INVALID_OPERATION);
+            return;
+        }
+        if (type == GL_DEPTH) {
+            std::vector<GLfloat> depth;
+            if (!sfpewReadTransformedDepth(x, y, width, height, &depth)) return;
+            drawQuad(depth.data(), width, height, GL_RED, GL_FLOAT, un.raster_position.x,
+                     un.raster_position.y, width * un.pixel_zoom_x, height * un.pixel_zoom_y,
+                     un.raster_position.z, quad_mode_t::depth, glm::vec4(1.0f));
+        } else {
+            std::vector<GLubyte> indices;
+            if (!readStencilIndices(x, y, width, height, &indices)) return;
+            const auto& map =
+                g_glstate.pixel_maps[static_cast<size_t>(GL_PIXEL_MAP_S_TO_S - GL_PIXEL_MAP_I_TO_I)];
+            for (auto& index : indices)
+                index = static_cast<GLubyte>(static_cast<uint32_t>(map[index & (map.size() - 1)]) &
+                                             0xFFu);
+            drawStencilBitplanes(indices.data(), width, height, un.raster_position.x,
+                                 un.raster_position.y, width * un.pixel_zoom_x,
+                                 height * un.pixel_zoom_y, un.raster_position.z);
+        }
         return;
     }
 

@@ -50,9 +50,20 @@ bool sfpewBasicColorTransferActive();
 // glCopyPixels(GL_COLOR) in pixelops.cpp needs the raw transferred RGBA
 // float buffer itself, to feed into its own quad-drawer - not a buffer
 // already encoded into a caller's requested pixel format/type.
+//
+// `force`: read (and apply the - possibly no-op - transfer) even when
+// neither transfer stage is active. glCopyPixels needs this when source
+// and destination are the same framebuffer: GLES's glBlitFramebuffer
+// spec requires "GL_INVALID_OPERATION is generated if the source and
+// destination buffers are identical" (no desktop-GL equivalent, and no
+// overlap exemption - a same-buffer copy is illegal on GLES regardless
+// of whether the two rectangles overlap), so the CPU round trip this
+// function already does for an active transfer is reused here purely for
+// its side effect of never touching glBlitFramebuffer, not because a
+// transfer is actually needed.
 bool sfpewFullColorReadRgba(GLint x, GLint y, GLsizei width, GLsizei height,
                             std::vector<GLfloat>* rgba, GLsizei* output_width,
-                            GLsizei* output_height);
+                            GLsizei* output_height, bool force = false);
 bool sfpewFullColorReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format,
                               GLenum type, GLvoid* pixels);
 bool sfpewDepthPixelTransferActive();

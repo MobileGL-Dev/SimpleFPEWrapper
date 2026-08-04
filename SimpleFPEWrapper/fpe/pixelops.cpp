@@ -1645,16 +1645,6 @@ struct copy_pixels_backend_guard_t {
     }
 };
 
-bool rectanglesOverlap(GLint ax0, GLint ay0, GLint ax1, GLint ay1, GLint bx0, GLint by0,
-                       GLint bx1, GLint by1) {
-    const GLint amin_x = std::min(ax0, ax1), amax_x = std::max(ax0, ax1);
-    const GLint amin_y = std::min(ay0, ay1), amax_y = std::max(ay0, ay1);
-    const GLint bmin_x = std::min(bx0, bx1), bmax_x = std::max(bx0, bx1);
-    const GLint bmin_y = std::min(by0, by1), bmax_y = std::max(by0, by1);
-    return std::max(amin_x, bmin_x) < std::min(amax_x, bmax_x) &&
-           std::max(amin_y, bmin_y) < std::min(amax_y, bmax_y);
-}
-
 // defects-plan-3.md: glCopyPixels(GL_STENCIL) + GL_MAP_STENCIL. Raw index
 // bytes read straight off the framebuffer - like drawStencilPixels above,
 // the S_TO_S map stores and looks up raw index values directly, no
@@ -1742,10 +1732,23 @@ void glCopyPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum type) 
     // blit path below - it is inherently safe when source and destination
     // overlap in the same framebuffer, with no separate scratch-FBO copy
     // needed.
+    //
+    // Same-framebuffer colour copies force this path even with no transfer
+    // active: GLES's glBlitFramebuffer refuses "if the source and
+    // destination buffers are identical" (no desktop-GL equivalent, and -
+    // unlike the depth/stencil overlap check below - no rectangle-overlap
+    // exemption either), so the fast blit at the bottom of this function
+    // is simply never legal on GLES when read_fbo == draw_fbo, whatever
+    // the two rectangles are.
     if (type == GL_COLOR) {
+        GLint read_fbo = 0, draw_fbo = 0;
+        g_glFuncs.glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &read_fbo);
+        g_glFuncs.glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &draw_fbo);
+        const bool same_buffer = read_fbo == draw_fbo;
         std::vector<GLfloat> rgba;
         GLsizei output_width = width, output_height = height;
-        if (sfpewFullColorReadRgba(x, y, width, height, &rgba, &output_width, &output_height)) {
+        if (sfpewFullColorReadRgba(x, y, width, height, &rgba, &output_width, &output_height,
+                                   same_buffer)) {
             if (sfpewImagingSink() || rgba.empty()) return;
             drawQuad(rgba.data(), output_width, output_height, GL_RGBA, GL_FLOAT,
                      un.raster_position.x, un.raster_position.y,
@@ -1804,9 +1807,14 @@ void glCopyPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum type) 
             return;
         }
 
-        const bool overlap = backend.read_fbo == backend.draw_fbo &&
-                             rectanglesOverlap(x, y, x + width, y + height, dx0, dy0, dx1, dy1);
-        if (overlap) {
+        // GLES's glBlitFramebuffer: "GL_INVALID_OPERATION is generated if
+        // the source and destination buffers are identical" - no desktop-GL
+        // equivalent, and (checked directly against the spec text) no
+        // rectangle-overlap exemption either, so this triggers the scratch-
+        // FBO intermediate whenever the two framebuffers match, regardless
+        // of whether x/y/width/height and dx0/dy0/dx1/dy1 overlap.
+        const bool same_buffer = backend.read_fbo == backend.draw_fbo;
+        if (same_buffer) {
             GLint samples = 0;
             g_glFuncs.glGetIntegerv(GL_SAMPLES, &samples);
             const GLenum internal_format =

@@ -1677,8 +1677,8 @@ void applyBasicColorTransfer(glm::vec4* pixel) {
 // user asked to fix glCopyPixels and glReadPixels specifically).
 bool sfpewFullColorReadRgba(GLint x, GLint y, GLsizei width, GLsizei height,
                             std::vector<GLfloat>* rgba, GLsizei* output_width,
-                            GLsizei* output_height) {
-    if (!sfpewBasicColorTransferActive() && !sfpewImagingActive()) return false;
+                            GLsizei* output_height, bool force) {
+    if (!force && !sfpewBasicColorTransferActive() && !sfpewImagingActive()) return false;
     std::vector<glm::vec4> readback;
     if (!readFramebuffer(x, y, width, height, &readback)) return true;
     for (auto& pixel : readback) applyBasicColorTransfer(&pixel);

@@ -293,6 +293,49 @@ TEST_F(CopyPixelsDepthTest, StencilCopyWorksOnPackedAttachmentAndMissingPlaneIsE
     delete_textures_(1, &texture);
 }
 
+// defects-plan-4.md: glCopyPixels' fast (no transfer active) path used to
+// gate its scratch-FBO intermediate on read_fbo==draw_fbo AND the source/
+// destination rectangles overlapping - but GLES's glBlitFramebuffer spec
+// ("GL_INVALID_OPERATION is generated if the source and destination
+// buffers are identical", checked directly against /docsgl/es3, with no
+// desktop-GL equivalent and no rectangle-overlap exemption) makes a
+// same-framebuffer blit illegal on GLES regardless of whether the
+// rectangles overlap. This is the non-overlapping sibling of
+// OverlappingDepthCopyUsesStableSnapshotAndRestoresBindings below: same
+// default framebuffer, disjoint source/destination rectangles, no
+// GL_DEPTH_BIAS/SCALE set (so this exercises the fast path's own
+// same-buffer guard, not the pixel-transfer-active CPU path
+// DepthCopyAppliesBias below covers). Same probe-quad technique for the
+// same reason (this driver rejects a direct GL_DEPTH_COMPONENT readback).
+TEST_F(CopyPixelsDepthTest, NonOverlappingSameFramebufferDepthCopySucceeds) {
+    clear_color_(0.0f, 0.0f, 0.0f, 1.0f);
+    clear_depth_(1.0f);
+    clear_(GL_COLOR_BUFFER_BIT_ | GL_DEPTH_BUFFER_BIT_);
+    ClearDepthRect(4, 4, 16, 16, 0.3f);
+
+    window_pos_(40, 4);
+    copy_pixels_(4, 4, 16, 16, GL_DEPTH_);
+    EXPECT_EQ(get_error_(), GL_NO_ERROR_);
+
+    enable_(GL_DEPTH_TEST_);
+    depth_func_(GL_LESS_);
+    depth_mask_(sfpew_test::GL_TRUE_);
+    color4f_(1.0f, 1.0f, 1.0f, 1.0f);
+    begin_(GL_QUADS_);
+    vertex3f_(-1.0f, -1.0f, 0.4f); // window depth (0.4+1)/2 = 0.7
+    vertex3f_(1.0f, -1.0f, 0.4f);
+    vertex3f_(1.0f, 1.0f, 0.4f);
+    vertex3f_(-1.0f, 1.0f, 0.4f);
+    end_();
+    // Probe depth 0.7 is not < the copied 0.3, so a correct copy makes the
+    // probe LOSE (stays black) here. A copy that silently no-op'd (leaving
+    // the destination at the cleared 1.0, which 0.7 *is* less than) would
+    // instead let the probe win and turn the region white.
+    const auto probe = sfpew_test::PixelProbe(read_pixels_);
+    EXPECT_LT(probe.At(48, 12).r, 40);
+    disable_(GL_DEPTH_TEST_);
+}
+
 // defects-plan-3.md: glCopyPixels(GL_DEPTH) + GL_DEPTH_BIAS. Same driver
 // limitation as OverlappingDepthCopyUsesStableSnapshotAndRestoresBindings
 // above rules out a direct DepthAt() readback, so this checks the same way:

@@ -75,6 +75,7 @@ target_language_t detect_backend_target();
 struct shader_language_info_t {
     enum class dialect_t { desktop_glsl, essl } dialect = dialect_t::desktop_glsl;
     unsigned version = 110; // desktop GLSL default when no #version exists
+    bool compatibility = false; // desktop GLSL compatibility-profile source
     bool valid = true;
 };
 
@@ -84,7 +85,8 @@ struct shader_language_info_t {
 shader_language_info_t detect_shader_language(const std::string& source);
 
 // True when this single shader source is directly acceptable to the backend:
-// dialect matches target.es and version <= target.accepted_version.
+// dialect matches target.es, version <= target.accepted_version, and desktop
+// compatibility-profile sources are excluded.
 bool shader_can_passthrough(const std::string& source, const target_language_t& target);
 
 // Exposed separately for offline tests: the compat-builtin rewrite and

@@ -1111,7 +1111,9 @@ shader_language_info_t detect_shader_language(const std::string& source) {
         const std::string token = tail.substr(t, end - t);
         if (token == "es") {
             info.dialect = shader_language_info_t::dialect_t::essl;
-        } else if (token != "core" && token != "compatibility") {
+        } else if (token == "compatibility") {
+            info.compatibility = true;
+        } else if (token != "core") {
             info.valid = false;
             return info;
         }
@@ -1130,7 +1132,11 @@ bool shader_can_passthrough(const std::string& source, const target_language_t& 
     // Desktop GLSL <= 1.40 is not a safe native form for the 3.2+ core
     // backend, so route those sources through the translator even when the
     // version number is within the backend's accepted range.
-    if (lang.dialect == shader_language_info_t::dialect_t::desktop_glsl && lang.version <= 140)
+    // Compatibility-profile sources are likewise never passed through, so
+    // the translator can rewrite their desktop-only builtins for the core
+    // backend regardless of how new the #version is.
+    if (lang.dialect == shader_language_info_t::dialect_t::desktop_glsl &&
+        (lang.version <= 140 || lang.compatibility))
         return false;
     const bool dialect_matches =
         (lang.dialect == shader_language_info_t::dialect_t::essl) == target.es;

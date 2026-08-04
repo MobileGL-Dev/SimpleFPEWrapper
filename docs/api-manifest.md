@@ -551,7 +551,7 @@ commands the wrapper does not need to intercept, not a gap.
 | glRasterPos4iv | resolvable | glRasterPos4iv |
 | glRasterPos4s | resolvable | glRasterPos4s |
 | glRasterPos4sv | resolvable | glRasterPos4sv |
-| glReadBuffer | backend-fallthrough | glReadBuffer |
+| glReadBuffer | resolvable | glReadBuffer |
 | glReadPixels | resolvable | glReadPixels |
 | glRectd | resolvable | glRectd |
 | glRectdv | resolvable | glRectdv |
@@ -667,7 +667,7 @@ commands the wrapper does not need to intercept, not a gap.
 | glTexGeniv | resolvable | glTexGeniv |
 | glTexImage1D | resolvable | glTexImage1D |
 | glTexImage2D | resolvable | glTexImage2D |
-| glTexImage3D | backend-fallthrough | glTexImage3D |
+| glTexImage3D | resolvable | glTexImage3D |
 | glTexParameterf | resolvable | glTexParameterf |
 | glTexParameterfv | resolvable | glTexParameterfv |
 | glTexParameteri | resolvable | glTexParameteri |

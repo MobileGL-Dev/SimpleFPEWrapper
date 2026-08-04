@@ -2163,7 +2163,7 @@
    "target": "glRasterPos4sv"
   },
   "glReadBuffer": {
-   "status": "backend-fallthrough",
+   "status": "resolvable",
    "target": "glReadBuffer"
   },
   "glReadPixels": {
@@ -2627,7 +2627,7 @@
    "target": "glTexImage2D"
   },
   "glTexImage3D": {
-   "status": "backend-fallthrough",
+   "status": "resolvable",
    "target": "glTexImage3D"
   },
   "glTexParameterf": {

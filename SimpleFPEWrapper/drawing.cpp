@@ -1106,8 +1106,8 @@ void drawArraysNow(GLenum mode, GLint first, GLsizei count, bool forceFixedFunct
     // live between commands and avoid four synchronous state queries per
     // draw. The outer glCallList(s) guard restores all caller state once.
     const bool mixed_polygon_mode = sfpewMixedPolygonMode(mode);
-    if (forceFixedFunction && DisplayListManager::isCalling() && arrayBufferOverride >= 0 &&
-        !mixed_polygon_mode) {
+    if (g_glstate_c.render_mode == GL_RENDER && forceFixedFunction &&
+        DisplayListManager::isCalling() && arrayBufferOverride >= 0 && !mixed_polygon_mode) {
         // No explicit bind here: commit_fpe_state_on_draw binds the
         // attribute source itself (arm-checked), so binding first just
         // doubled the call on every captured display-list draw.
@@ -1131,6 +1131,18 @@ void drawArraysNow(GLenum mode, GLint first, GLsizei count, bool forceFixedFunct
 
     const auto& vertex_array = g_glstate_c.fpe_state.vertexpointer_array;
     const uint32_t vertex_array_mask = 1u << vp2idx(GL_VERTEX_ARRAY);
+    if (g_glstate_c.render_mode != GL_RENDER &&
+        ((!forceFixedFunction && current_program != 0) ||
+         !(vertex_array.enabled_pointers & vertex_array_mask))) {
+        sfpewFlushDeferredDrawState();
+        SFPEW_LOGW(
+            "selection: draw arrays skipped because no fixed-function vertex transform is available");
+        return;
+    }
+    if (g_glstate_c.render_mode != GL_RENDER && (first < 0 || count < 0)) {
+        g_glstate_c.set_error(GL_INVALID_VALUE);
+        return;
+    }
     if ((!forceFixedFunction && current_program != 0) || first < 0 || count < 0 ||
         !(vertex_array.enabled_pointers & vertex_array_mask)) {
         // These paths draw with the app's own program/VAO/element state; the
@@ -1153,45 +1165,53 @@ void drawArraysNow(GLenum mode, GLint first, GLsizei count, bool forceFixedFunct
     }
 
     if (g_glstate_c.render_mode != GL_RENDER) {
-        // Selection/feedback: transform on the CPU, never touch the GPU.
-        const auto& attr = vertex_array.attributes[vp2idx(GL_VERTEX_ARRAY)];
-        const bool client_ptr = getClientArrayBufferBinding(vp2idx(GL_VERTEX_ARRAY)) == 0;
-        if (client_ptr && attr.pointer != nullptr && attr.type == GL_FLOAT && count > 0) {
-            const GLsizei stride_bytes = attr.stride != 0 ? attr.stride
-                                                          : attr.size * (GLsizei)sizeof(GLfloat);
-            const auto* base = static_cast<const uint8_t*>(attr.pointer) +
-                               (size_t)first * (size_t)stride_bytes;
-            const auto feedbackAttribute = [&](int slot, const GLfloat** pointer,
-                                               size_t* stride_floats, GLint* size) {
-                if (((vertex_array.enabled_pointers >> slot) & 1u) == 0 ||
-                    getClientArrayBufferBinding(slot) != 0) {
-                    return;
-                }
-                const auto& feedback_attr = vertex_array.attributes[slot];
-                if (feedback_attr.pointer == nullptr || feedback_attr.type != GL_FLOAT) return;
-                const GLsizei feedback_stride =
-                    feedback_attr.stride != 0
-                        ? feedback_attr.stride
-                        : feedback_attr.size * static_cast<GLsizei>(sizeof(GLfloat));
-                *pointer = reinterpret_cast<const GLfloat*>(
-                    static_cast<const uint8_t*>(feedback_attr.pointer) +
-                    static_cast<size_t>(first) * static_cast<size_t>(feedback_stride));
-                *stride_floats = static_cast<size_t>(feedback_stride) / sizeof(GLfloat);
-                *size = feedback_attr.size;
-            };
-            const GLfloat* colors = nullptr;
-            const GLfloat* texcoords = nullptr;
-            size_t color_stride = 0, texcoord_stride = 0;
-            GLint color_size = 0, texcoord_size = 0;
-            feedbackAttribute(vp2idx(GL_COLOR_ARRAY), &colors, &color_stride, &color_size);
-            feedbackAttribute(7, &texcoords, &texcoord_stride, &texcoord_size);
-            sfpewSelectionProcessVertices(mode, reinterpret_cast<const GLfloat*>(base),
-                                          (size_t)stride_bytes / sizeof(GLfloat), attr.size,
-                                          (size_t)count, colors, color_stride, color_size,
-                                          texcoords, texcoord_stride, texcoord_size);
-        } else {
-            SFPEW_LOGW("selection: unsupported vertex source (VBO or non-float), draw skipped");
+        // Selection/feedback is CPU-only. Read client memory and VBO-backed
+        // arrays through the same type conversion used by mixed polygon mode.
+        sfpewFlushDeferredDrawState();
+        array_buffer_binding_guard_t array_buffer_guard;
+        const int position_slot = vp2idx(GL_VERTEX_ARRAY);
+        const GLuint position_buffer = arrayBufferOverride >= 0
+                                           ? static_cast<GLuint>(arrayBufferOverride)
+                                           : getClientArrayBufferBinding(position_slot);
+        thread_local std::vector<glm::vec4> selection_positions;
+        if (!sfpewReadVertexPositions(vertex_array.attributes[position_slot], position_buffer,
+                                      first, count, selection_positions)) {
+            g_glstate_c.set_error(GL_INVALID_OPERATION);
+            SFPEW_LOGW("selection: failed to read the vertex array");
+            return;
         }
+
+        // Preserve the feedback payload support for ordinary float client
+        // arrays. Position conversion above is independent of these optional
+        // streams, so selection also works when they use other sources.
+        const auto feedbackAttribute = [&](int slot, const GLfloat** pointer,
+                                           size_t* stride_floats, GLint* size) {
+            if (((vertex_array.enabled_pointers >> slot) & 1u) == 0 ||
+                getClientArrayBufferBinding(slot) != 0) {
+                return;
+            }
+            const auto& feedback_attr = vertex_array.attributes[slot];
+            if (feedback_attr.pointer == nullptr || feedback_attr.type != GL_FLOAT) return;
+            const GLsizei feedback_stride =
+                feedback_attr.stride != 0
+                    ? feedback_attr.stride
+                    : feedback_attr.size * static_cast<GLsizei>(sizeof(GLfloat));
+            *pointer = reinterpret_cast<const GLfloat*>(
+                static_cast<const uint8_t*>(feedback_attr.pointer) +
+                static_cast<size_t>(first) * static_cast<size_t>(feedback_stride));
+            *stride_floats = static_cast<size_t>(feedback_stride) / sizeof(GLfloat);
+            *size = feedback_attr.size;
+        };
+        const GLfloat* colors = nullptr;
+        const GLfloat* texcoords = nullptr;
+        size_t color_stride = 0, texcoord_stride = 0;
+        GLint color_size = 0, texcoord_size = 0;
+        feedbackAttribute(vp2idx(GL_COLOR_ARRAY), &colors, &color_stride, &color_size);
+        feedbackAttribute(7, &texcoords, &texcoord_stride, &texcoord_size);
+        sfpewSelectionProcessVertices(
+            mode, &selection_positions.front().x, sizeof(glm::vec4) / sizeof(GLfloat), 4,
+            static_cast<size_t>(count), colors, color_stride, color_size, texcoords,
+            texcoord_stride, texcoord_size);
         return;
     }
 
@@ -1562,6 +1582,14 @@ void drawElementsNow(GLenum mode, GLsizei count, GLenum type, const GLvoid* indi
     const auto& vertex_array = g_glstate_c.fpe_state.vertexpointer_array;
     const uint32_t vertex_array_mask = 1u << vp2idx(GL_VERTEX_ARRAY);
 
+    if (g_glstate_c.render_mode != GL_RENDER &&
+        (current_program != 0 || !(vertex_array.enabled_pointers & vertex_array_mask))) {
+        sfpewFlushDeferredDrawState();
+        SFPEW_LOGW(
+            "selection: draw elements skipped because no fixed-function vertex transform is available");
+        return;
+    }
+
     if (current_program != 0 || !(vertex_array.enabled_pointers & vertex_array_mask)) {
         // These paths draw with the app's own program/VAO/element state; the
         // glDrawElements entry no longer restores it for fixed-function
@@ -1589,6 +1617,85 @@ void drawElementsNow(GLenum mode, GLsizei count, GLenum type, const GLvoid* indi
         return;
     }
     if (count == 0) return;
+
+    if (g_glstate_c.render_mode != GL_RENDER) {
+        // CPU-only selection/feedback. The index list itself may live in an
+        // element buffer and the legacy position array may independently live
+        // in an array buffer, so read each source while the app's bindings are
+        // restored and never submit the draw to the backend.
+        sfpewFlushDeferredDrawState();
+        GLint element_buffer = 0;
+        g_glFuncs.glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &element_buffer);
+
+        const uint64_t index_bytes = static_cast<uint64_t>(count) * index_size;
+        const uint64_t index_offset = reinterpret_cast<uintptr_t>(indices);
+        if (index_bytes > static_cast<uint64_t>(std::numeric_limits<GLsizeiptr>::max()) ||
+            index_offset > static_cast<uint64_t>(std::numeric_limits<GLintptr>::max())) {
+            g_glstate_c.set_error(GL_INVALID_VALUE);
+            return;
+        }
+
+        thread_local std::vector<uint8_t> selection_index_bytes;
+        const uint8_t* cpu_indices = nullptr;
+        void* mapped_indices = nullptr;
+        if (element_buffer == 0) {
+            if (indices == nullptr) {
+                g_glstate_c.set_error(GL_INVALID_VALUE);
+                return;
+            }
+            cpu_indices = static_cast<const uint8_t*>(indices);
+        } else {
+            if (g_glFuncs.glMapBufferRange == nullptr || g_glFuncs.glUnmapBuffer == nullptr) {
+                g_glstate_c.set_error(GL_INVALID_OPERATION);
+                return;
+            }
+            mapped_indices = g_glFuncs.glMapBufferRange(
+                GL_ELEMENT_ARRAY_BUFFER, static_cast<GLintptr>(index_offset),
+                static_cast<GLsizeiptr>(index_bytes), GL_MAP_READ_BIT);
+            if (mapped_indices == nullptr) {
+                g_glstate_c.set_error(GL_INVALID_OPERATION);
+                return;
+            }
+            selection_index_bytes.assign(
+                static_cast<const uint8_t*>(mapped_indices),
+                static_cast<const uint8_t*>(mapped_indices) + static_cast<size_t>(index_bytes));
+            if (g_glFuncs.glUnmapBuffer(GL_ELEMENT_ARRAY_BUFFER) == GL_FALSE) {
+                g_glstate_c.set_error(GL_INVALID_OPERATION);
+                return;
+            }
+            cpu_indices = selection_index_bytes.data();
+        }
+
+        thread_local std::vector<uint32_t> selection_indices;
+        copyIndicesToUint32(cpu_indices, static_cast<size_t>(count), type, selection_indices);
+        const uint32_t max_index =
+            *std::max_element(selection_indices.begin(), selection_indices.end());
+        if (max_index >= static_cast<uint32_t>(std::numeric_limits<GLsizei>::max())) {
+            g_glstate_c.set_error(GL_INVALID_VALUE);
+            return;
+        }
+
+        array_buffer_binding_guard_t array_buffer_guard;
+        const int position_slot = vp2idx(GL_VERTEX_ARRAY);
+        thread_local std::vector<glm::vec4> selection_source_positions;
+        if (!sfpewReadVertexPositions(
+                vertex_array.attributes[position_slot],
+                getClientArrayBufferBinding(position_slot), 0,
+                static_cast<GLsizei>(max_index + 1u), selection_source_positions)) {
+            g_glstate_c.set_error(GL_INVALID_OPERATION);
+            SFPEW_LOGW("selection: failed to read the indexed vertex array");
+            return;
+        }
+
+        thread_local std::vector<glm::vec4> selection_positions;
+        selection_positions.resize(static_cast<size_t>(count));
+        for (size_t i = 0; i < selection_indices.size(); ++i)
+            selection_positions[i] = selection_source_positions[selection_indices[i]];
+        sfpewSelectionProcessVertices(
+            mode, &selection_positions.front().x, sizeof(glm::vec4) / sizeof(GLfloat), 4,
+            selection_positions.size());
+        return;
+    }
 
     if (!g_glstate_c.fpe_ready && init_fpe() != 0) {
         if (g_glFuncs.glDrawElements != nullptr) g_glFuncs.glDrawElements(mode, count, type, indices);

@@ -99,14 +99,41 @@ inline bool sfpewIsFilledPrimitive(GLenum mode) {
            mode == GL_QUADS || mode == GL_QUAD_STRIP || mode == GL_POLYGON;
 }
 
-// The polygon mode in force when both faces agree, or GL_FILL when they
-// differ. Splitting a draw by facing needs CPU-side facing tests, which
-// stays a documented gap (plans/08 8.3); until then a per-face setup
-// rasterizes filled rather than guessing which face the app meant.
+// The polygon mode in force when both faces agree. GL_NONE means the modes
+// differ and the draw must go through sfpewDrawMixedPolygonMode(). Keeping
+// mixed mode distinct from GL_FILL also prevents immediate-mode batching from
+// rewriting the application's polygon boundaries before facing is classified.
 inline GLenum sfpewUniformPolygonMode() {
     const auto& un = g_glstate_c.fpe_uniform;
-    return un.polygon_mode_front == un.polygon_mode_back ? un.polygon_mode_front : GL_FILL;
+    return un.polygon_mode_front == un.polygon_mode_back ? un.polygon_mode_front : GL_NONE;
 }
+
+inline bool sfpewMixedPolygonMode(GLenum primitive) {
+    const auto& un = g_glstate_c.fpe_uniform;
+    return sfpewIsFilledPrimitive(primitive) &&
+           un.polygon_mode_front != un.polygon_mode_back;
+}
+
+// Copies a legacy position array into CPU-visible homogeneous coordinates.
+// VBO-backed arrays are mapped through the backend; client arrays are read in
+// place. This is shared by mixed polygon-mode facing and selection/feedback.
+bool sfpewReadVertexPositions(const vertexattribute_t& attribute, GLuint array_buffer,
+                              GLint first, GLsizei count, std::vector<glm::vec4>& out);
+
+// Same source handling for the one-component GL_EDGE_FLAG_ARRAY.
+bool sfpewReadEdgeFlags(const vertexattribute_t& attribute, GLuint array_buffer,
+                        GLint first, GLsizei count, std::vector<uint8_t>& out);
+
+// Handles a draw whose front/back polygon modes differ. `positions` contains
+// object-space vertices; optional `indices` addresses that array. Generated
+// backend indices add output_base, allowing a draw-array range uploaded at
+// vertex zero or left in a VBO at `first` to use the same classifier. Returns
+// true when the draw was handled, including an empty result after culling.
+bool sfpewDrawMixedPolygonMode(GLenum primitive, const glm::vec4* positions,
+                               size_t position_count, const uint32_t* indices,
+                               size_t index_count, uint32_t output_base,
+                               const uint8_t* edge_flags = nullptr,
+                               size_t edge_flag_count = 0);
 
 // Expands a filled primitive into the GL_LINES index pairs that outline it,
 // for GL_LINE polygon mode. Indices are emitted relative to `base`. Shared

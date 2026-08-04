@@ -1105,7 +1105,9 @@ void drawArraysNow(GLenum mode, GLint first, GLsizei count, bool forceFixedFunct
     // allocation-failure fallback), so they can keep the FPE backend state
     // live between commands and avoid four synchronous state queries per
     // draw. The outer glCallList(s) guard restores all caller state once.
-    if (forceFixedFunction && DisplayListManager::isCalling() && arrayBufferOverride >= 0) {
+    const bool mixed_polygon_mode = sfpewMixedPolygonMode(mode);
+    if (forceFixedFunction && DisplayListManager::isCalling() && arrayBufferOverride >= 0 &&
+        !mixed_polygon_mode) {
         // No explicit bind here: commit_fpe_state_on_draw binds the
         // attribute source itself (arm-checked), so binding first just
         // doubled the call on every captured display-list draw.
@@ -1174,8 +1176,39 @@ void drawArraysNow(GLenum mode, GLint first, GLsizei count, bool forceFixedFunct
     if (arrayBufferOverride >= 0) {
         attributeArrayBuffer = arrayBufferOverride; // commit binds it (arm-checked)
     }
+    const GLenum polygon_primitive = mode;
+    const GLsizei polygon_count = count;
+    thread_local std::vector<glm::vec4> mixed_positions;
+    thread_local std::vector<uint8_t> mixed_edge_flags;
+    if (mixed_polygon_mode) {
+        const int position_slot = vp2idx(GL_VERTEX_ARRAY);
+        const GLuint position_buffer = arrayBufferOverride >= 0
+                                           ? static_cast<GLuint>(arrayBufferOverride)
+                                           : getClientArrayBufferBinding(position_slot);
+        if (!sfpewReadVertexPositions(vertex_array.attributes[position_slot], position_buffer,
+                                      first, count, mixed_positions)) {
+            g_glstate_c.set_error(GL_INVALID_OPERATION);
+            return;
+        }
+        mixed_edge_flags.clear();
+        const int edge_slot = vp2idx(GL_EDGE_FLAG_ARRAY);
+        if (((vertex_array.enabled_pointers >> edge_slot) & 1u) != 0) {
+            const GLuint edge_buffer = arrayBufferOverride >= 0
+                                           ? static_cast<GLuint>(arrayBufferOverride)
+                                           : getClientArrayBufferBinding(edge_slot);
+            (void)sfpewReadEdgeFlags(vertex_array.attributes[edge_slot], edge_buffer, first,
+                                     count, mixed_edge_flags);
+        }
+    }
     int do_draw_element = commit_fpe_state_on_draw(&mode, &first, &count, attributeArrayBuffer);
     if (do_draw_element < 0) {
+        return;
+    } else if (mixed_polygon_mode &&
+               sfpewDrawMixedPolygonMode(
+                   polygon_primitive, mixed_positions.data(), mixed_positions.size(), nullptr,
+                   static_cast<size_t>(polygon_count), static_cast<uint32_t>(first),
+                   mixed_edge_flags.empty() ? nullptr : mixed_edge_flags.data(),
+                   mixed_edge_flags.size())) {
         return;
     } else if (do_draw_element == 2) {
         g_glFuncs.glDrawElements(mode, count, GL_UNSIGNED_INT, (void*)0);
@@ -1208,6 +1241,30 @@ uint32_t maxIndexOf(const T* indices, size_t count) {
     for (size_t i = 0; i < count; ++i)
         result = std::max(result, static_cast<uint32_t>(indices[i]));
     return result;
+}
+
+void copyIndicesToUint32(const uint8_t* source, size_t count, GLenum type,
+                         std::vector<uint32_t>& out) {
+    out.resize(count);
+    switch (type) {
+    case GL_UNSIGNED_BYTE:
+        for (size_t i = 0; i < count; ++i) out[i] = source[i];
+        break;
+    case GL_UNSIGNED_SHORT:
+        for (size_t i = 0; i < count; ++i) {
+            uint16_t value = 0;
+            std::memcpy(&value, source + i * sizeof(value), sizeof(value));
+            out[i] = value;
+        }
+        break;
+    default:
+        for (size_t i = 0; i < count; ++i) {
+            uint32_t value = 0;
+            std::memcpy(&value, source + i * sizeof(value), sizeof(value));
+            out[i] = value;
+        }
+        break;
+    }
 }
 
 template <typename T>
@@ -1302,6 +1359,33 @@ bool userProgramDrawElements(GLuint program, GLenum mode, GLsizei count, GLenum 
         return (GLsizei)max_index + 1;
     };
 
+    const bool mixed_polygon_mode = sfpewMixedPolygonMode(mode);
+    thread_local std::vector<glm::vec4> mixed_positions;
+    thread_local std::vector<uint8_t> mixed_edge_flags;
+    thread_local std::vector<uint32_t> mixed_indices;
+    if (mixed_polygon_mode) {
+        const GLsizei mixed_vertex_count = vertexCount();
+        if (max_index >= static_cast<uint32_t>(std::numeric_limits<GLsizei>::max())) {
+            g_glstate.set_error(GL_INVALID_VALUE);
+            return true;
+        }
+        const int position_slot = vp2idx(GL_VERTEX_ARRAY);
+        if (!sfpewReadVertexPositions(raw_vpa.attributes[position_slot],
+                                      getClientArrayBufferBinding(position_slot), 0,
+                                      mixed_vertex_count, mixed_positions)) {
+            g_glstate.set_error(GL_INVALID_OPERATION);
+            return true;
+        }
+        mixed_edge_flags.clear();
+        const int edge_slot = vp2idx(GL_EDGE_FLAG_ARRAY);
+        if (((raw_vpa.enabled_pointers >> edge_slot) & 1u) != 0) {
+            (void)sfpewReadEdgeFlags(raw_vpa.attributes[edge_slot],
+                                     getClientArrayBufferBinding(edge_slot), 0,
+                                     mixed_vertex_count, mixed_edge_flags);
+        }
+        copyIndicesToUint32(cpu_indices, static_cast<size_t>(count), type, mixed_indices);
+    }
+
     vertex_pointer_array_t vpa;
     if (!any_vbo_backed && gather_client_arrays(raw_vpa, 0, vertexCount(), &vpa)) {
         // gathered layout starts at vertex 0
@@ -1329,6 +1413,14 @@ bool userProgramDrawElements(GLuint program, GLenum mode, GLsizei count, GLenum 
 
     sfpewSendUserProgramAttributes(locations, vpa, 0);
     sfpewFeedUserProgramUniforms(program);
+
+    if (mixed_polygon_mode &&
+        sfpewDrawMixedPolygonMode(mode, mixed_positions.data(), mixed_positions.size(),
+                                  mixed_indices.data(), mixed_indices.size(), 0u,
+                                  mixed_edge_flags.empty() ? nullptr : mixed_edge_flags.data(),
+                                  mixed_edge_flags.size())) {
+        return true;
+    }
 
     GLenum draw_mode = mode;
     GLsizei draw_count = count;
@@ -1503,6 +1595,7 @@ void drawElementsNow(GLenum mode, GLsizei count, GLenum type, const GLvoid* indi
     // modes are vertex-order compatible with core modes.
     GLenum draw_mode = mode;
     const bool rewrite_quads = mode == GL_QUADS;
+    const bool mixed_polygon_mode = sfpewMixedPolygonMode(mode);
     if (mode == GL_QUAD_STRIP)
         draw_mode = GL_TRIANGLE_STRIP;
     else if (mode == GL_POLYGON)
@@ -1522,7 +1615,7 @@ void drawElementsNow(GLenum mode, GLsizei count, GLenum type, const GLvoid* indi
             return;
         }
         cpu_indices = static_cast<const uint8_t*>(indices);
-    } else if (client_vertices || rewrite_quads) {
+    } else if (client_vertices || rewrite_quads || mixed_polygon_mode) {
         if (g_glFuncs.glMapBufferRange == nullptr || g_glFuncs.glUnmapBuffer == nullptr) {
             if (g_glFuncs.glDrawElements != nullptr) g_glFuncs.glDrawElements(mode, count, type, indices);
             return;
@@ -1548,7 +1641,7 @@ void drawElementsNow(GLenum mode, GLsizei count, GLenum type, const GLvoid* indi
     }
 
     uint32_t max_index = 0;
-    if (client_vertices && cpu_indices != nullptr) {
+    if ((client_vertices || mixed_polygon_mode) && cpu_indices != nullptr) {
         switch (type) {
         case GL_UNSIGNED_BYTE:
             max_index = maxIndexOf(cpu_indices, static_cast<size_t>(count));
@@ -1569,6 +1662,32 @@ void drawElementsNow(GLenum mode, GLsizei count, GLenum type, const GLvoid* indi
     const GLint logical_array_buffer = static_cast<GLint>(sfpewLogicalArrayBufferBinding());
     fpe_backend_draw_state_guard_t backend_state(current_program, logical_array_buffer);
 
+    thread_local std::vector<glm::vec4> mixed_positions;
+    thread_local std::vector<uint8_t> mixed_edge_flags;
+    thread_local std::vector<uint32_t> mixed_indices;
+    if (mixed_polygon_mode) {
+        if (max_index >= static_cast<uint32_t>(std::numeric_limits<GLsizei>::max())) {
+            g_glstate_c.set_error(GL_INVALID_VALUE);
+            return;
+        }
+        copyIndicesToUint32(cpu_indices, static_cast<size_t>(count), type, mixed_indices);
+        const GLsizei mixed_vertex_count = static_cast<GLsizei>(max_index + 1u);
+        const int position_slot = vp2idx(GL_VERTEX_ARRAY);
+        if (!sfpewReadVertexPositions(vertex_array.attributes[position_slot],
+                                      getClientArrayBufferBinding(position_slot), 0,
+                                      mixed_vertex_count, mixed_positions)) {
+            g_glstate_c.set_error(GL_INVALID_OPERATION);
+            return;
+        }
+        mixed_edge_flags.clear();
+        const int edge_slot = vp2idx(GL_EDGE_FLAG_ARRAY);
+        if (((vertex_array.enabled_pointers >> edge_slot) & 1u) != 0) {
+            (void)sfpewReadEdgeFlags(vertex_array.attributes[edge_slot],
+                                     getClientArrayBufferBinding(edge_slot), 0,
+                                     mixed_vertex_count, mixed_edge_flags);
+        }
+    }
+
     // Reuse the arrays-path commit for program/uniform/attribute setup and
     // the client-memory vertex upload. GL_TRIANGLES bypasses its
     // QUADS-from-arrays conversion; first/count only size that upload.
@@ -1576,6 +1695,14 @@ void drawElementsNow(GLenum mode, GLsizei count, GLenum type, const GLvoid* indi
     GLint commit_first = 0;
     GLsizei commit_count = client_vertices ? static_cast<GLsizei>(max_index + 1u) : count;
     if (commit_fpe_state_on_draw(&commit_mode, &commit_first, &commit_count, logical_array_buffer) < 0) return;
+
+    if (mixed_polygon_mode &&
+        sfpewDrawMixedPolygonMode(mode, mixed_positions.data(), mixed_positions.size(),
+                                  mixed_indices.data(), mixed_indices.size(), 0u,
+                                  mixed_edge_flags.empty() ? nullptr : mixed_edge_flags.data(),
+                                  mixed_edge_flags.size())) {
+        return;
+    }
 
     thread_local std::vector<uint32_t> expanded_indices;
     const void* draw_indices = indices;
@@ -2352,4 +2479,3 @@ void glMultiDrawElements(GLenum mode, const GLsizei* count, GLenum type,
         drawElementsNow(mode, count[i], type, indices[i]);
     }
 }
-

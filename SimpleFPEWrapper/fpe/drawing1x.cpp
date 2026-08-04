@@ -375,6 +375,28 @@ void drawImmediateVertices(GLenum primitive, const GLfloat* vertices, size_t flo
     }
     gs.fpe_normalized_valid = false; // immediate layout overwrote the cache
 
+    // Mixed front/back polygon modes need object-space positions on the CPU
+    // so line/point primitives can be filtered by facing before GLES sees
+    // them. Immediate vertices are already float-interleaved and position is
+    // the first field, so retain one homogeneous copy for either shader path.
+    const bool mixed_polygon_mode = sfpewMixedPolygonMode(primitive);
+    thread_local std::vector<glm::vec4> mixed_positions;
+    if (mixed_polygon_mode) {
+        const size_t stride_floats = floatCount / vertexCount;
+        if (stride_floats < static_cast<size_t>(sizes.vertex_size) || sizes.vertex_size < 2 ||
+            sizes.vertex_size > 4) {
+            gs.set_error(GL_INVALID_OPERATION);
+            return;
+        }
+        mixed_positions.assign(vertexCount, glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
+        for (size_t vertex = 0; vertex < vertexCount; ++vertex) {
+            for (GLint component = 0; component < sizes.vertex_size; ++component) {
+                glm::value_ptr(mixed_positions[vertex])[component] =
+                    vertices[vertex * stride_floats + static_cast<size_t>(component)];
+            }
+        }
+    }
+
     // GL 2.1: a bound USER program consumes immediate-mode vertices too
     // (OptiFine composite/final passes draw their fullscreen quad through
     // glBegin/glEnd with the pack's shader bound - substituting the FPE
@@ -400,6 +422,15 @@ void drawImmediateVertices(GLenum primitive, const GLfloat* vertices, size_t flo
             sfpewFeedUserProgramUniforms((GLuint)user_program);
 
             const GLsizei userDrawCount = static_cast<GLsizei>(vertexCount);
+            const uint8_t* mixed_flags =
+                edge_flags != nullptr && !edge_flags->empty() ? edge_flags->data() : nullptr;
+            if (mixed_polygon_mode &&
+                sfpewDrawMixedPolygonMode(primitive, mixed_positions.data(),
+                                          mixed_positions.size(), nullptr, vertexCount, 0u,
+                                          mixed_flags,
+                                          mixed_flags != nullptr ? edge_flags->size() : 0u)) {
+                return;
+            }
             if (primitive == GL_QUADS) {
                 const GLsizei indexCount = (userDrawCount / 4) * 6;
                 const bool uploadIndices = prepare_quad_indices(userDrawCount, 0);
@@ -459,6 +490,15 @@ void drawImmediateVertices(GLenum primitive, const GLfloat* vertices, size_t flo
     gs.send_uniforms(program);
 
     const GLsizei drawCount = static_cast<GLsizei>(vertexCount);
+
+    const uint8_t* mixed_flags =
+        edge_flags != nullptr && !edge_flags->empty() ? edge_flags->data() : nullptr;
+    if (mixed_polygon_mode &&
+        sfpewDrawMixedPolygonMode(primitive, mixed_positions.data(), mixed_positions.size(),
+                                  nullptr, vertexCount, 0u, mixed_flags,
+                                  mixed_flags != nullptr ? edge_flags->size() : 0u)) {
+        return;
+    }
 
     // plans/08 8.3: GL_LINE/GL_POINT polygon modes, the same two conversions
     // commit_fpe_state_on_draw applies to client-array draws, through the

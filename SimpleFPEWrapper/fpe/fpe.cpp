@@ -14,6 +14,7 @@
 #include <limits>
 #include <cstring>
 #include <cstdlib>
+#include <cmath>
 #include <vector>
 #include <algorithm>
 
@@ -189,6 +190,333 @@ GLsizei type_size(GLenum type) {
         // LOG_D("%s: unknown type: %s", __FUNCTION__, glEnumToString(type))
         return 0;
     }
+}
+
+namespace {
+
+template <typename T>
+T loadUnaligned(const uint8_t* source) {
+    T value{};
+    std::memcpy(&value, source, sizeof(value));
+    return value;
+}
+
+float halfToVertexFloat(uint16_t bits) {
+    const bool negative = (bits & 0x8000u) != 0;
+    const uint16_t exponent = (bits >> 10u) & 0x1Fu;
+    const uint16_t mantissa = bits & 0x03FFu;
+    float value = 0.0f;
+    if (exponent == 0) {
+        value = std::ldexp(static_cast<float>(mantissa), -24);
+    } else if (exponent == 0x1Fu) {
+        value = mantissa == 0 ? std::numeric_limits<float>::infinity()
+                              : std::numeric_limits<float>::quiet_NaN();
+    } else {
+        value = std::ldexp(1.0f + static_cast<float>(mantissa) / 1024.0f,
+                           static_cast<int>(exponent) - 15);
+    }
+    return negative ? -value : value;
+}
+
+GLfloat readVertexComponent(const uint8_t* source, GLenum type) {
+    switch (type) {
+    case GL_BYTE: return static_cast<GLfloat>(loadUnaligned<GLbyte>(source));
+    case GL_UNSIGNED_BYTE: return static_cast<GLfloat>(loadUnaligned<GLubyte>(source));
+    case GL_SHORT: return static_cast<GLfloat>(loadUnaligned<GLshort>(source));
+    case GL_UNSIGNED_SHORT: return static_cast<GLfloat>(loadUnaligned<GLushort>(source));
+    case GL_INT: return static_cast<GLfloat>(loadUnaligned<GLint>(source));
+    case GL_UNSIGNED_INT: return static_cast<GLfloat>(loadUnaligned<GLuint>(source));
+    case GL_FLOAT: return loadUnaligned<GLfloat>(source);
+    case GL_DOUBLE: return static_cast<GLfloat>(loadUnaligned<GLdouble>(source));
+    case GL_HALF_FLOAT: return halfToVertexFloat(loadUnaligned<uint16_t>(source));
+    case GL_FIXED: return static_cast<GLfloat>(loadUnaligned<GLint>(source)) / 65536.0f;
+    default: return 0.0f;
+    }
+}
+
+bool copyAttributeElements(const vertexattribute_t& attribute, GLuint array_buffer,
+                           GLint first, GLsizei count, GLint component_count,
+                           std::vector<uint8_t>& out) {
+    if (first < 0 || count < 0 || component_count <= 0 ||
+        component_count > attribute.size) {
+        return false;
+    }
+    if (count == 0) {
+        out.clear();
+        return true;
+    }
+    const GLsizei component_size = type_size(attribute.type);
+    if (component_size <= 0 || attribute.stride < 0) return false;
+
+    const uint64_t element_size = static_cast<uint64_t>(component_count) * component_size;
+    const uint64_t stride = attribute.stride != 0
+                                ? static_cast<uint64_t>(attribute.stride)
+                                : static_cast<uint64_t>(attribute.size) * component_size;
+    const uint64_t first_offset = static_cast<uint64_t>(first) * stride;
+    const uint64_t pointer_value = reinterpret_cast<uintptr_t>(attribute.pointer);
+    if (first_offset > std::numeric_limits<uint64_t>::max() - pointer_value) return false;
+    const uint64_t source_offset = pointer_value + first_offset;
+    const uint64_t source_bytes = static_cast<uint64_t>(count - 1) * stride + element_size;
+    const uint64_t packed_bytes = static_cast<uint64_t>(count) * element_size;
+    if (source_bytes > static_cast<uint64_t>(std::numeric_limits<GLsizeiptr>::max()) ||
+        source_offset > static_cast<uint64_t>(std::numeric_limits<GLintptr>::max()) ||
+        packed_bytes > static_cast<uint64_t>(std::numeric_limits<size_t>::max())) {
+        return false;
+    }
+
+    out.resize(static_cast<size_t>(packed_bytes));
+    const uint8_t* source = nullptr;
+    void* mapped = nullptr;
+    if (array_buffer == 0) {
+        if (attribute.pointer == nullptr) return false;
+        source = reinterpret_cast<const uint8_t*>(static_cast<uintptr_t>(source_offset));
+    } else {
+        if (g_glFuncs.glBindBuffer == nullptr || g_glFuncs.glMapBufferRange == nullptr ||
+            g_glFuncs.glUnmapBuffer == nullptr) {
+            return false;
+        }
+        g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, array_buffer);
+        g_glstate_c.immediate_live_buffer = array_buffer;
+        mapped = g_glFuncs.glMapBufferRange(GL_ARRAY_BUFFER, static_cast<GLintptr>(source_offset),
+                                            static_cast<GLsizeiptr>(source_bytes), GL_MAP_READ_BIT);
+        if (mapped == nullptr) return false;
+        source = static_cast<const uint8_t*>(mapped);
+    }
+
+    for (GLsizei vertex = 0; vertex < count; ++vertex) {
+        std::memcpy(out.data() + static_cast<size_t>(vertex) * element_size,
+                    source + static_cast<size_t>(vertex) * stride,
+                    static_cast<size_t>(element_size));
+    }
+    if (mapped != nullptr && g_glFuncs.glUnmapBuffer(GL_ARRAY_BUFFER) == GL_FALSE) return false;
+    return true;
+}
+
+} // namespace
+
+bool sfpewReadVertexPositions(const vertexattribute_t& attribute, GLuint array_buffer,
+                              GLint first, GLsizei count, std::vector<glm::vec4>& out) {
+    if (attribute.size < 2 || attribute.size > 4) return false;
+    thread_local std::vector<uint8_t> packed;
+    if (!copyAttributeElements(attribute, array_buffer, first, count, attribute.size, packed))
+        return false;
+    const size_t component_size = static_cast<size_t>(type_size(attribute.type));
+    const size_t element_size = static_cast<size_t>(attribute.size) * component_size;
+    out.assign(static_cast<size_t>(count), glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
+    for (GLsizei vertex = 0; vertex < count; ++vertex) {
+        const uint8_t* element = packed.data() + static_cast<size_t>(vertex) * element_size;
+        for (GLint component = 0; component < attribute.size; ++component) {
+            glm::value_ptr(out[static_cast<size_t>(vertex)])[component] =
+                readVertexComponent(element + static_cast<size_t>(component) * component_size,
+                                    attribute.type);
+        }
+    }
+    return true;
+}
+
+bool sfpewReadEdgeFlags(const vertexattribute_t& attribute, GLuint array_buffer,
+                        GLint first, GLsizei count, std::vector<uint8_t>& out) {
+    thread_local std::vector<uint8_t> packed;
+    if (!copyAttributeElements(attribute, array_buffer, first, count, 1, packed)) return false;
+    const size_t component_size = static_cast<size_t>(type_size(attribute.type));
+    out.resize(static_cast<size_t>(count));
+    for (GLsizei vertex = 0; vertex < count; ++vertex) {
+        out[static_cast<size_t>(vertex)] =
+            readVertexComponent(packed.data() + static_cast<size_t>(vertex) * component_size,
+                                attribute.type) != 0.0f
+                ? 1u
+                : 0u;
+    }
+    return true;
+}
+
+bool sfpewDrawMixedPolygonMode(GLenum primitive, const glm::vec4* positions,
+                               size_t position_count, const uint32_t* indices,
+                               size_t index_count, uint32_t output_base,
+                               const uint8_t* edge_flags, size_t edge_flag_count) {
+    if (!sfpewMixedPolygonMode(primitive)) return false;
+    if (positions == nullptr || position_count == 0 || index_count == 0) return true;
+
+    auto& gs = g_glstate_c;
+    const auto& uniform = gs.fpe_uniform;
+    const auto& backend = gs.fpe_state.backend_state;
+    using shadow_t = fixed_function_state_t::backend_state_shadow_t;
+    bool cull_enabled = backend.enable_known[shadow_t::kEnableCullFace]
+                            ? backend.enable_value[shadow_t::kEnableCullFace]
+                            : false;
+    GLenum cull_face = backend.cull_face;
+    GLenum front_face = backend.front_face;
+    // Mixed mode is deliberately cold and already CPU-bound. Querying here
+    // makes facing exact even for the first shadowed glFrontFace/glCullFace
+    // call and for applications that reached those core entries directly.
+    if (g_glFuncs.glIsEnabled != nullptr)
+        cull_enabled = g_glFuncs.glIsEnabled(GL_CULL_FACE) == GL_TRUE;
+    if (g_glFuncs.glGetIntegerv != nullptr) {
+        GLint value = 0;
+        g_glFuncs.glGetIntegerv(GL_CULL_FACE_MODE, &value);
+        if (value == GL_FRONT || value == GL_BACK || value == GL_FRONT_AND_BACK)
+            cull_face = static_cast<GLenum>(value);
+        g_glFuncs.glGetIntegerv(GL_FRONT_FACE, &value);
+        if (value == GL_CW || value == GL_CCW) front_face = static_cast<GLenum>(value);
+    }
+
+    thread_local std::vector<glm::dvec2> projected;
+    thread_local std::vector<uint8_t> projectable;
+    projected.resize(position_count);
+    projectable.assign(position_count, 0u);
+    const glm::mat4 mvp = uniform.transformation.matrices[matrix_idx(GL_PROJECTION)] *
+                          uniform.transformation.matrices[matrix_idx(GL_MODELVIEW)];
+    for (size_t i = 0; i < position_count; ++i) {
+        const glm::vec4 clip = mvp * positions[i];
+        if (clip.w == 0.0f || !std::isfinite(clip.x) || !std::isfinite(clip.y) ||
+            !std::isfinite(clip.w)) {
+            continue;
+        }
+        projected[i] = glm::dvec2(static_cast<double>(clip.x) / clip.w,
+                                  static_cast<double>(clip.y) / clip.w);
+        projectable[i] = 1u;
+    }
+
+    thread_local std::vector<uint32_t> fill_indices;
+    thread_local std::vector<uint32_t> line_indices;
+    thread_local std::vector<uint32_t> point_indices;
+    fill_indices.clear();
+    line_indices.clear();
+    point_indices.clear();
+
+    bool index_overflow = false;
+    const auto outputIndex = [&](uint32_t index) {
+        if (index > std::numeric_limits<uint32_t>::max() - output_base) {
+            index_overflow = true;
+            return 0u;
+        }
+        return output_base + index;
+    };
+    const auto edgeEnabled = [&](uint32_t index) {
+        return edge_flags == nullptr || index >= edge_flag_count || edge_flags[index] != 0;
+    };
+    const auto isCulled = [&](bool front) {
+        if (!cull_enabled) return false;
+        if (cull_face == GL_FRONT_AND_BACK) return true;
+        return cull_face == (front ? GL_FRONT : GL_BACK);
+    };
+
+    const auto emitPolygon = [&](const uint32_t* polygon, size_t count) {
+        if (count < 3) return;
+        double signed_area = 0.0;
+        for (size_t i = 0; i < count; ++i) {
+            const uint32_t a = polygon[i];
+            const uint32_t b = polygon[(i + 1) % count];
+            if (a >= position_count || b >= position_count || !projectable[a] ||
+                !projectable[b]) {
+                return;
+            }
+            signed_area += projected[a].x * projected[b].y -
+                           projected[a].y * projected[b].x;
+        }
+        const bool ccw = signed_area > 0.0;
+        const bool front = front_face == GL_CW ? !ccw : ccw;
+        if (isCulled(front)) return;
+        const GLenum polygon_mode =
+            front ? uniform.polygon_mode_front : uniform.polygon_mode_back;
+
+        if (polygon_mode == GL_POINT) {
+            for (size_t i = 0; i < count; ++i)
+                point_indices.push_back(outputIndex(polygon[i]));
+            return;
+        }
+        if (polygon_mode == GL_LINE) {
+            for (size_t i = 0; i < count; ++i) {
+                const uint32_t a = polygon[i];
+                if (!edgeEnabled(a)) continue;
+                line_indices.push_back(outputIndex(a));
+                line_indices.push_back(outputIndex(polygon[(i + 1) % count]));
+            }
+            return;
+        }
+
+        // GL_FILL. Preserve the wrapper's established flat-shaded quad rule:
+        // both generated triangles end on the quad's provoking vertex.
+        if (count == 4 && gs.fpe_state.shade_model == GL_FLAT) {
+            fill_indices.insert(fill_indices.end(),
+                                {outputIndex(polygon[0]), outputIndex(polygon[1]),
+                                 outputIndex(polygon[3]), outputIndex(polygon[1]),
+                                 outputIndex(polygon[2]), outputIndex(polygon[3])});
+        } else {
+            for (size_t i = 1; i + 1 < count; ++i) {
+                fill_indices.push_back(outputIndex(polygon[0]));
+                fill_indices.push_back(outputIndex(polygon[i]));
+                fill_indices.push_back(outputIndex(polygon[i + 1]));
+            }
+        }
+    };
+
+    const auto sourceIndex = [&](size_t stream_index) -> uint32_t {
+        return indices != nullptr ? indices[stream_index] : static_cast<uint32_t>(stream_index);
+    };
+    switch (primitive) {
+    case GL_TRIANGLES:
+        for (size_t i = 0; i + 2 < index_count; i += 3) {
+            const uint32_t polygon[] = {sourceIndex(i), sourceIndex(i + 1), sourceIndex(i + 2)};
+            emitPolygon(polygon, 3);
+        }
+        break;
+    case GL_TRIANGLE_STRIP:
+        for (size_t i = 0; i + 2 < index_count; ++i) {
+            const uint32_t polygon[] = {
+                sourceIndex(i + (i & 1u)), sourceIndex(i + ((i & 1u) ? 0u : 1u)),
+                sourceIndex(i + 2)};
+            emitPolygon(polygon, 3);
+        }
+        break;
+    case GL_TRIANGLE_FAN:
+        for (size_t i = 1; i + 1 < index_count; ++i) {
+            const uint32_t polygon[] = {sourceIndex(0), sourceIndex(i), sourceIndex(i + 1)};
+            emitPolygon(polygon, 3);
+        }
+        break;
+    case GL_QUADS:
+        for (size_t i = 0; i + 3 < index_count; i += 4) {
+            const uint32_t polygon[] = {sourceIndex(i), sourceIndex(i + 1),
+                                        sourceIndex(i + 2), sourceIndex(i + 3)};
+            emitPolygon(polygon, 4);
+        }
+        break;
+    case GL_QUAD_STRIP:
+        for (size_t i = 0; i + 3 < index_count; i += 2) {
+            const uint32_t polygon[] = {sourceIndex(i), sourceIndex(i + 1),
+                                        sourceIndex(i + 3), sourceIndex(i + 2)};
+            emitPolygon(polygon, 4);
+        }
+        break;
+    case GL_POLYGON: {
+        thread_local std::vector<uint32_t> polygon;
+        polygon.resize(index_count);
+        for (size_t i = 0; i < index_count; ++i) polygon[i] = sourceIndex(i);
+        emitPolygon(polygon.data(), polygon.size());
+        break;
+    }
+    default:
+        return false;
+    }
+
+    if (index_overflow) {
+        gs.set_error(GL_INVALID_VALUE);
+        return true;
+    }
+    const auto draw = [&](GLenum mode, const std::vector<uint32_t>& draw_indices) {
+        if (draw_indices.empty()) return true;
+        if (g_glFuncs.glDrawElements == nullptr || !sfpewUploadWireframeIndices(draw_indices))
+            return false;
+        g_glFuncs.glDrawElements(mode, static_cast<GLsizei>(draw_indices.size()),
+                                 GL_UNSIGNED_INT, (void*)0);
+        return true;
+    };
+    if (!draw(GL_TRIANGLES, fill_indices) || !draw(GL_LINES, line_indices) ||
+        !draw(GL_POINTS, point_indices)) {
+        gs.set_error(GL_INVALID_OPERATION);
+    }
+    return true;
 }
 
 void sfpewBuildWireframeIndices(GLenum mode, uint32_t base, uint32_t n,
@@ -757,6 +1085,25 @@ bool sfpewUserProgramFixedFunctionDrawArrays(GLuint program, GLenum mode, GLint 
     fpe_backend_draw_state_guard_t backend_state((GLint)program, logical_array_buffer);
 
     const auto& raw_vpa = st.vertexpointer_array;
+    const bool mixed_polygon_mode = sfpewMixedPolygonMode(mode);
+    thread_local std::vector<glm::vec4> mixed_positions;
+    thread_local std::vector<uint8_t> mixed_edge_flags;
+    if (mixed_polygon_mode) {
+        const int position_slot = vp2idx(GL_VERTEX_ARRAY);
+        if (!sfpewReadVertexPositions(raw_vpa.attributes[position_slot],
+                                      getClientArrayBufferBinding(position_slot), first, count,
+                                      mixed_positions)) {
+            g_glstate.set_error(GL_INVALID_OPERATION);
+            return true;
+        }
+        mixed_edge_flags.clear();
+        const int edge_slot = vp2idx(GL_EDGE_FLAG_ARRAY);
+        if (((raw_vpa.enabled_pointers >> edge_slot) & 1u) != 0) {
+            (void)sfpewReadEdgeFlags(raw_vpa.attributes[edge_slot],
+                                     getClientArrayBufferBinding(edge_slot), first, count,
+                                     mixed_edge_flags);
+        }
+    }
     vertex_pointer_array_t vpa;
     if (gather_client_arrays(raw_vpa, first, count, &vpa)) {
         first = 0; // the gather already applied the base offset
@@ -791,6 +1138,14 @@ bool sfpewUserProgramFixedFunctionDrawArrays(GLuint program, GLenum mode, GLint 
 
     sfpewSendUserProgramAttributes(locations, vpa, 0);
     sfpewFeedUserProgramUniforms(program);
+
+    if (mixed_polygon_mode &&
+        sfpewDrawMixedPolygonMode(mode, mixed_positions.data(), mixed_positions.size(), nullptr,
+                                  static_cast<size_t>(count), static_cast<uint32_t>(first),
+                                  mixed_edge_flags.empty() ? nullptr : mixed_edge_flags.data(),
+                                  mixed_edge_flags.size())) {
+        return true;
+    }
 
     if (mode == GL_QUADS) {
         const GLsizei index_count = (count / 4) * 6;

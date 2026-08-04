@@ -27,10 +27,9 @@
 // outlined. Drawing several quads in one Begin/End, plus consecutive
 // single-quad runs that would otherwise merge, pins that the outline stays
 // the application's own.
-//
-// Per-face polygon modes (front != back) are deliberately not covered:
-// splitting a draw by facing needs CPU-side facing tests, so the wrapper
-// documents that as a gap and rasterizes filled.
+// Mixed front/back modes use opposite-winding triangles in one draw. Their
+// interior and boundary probes make a fill fallback, reversed facing test, or
+// unfiltered GL_LINES conversion immediately visible.
 
 #include "sfpew_gtest.h"
 
@@ -58,6 +57,8 @@ constexpr GLenum GL_POLYGON_ = 0x0009;
 constexpr GLenum GL_FILL_ = 0x1B02;
 constexpr GLenum GL_LINE_ = 0x1B01;
 constexpr GLenum GL_POINT_ = 0x1B00;
+constexpr GLenum GL_FRONT_ = 0x0404;
+constexpr GLenum GL_BACK_ = 0x0405;
 constexpr GLenum GL_FRONT_AND_BACK_ = 0x0408;
 constexpr GLbitfield GL_COLOR_BUFFER_BIT_ = 0x00004000;
 constexpr GLenum GL_FLOAT_ = 0x1406;
@@ -74,6 +75,12 @@ constexpr int kX0 = 6, kY0 = 6, kX1 = 26, kY1 = 26;
 constexpr GLfloat kQuad[] = {kX0, kY0, kX1, kY0, kX1, kY1, kX0, kY1};
 constexpr GLfloat kTris[] = {kX0, kY0, kX1, kY0, kX1, kY1, kX1, kY1, kX0, kY1, kX0, kY0};
 constexpr GLfloat kStrip[] = {kX0, kY0, kX1, kY0, kX0, kY1, kX1, kY1};
+// Left is counter-clockwise (front under the default GL_CCW); right is
+// clockwise (back). Both are submitted in the same GL_TRIANGLES draw.
+constexpr GLfloat kMixedTriangles[] = {
+    3, 4, 13, 4, 8, 14,
+    19, 4, 24, 14, 29, 4,
+};
 
 struct PrimitiveCase {
     const char* name;
@@ -177,6 +184,17 @@ protected:
         SFPEW_EXPECT_LIT(*probe_, kX0, kY0, true, what);
         SFPEW_EXPECT_LIT(*probe_, mx, kY0, false, what);
         SFPEW_EXPECT_LIT(*probe_, mx, my, false, what);
+    }
+
+    void CheckMixedFaces(bool front_is_line, const char* what) {
+        // The line-mode face has its lower edge but no interior; the fill-mode
+        // face has an interior sample. Each assertion is on only one triangle.
+        if (front_is_line)
+            SFPEW_EXPECT_LIT(*probe_, 8, 4, true, what);
+        else
+            SFPEW_EXPECT_LIT(*probe_, 24, 4, true, what);
+        SFPEW_EXPECT_LIT(*probe_, 8, 7, !front_is_line, what);
+        SFPEW_EXPECT_LIT(*probe_, 24, 7, front_is_line, what);
     }
 
     void (*vertex2f_)(GLfloat, GLfloat) = nullptr;
@@ -300,6 +318,46 @@ TEST_F(PolygonModeTest, RestoringFillTakesEffectImmediately) {
     finish_();
     const int mx = (kX0 + kX1) / 2, my = (kY0 + kY1) / 2;
     SFPEW_EXPECT_LIT(*probe_, mx, my, true, "FILL glBegin QUADS");
+    EXPECT_EQ(get_error_(), GL_NO_ERROR_);
+}
+
+TEST_F(PolygonModeTest, ImmediateFrontLineBackFillUsesFacing) {
+    polygon_mode_(GL_FRONT_, GL_LINE_);
+    polygon_mode_(GL_BACK_, GL_FILL_);
+    clear_(GL_COLOR_BUFFER_BIT_);
+    DrawImmediate(GL_TRIANGLES_, kMixedTriangles, 6);
+    finish_();
+    CheckMixedFaces(true, "mixed front LINE back FILL glBegin");
+    EXPECT_EQ(get_error_(), GL_NO_ERROR_);
+}
+
+TEST_F(PolygonModeTest, ImmediateFrontFillBackLineUsesFacing) {
+    polygon_mode_(GL_FRONT_, GL_FILL_);
+    polygon_mode_(GL_BACK_, GL_LINE_);
+    clear_(GL_COLOR_BUFFER_BIT_);
+    DrawImmediate(GL_TRIANGLES_, kMixedTriangles, 6);
+    finish_();
+    CheckMixedFaces(false, "mixed front FILL back LINE glBegin");
+    EXPECT_EQ(get_error_(), GL_NO_ERROR_);
+}
+
+TEST_F(PolygonModeTest, DrawArraysFrontLineBackFillUsesFacing) {
+    polygon_mode_(GL_FRONT_, GL_LINE_);
+    polygon_mode_(GL_BACK_, GL_FILL_);
+    clear_(GL_COLOR_BUFFER_BIT_);
+    DrawArrays(GL_TRIANGLES_, kMixedTriangles, 6);
+    finish_();
+    CheckMixedFaces(true, "mixed front LINE back FILL glDrawArrays");
+    EXPECT_EQ(get_error_(), GL_NO_ERROR_);
+}
+
+TEST_F(PolygonModeTest, DrawArraysFrontFillBackLineUsesFacing) {
+    polygon_mode_(GL_FRONT_, GL_FILL_);
+    polygon_mode_(GL_BACK_, GL_LINE_);
+    clear_(GL_COLOR_BUFFER_BIT_);
+    DrawArrays(GL_TRIANGLES_, kMixedTriangles, 6);
+    finish_();
+    CheckMixedFaces(false, "mixed front FILL back LINE glDrawArrays");
     EXPECT_EQ(get_error_(), GL_NO_ERROR_);
 }
 

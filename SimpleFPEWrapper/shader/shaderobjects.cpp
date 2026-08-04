@@ -8,10 +8,11 @@
 
 // plans/09 9.2: GL 2.0 shader objects and the ARB_shader_objects aliases
 // LWJGL-era applications resolve. glShaderSource keeps the caller's
-// original text (GetShaderSource returns it per spec) and glCompileShader
-// feeds the translated source to the GLES backend; if translation fails
-// the original is passed through (the backend may accept it natively) and
-// the translator diagnostics are prepended to the info log.
+// original text (GetShaderSource returns it per spec). glCompileShader
+// uploads that original directly when its dialect and #version are already
+// acceptable to the backend; otherwise it feeds the translated source to
+// the GLES backend and falls back to the original only when translation
+// fails.
 //
 // Shader records are process-global like display-list definitions:
 // share-group relationships are invisible to the wrapper (see
@@ -40,6 +41,11 @@ struct shader_record_t {
     std::string original;
     std::string translate_log;
     bool translated = false;
+    // The source was classified as directly acceptable to the backend
+    // (dialect + #version <= backend shading-language capability). This
+    // remains true even after a later link re-uploads a translated form for
+    // a program that is not entirely pass-through.
+    bool native_passthrough = false;
     // Standalone glslang link failed but the TU parses: unresolved
     // cross-TU symbols. GL 2.1 resolves those at glLinkProgram, so
     // COMPILE_STATUS reports success and translation reruns at link with
@@ -50,6 +56,9 @@ struct shader_record_t {
     // than translated ESSL. Programs sharing the shader consult this at
     // link time to upload whichever form their own consistency needs.
     bool backend_uploaded_original = false;
+    // Like backend_uploaded_original, but specifically the original was
+    // uploaded because it is a native pass-through form, not a fallback.
+    bool backend_holds_native = false;
     // GLSL 1.20 uniform initializers scraped by the translator; applied
     // with glUniform* after every successful link of a containing program.
     std::vector<SFPEW::Shader::uniform_initializer_t> uniform_inits;
@@ -81,6 +90,74 @@ std::unordered_map<GLuint, program_record_t>& programRecords() {
 
 bool contains(const std::vector<GLuint>& v, GLuint x) {
     return std::find(v.begin(), v.end(), x) != v.end();
+}
+
+const char* shaderStageLabel(GLenum stage) {
+    return stage == GL_VERTEX_SHADER ? "vertex" : "fragment";
+}
+
+std::string backendShaderInfoLog(GLuint shader) {
+    if (g_glFuncs.glGetShaderiv == nullptr || g_glFuncs.glGetShaderInfoLog == nullptr) return {};
+    GLint length = 0;
+    g_glFuncs.glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &length);
+    if (length <= 1) return {};
+    std::string log((size_t)length - 1, '\0');
+    GLsizei written = 0;
+    g_glFuncs.glGetShaderInfoLog(shader, (GLsizei)length, &written, log.data());
+    log.resize((size_t)std::max(written, 0));
+    return log;
+}
+
+// Called after every backend glCompileShader so a shader that fails on the
+// driver is reported immediately, regardless of whether it went through the
+// native pass-through path or the translator. The backend log is included;
+// SFPEW_DUMP_SHADERS also writes the source for offline inspection.
+void reportBackendCompileFailure(GLuint shader, GLenum stage, const char* path,
+                                 const std::string& source) {
+    if (g_glFuncs.glGetShaderiv == nullptr) return;
+    GLint status = GL_FALSE;
+    g_glFuncs.glGetShaderiv(shader, GL_COMPILE_STATUS, &status);
+    if (status == GL_TRUE) return;
+
+    const std::string log = backendShaderInfoLog(shader);
+    SFPEW_LOGE("shader %u [%s] %s compile failed", shader, shaderStageLabel(stage), path);
+    if (!log.empty()) SFPEW_LOGE("backend log:\n%s", log.c_str());
+    if (!source.empty()) SFPEW_LOGE("source:\n%s", source.c_str());
+
+    const char* dump_dir = std::getenv("SFPEW_DUMP_SHADERS");
+    if (dump_dir != nullptr && dump_dir[0] != '\0') {
+        char dump_path[512];
+        std::snprintf(dump_path, sizeof(dump_path), "%s/sfpew_failed_shader_%u.txt", dump_dir,
+                      shader);
+        if (FILE* f = std::fopen(dump_path, "w")) {
+            std::fprintf(f, "=== compile path ===\n%s\n=== backend log ===\n%s\n=== source ===\n%s\n",
+                         path, log.c_str(), source.c_str());
+            std::fclose(f);
+        }
+    }
+}
+
+std::string backendProgramInfoLog(GLuint program) {
+    if (g_glFuncs.glGetProgramiv == nullptr || g_glFuncs.glGetProgramInfoLog == nullptr) return {};
+    GLint length = 0;
+    g_glFuncs.glGetProgramiv(program, GL_INFO_LOG_LENGTH, &length);
+    if (length <= 1) return {};
+    std::string log((size_t)length - 1, '\0');
+    GLsizei written = 0;
+    g_glFuncs.glGetProgramInfoLog(program, (GLsizei)length, &written, log.data());
+    log.resize((size_t)std::max(written, 0));
+    return log;
+}
+
+void reportBackendLinkFailure(GLuint program) {
+    if (g_glFuncs.glGetProgramiv == nullptr) return;
+    GLint status = GL_FALSE;
+    g_glFuncs.glGetProgramiv(program, GL_LINK_STATUS, &status);
+    if (status == GL_TRUE) return;
+
+    const std::string log = backendProgramInfoLog(program);
+    SFPEW_LOGE("program %u link failed", program);
+    if (!log.empty()) SFPEW_LOGE("backend log:\n%s", log.c_str());
 }
 
 } // namespace
@@ -133,6 +210,8 @@ void glShaderSource(GLuint shader, GLsizei count, const GLchar* const* string, c
     }
     it->second.original = std::move(source);
     it->second.translated = false;
+    it->second.native_passthrough = false;
+    it->second.backend_holds_native = false;
     it->second.translate_log.clear();
 }
 
@@ -154,7 +233,28 @@ void glCompileShader(GLuint shader) {
         stage = it->second.stage;
     }
 
-    auto result = SFPEW::Shader::translate(stage, original, SFPEW::Shader::detect_backend_target());
+    auto target = SFPEW::Shader::detect_backend_target();
+    if (SFPEW::Shader::shader_can_passthrough(original, target)) {
+        const char* text = original.c_str();
+        const GLint text_length = (GLint)original.size();
+        g_glFuncs.glShaderSource(shader, 1, &text, &text_length);
+        g_glFuncs.glCompileShader(shader);
+        reportBackendCompileFailure(shader, stage, "native passthrough", original);
+        std::lock_guard<std::mutex> lock(g_shader_mutex);
+        auto it = shaderRecords().find(shader);
+        if (it != shaderRecords().end()) {
+            it->second.translated = false;
+            it->second.deferred = false;
+            it->second.native_passthrough = true;
+            it->second.backend_uploaded_original = true;
+            it->second.backend_holds_native = true;
+            it->second.translate_log.clear();
+            it->second.uniform_inits.clear();
+        }
+        return;
+    }
+
+    auto result = SFPEW::Shader::translate(stage, original, target);
     const bool defer = !result.ok && result.parse_ok;
     if (!result.ok && !defer) {
         SFPEW_LOGW("shader %u: translation failed, passing original through:\n%s", shader,
@@ -181,6 +281,8 @@ void glCompileShader(GLuint shader) {
         const GLint text_length = (GLint)upload.size();
         g_glFuncs.glShaderSource(shader, 1, &text, &text_length);
         g_glFuncs.glCompileShader(shader);
+        reportBackendCompileFailure(shader, stage,
+                                    result.ok ? "translated ESSL" : "original fallback", original);
     }
 
     std::lock_guard<std::mutex> lock(g_shader_mutex);
@@ -188,7 +290,9 @@ void glCompileShader(GLuint shader) {
     if (it != shaderRecords().end()) {
         it->second.translated = result.ok;
         it->second.deferred = defer;
+        it->second.native_passthrough = false;
         it->second.backend_uploaded_original = !defer && !result.ok;
+        it->second.backend_holds_native = false;
         it->second.translate_log = defer ? std::string() : std::move(result.log);
         it->second.uniform_inits = std::move(result.uniform_initializers);
     }
@@ -397,9 +501,13 @@ void glLinkProgram(GLuint program) {
         std::vector<uint8_t> translated;        // parallel to tus
         std::vector<uint8_t> deferred;          // parallel to tus
         std::vector<uint8_t> backend_original;  // parallel to tus
+        std::vector<uint8_t> native;            // parallel to tus
+        std::vector<uint8_t> backend_native;    // parallel to tus
+        std::vector<unsigned> version;          // parallel to tus
         bool needs_combined = false;
     } work[2];
     bool tracked = false;
+    bool all_native = false;
     {
         std::lock_guard<std::mutex> lock(g_shader_mutex);
         auto pit = programRecords().find(program);
@@ -419,6 +527,10 @@ void glLinkProgram(GLuint program) {
                 w.translated.push_back(sit->second.translated ? 1 : 0);
                 w.deferred.push_back(sit->second.deferred ? 1 : 0);
                 w.backend_original.push_back(sit->second.backend_uploaded_original ? 1 : 0);
+                w.native.push_back(sit->second.native_passthrough ? 1 : 0);
+                w.backend_native.push_back(sit->second.backend_holds_native ? 1 : 0);
+                const auto lang = SFPEW::Shader::detect_shader_language(sit->second.original);
+                w.version.push_back(lang.valid ? lang.version : 0u);
                 w.needs_combined = w.needs_combined || sit->second.deferred;
             }
             for (auto& w : work) w.needs_combined = w.needs_combined || w.tus.size() > 1;
@@ -432,6 +544,27 @@ void glLinkProgram(GLuint program) {
                     rec.force_link_fail = true;
                     rec.link_log += "[SFPEW] vertex shaders never write gl_Position\n";
                 }
+            }
+            all_native = tracked;
+            unsigned program_version = 0;
+            for (const auto& w : work) {
+                if (w.needs_combined) {
+                    all_native = false;
+                    break;
+                }
+                for (size_t i = 0; i < w.tus.size(); ++i) {
+                    if (w.native[i] == 0 || w.version[i] == 0) {
+                        all_native = false;
+                        break;
+                    }
+                    if (program_version == 0) {
+                        program_version = w.version[i];
+                    } else if (program_version != w.version[i]) {
+                        all_native = false;
+                        break;
+                    }
+                }
+                if (!all_native) break;
             }
         }
     }
@@ -448,9 +581,11 @@ void glLinkProgram(GLuint program) {
         rec.stage_combined[s] = true;
         if (!result.ok) {
             rec.force_link_fail = true;
-            rec.link_log += "[SFPEW translator, " +
-                            std::string(s == 0 ? "vertex" : "fragment") + " stage]\n" +
-                            result.log + "\n";
+            const std::string stage_name = s == 0 ? "vertex" : "fragment";
+            rec.link_log += "[SFPEW translator, " + stage_name + " stage]\n" + result.log + "\n";
+            SFPEW_LOGE("program %u [%s] combined translation failed", program,
+                       stage_name.c_str());
+            if (!result.log.empty()) SFPEW_LOGE("%s", result.log.c_str());
             continue;
         }
         // Compile the combined ESSL into the stage's one backend-attached
@@ -468,60 +603,94 @@ void glLinkProgram(GLuint program) {
         const GLint text_length = (GLint)result.essl.size();
         g_glFuncs.glShaderSource(primary, 1, &text, &text_length);
         g_glFuncs.glCompileShader(primary);
+        reportBackendCompileFailure(primary, stage, "combined ESSL (link)", result.essl);
         appendUnique(rec.combined_inits, result.uniform_initializers);
-    }
-
-    // Version consistency: a pass-through TU keeps the app's #version while
-    // translated TUs carry the backend's target version, and GLSL ES
-    // requires every shader of a program to share one version (Mesa
-    // enforces it; NVIDIA happens to be lenient). A program mixing the two
-    // falls back to the ORIGINAL source for all of its TUs - the app's own
-    // sources are version-consistent by construction. The translated form
-    // is restored the next time a program links this shader with no
-    // pass-through member; combined (multi-TU) stages cannot pass through
-    // at all and keep the existing force-fail path.
-    if (tracked && !work[0].needs_combined && !work[1].needs_combined &&
-        g_glFuncs.glShaderSource != nullptr && g_glFuncs.glCompileShader != nullptr) {
-        bool any_pass = false, any_translated = false;
-        for (const auto& w : work) {
-            for (size_t i = 0; i < w.tus.size(); ++i) {
-                if (w.translated[i])
-                    any_translated = true;
-                else
-                    any_pass = true;
+        for (GLuint sh : w.tus) {
+            auto sit = shaderRecords().find(sh);
+            if (sit != shaderRecords().end()) {
+                sit->second.backend_uploaded_original = false;
+                sit->second.backend_holds_native = false;
             }
         }
+    }
+
+    // Program-level pass-through: only when every attached shader is native,
+    // all declared versions match, and no stage needs a combined TU. Restore
+    // any shader that a previous mixed-program link has since re-uploaded in
+    // translated form.
+    if (all_native && g_glFuncs.glShaderSource != nullptr &&
+        g_glFuncs.glCompileShader != nullptr) {
         for (int s = 0; s < 2; ++s) {
             auto& w = work[s];
             const GLenum stage = s == 0 ? GL_VERTEX_SHADER : GL_FRAGMENT_SHADER;
             for (size_t i = 0; i < w.tus.size(); ++i) {
-                std::string upload;
-                bool to_original = false;
-                if (any_pass && any_translated && w.translated[i] && !w.backend_original[i]) {
-                    upload = w.sources[i];
-                    to_original = true;
-                } else if (!any_pass && w.backend_original[i]) {
-                    // Memoized in the translator, so this is a cache hit.
-                    auto result = SFPEW::Shader::translate(stage, w.sources[i],
-                                                           SFPEW::Shader::detect_backend_target());
-                    if (!result.ok) continue;
-                    upload = std::move(result.essl);
-                } else {
-                    continue;
-                }
-                const char* text = upload.c_str();
-                const GLint text_length = (GLint)upload.size();
+                if (w.backend_native[i]) continue;
+                const char* text = w.sources[i].c_str();
+                const GLint text_length = (GLint)w.sources[i].size();
                 g_glFuncs.glShaderSource(w.tus[i], 1, &text, &text_length);
                 g_glFuncs.glCompileShader(w.tus[i]);
+                reportBackendCompileFailure(w.tus[i], stage, "native recompile (link)",
+                                            w.sources[i]);
                 std::lock_guard<std::mutex> lock(g_shader_mutex);
                 auto sit = shaderRecords().find(w.tus[i]);
-                if (sit != shaderRecords().end())
-                    sit->second.backend_uploaded_original = to_original;
+                if (sit != shaderRecords().end()) {
+                    sit->second.backend_uploaded_original = true;
+                    sit->second.backend_holds_native = true;
+                }
             }
         }
+        g_glFuncs.glLinkProgram(program);
+    } else if (tracked && !all_native && g_glFuncs.glShaderSource != nullptr &&
+               g_glFuncs.glCompileShader != nullptr) {
+        // A program that is not entirely pass-through must use one uniform
+        // translated target version. Native-eligible shaders are translated
+        // here as well; if that fails they stay in their original form and
+        // the backend sees the version mismatch, with the diagnostics kept
+        // for the caller.
+        const auto target = SFPEW::Shader::detect_backend_target();
+        for (int s = 0; s < 2; ++s) {
+            auto& w = work[s];
+            if (w.needs_combined) continue; // already compiled by the combined path
+            const GLenum stage = s == 0 ? GL_VERTEX_SHADER : GL_FRAGMENT_SHADER;
+            for (size_t i = 0; i < w.tus.size(); ++i) {
+                if (w.translated[i] && !w.backend_original[i] && !w.backend_native[i])
+                    continue;
+                auto result = SFPEW::Shader::translate(stage, w.sources[i], target);
+                if (!result.ok) {
+                    std::lock_guard<std::mutex> lock(g_shader_mutex);
+                    auto pit = programRecords().find(program);
+                    if (pit != programRecords().end()) {
+                        pit->second.link_log += "[SFPEW translator, shader " +
+                                                std::to_string(w.tus[i]) + "]\n" +
+                                                result.log + "\n";
+                    }
+                    SFPEW_LOGE("shader %u [%s] link-time translation failed", w.tus[i],
+                               shaderStageLabel(stage));
+                    if (!result.log.empty()) SFPEW_LOGE("%s", result.log.c_str());
+                    continue;
+                }
+                const char* text = result.essl.c_str();
+                const GLint text_length = (GLint)result.essl.size();
+                g_glFuncs.glShaderSource(w.tus[i], 1, &text, &text_length);
+                g_glFuncs.glCompileShader(w.tus[i]);
+                reportBackendCompileFailure(w.tus[i], stage, "mixed-program ESSL (link)",
+                                            result.essl);
+                std::lock_guard<std::mutex> lock(g_shader_mutex);
+                auto sit = shaderRecords().find(w.tus[i]);
+                if (sit != shaderRecords().end()) {
+                    sit->second.translated = true;
+                    sit->second.deferred = false;
+                    sit->second.backend_uploaded_original = false;
+                    sit->second.backend_holds_native = false;
+                    sit->second.translate_log.clear();
+                    sit->second.uniform_inits = std::move(result.uniform_initializers);
+                }
+            }
+        }
+        g_glFuncs.glLinkProgram(program);
+    } else {
+        g_glFuncs.glLinkProgram(program);
     }
-
-    g_glFuncs.glLinkProgram(program);
 
     // A (re)link resets every uniform in the program to zero and may move
     // locations, so the per-program feed cache (resolved locations AND
@@ -532,7 +701,9 @@ void glLinkProgram(GLuint program) {
     GLint status = GL_FALSE;
     if (g_glFuncs.glGetProgramiv != nullptr)
         g_glFuncs.glGetProgramiv(program, GL_LINK_STATUS, &status);
+    reportBackendLinkFailure(program);
     if (status != GL_TRUE) return;
+    if (all_native) return;
 
     // Gather the initializers that apply to this link: per-TU values for
     // fast-path stages, the combined translation's values otherwise.

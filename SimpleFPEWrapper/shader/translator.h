@@ -40,10 +40,15 @@ struct translation_result_t {
 };
 
 // Backend shading-language target, detected at runtime from the real
-// driver (GL_MAJOR/MINOR_VERSION + "OpenGL ES" in GL_VERSION). Never
+// driver (GL_MAJOR/MINOR_VERSION + "OpenGL ES" in GL_VERSION, plus
+// GL_SHADING_LANGUAGE_VERSION for native pass-through checks). Never
 // hardcode: GLES 3.0/3.1/3.2 -> 300/310/320 es, desktop -> 420/450/...
 struct target_language_t {
     unsigned version = 300;
+    // Parsed from GL_SHADING_LANGUAGE_VERSION (e.g. 300, 310, 330, 450).
+    // Sources whose dialect and #version are within this capability may be
+    // uploaded verbatim instead of being translated.
+    unsigned accepted_version = 300;
     bool es = true;
     // Backend GL_MAX_DRAW_BUFFERS: sizes the fpe_FragData prelude array
     // (OptiFine packs statically index gl_FragData up to [7], and a
@@ -66,6 +71,21 @@ translation_result_t translate(GLenum stage, const std::vector<std::string>& sou
 
 // Queries the current backend once per context and caches the result.
 target_language_t detect_backend_target();
+
+struct shader_language_info_t {
+    enum class dialect_t { desktop_glsl, essl } dialect = dialect_t::desktop_glsl;
+    unsigned version = 110; // desktop GLSL default when no #version exists
+    bool valid = true;
+};
+
+// Parses the caller's #version without invoking the translator. Returns an
+// invalid result for malformed directives; a source with no #version is
+// treated as desktop GLSL 1.10.
+shader_language_info_t detect_shader_language(const std::string& source);
+
+// True when this single shader source is directly acceptable to the backend:
+// dialect matches target.es and version <= target.accepted_version.
+bool shader_can_passthrough(const std::string& source, const target_language_t& target);
 
 // Exposed separately for offline tests: the compat-builtin rewrite and
 // prelude injection only (no glslang round trip).

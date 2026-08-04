@@ -1011,6 +1011,132 @@ std::string preprocess(GLenum stage, const std::vector<std::string>& sources) {
     return joined;
 }
 
+namespace {
+
+bool skipShaderPreamble(const std::string& source, size_t& pos) {
+    if (pos == 0 && source.size() >= 3 &&
+        (unsigned char)source[0] == 0xEF && (unsigned char)source[1] == 0xBB &&
+        (unsigned char)source[2] == 0xBF) {
+        pos = 3;
+    }
+    while (pos < source.size()) {
+        const unsigned char c = (unsigned char)source[pos];
+        if (std::isspace(c)) {
+            ++pos;
+            continue;
+        }
+        if (c == '/' && pos + 1 < source.size()) {
+            if (source[pos + 1] == '/') {
+                const size_t nl = source.find('\n', pos + 2);
+                pos = nl == std::string::npos ? source.size() : nl + 1;
+                continue;
+            }
+            if (source[pos + 1] == '*') {
+                const size_t end = source.find("*/", pos + 2);
+                if (end == std::string::npos) return false;
+                pos = end + 2;
+                continue;
+            }
+        }
+        break;
+    }
+    return true;
+}
+
+} // namespace
+
+shader_language_info_t detect_shader_language(const std::string& source) {
+    shader_language_info_t info;
+    size_t pos = 0;
+    if (!skipShaderPreamble(source, pos)) {
+        info.valid = false;
+        return info;
+    }
+    if (pos >= source.size() || source[pos] != '#') {
+        // A later #version directive would be malformed because the first
+        // meaningful token is already shader code. A directive inside a
+        // comment is harmless, so this conservative line scan only rejects
+        // directives that begin a line.
+        size_t line = pos;
+        while (line < source.size()) {
+            const size_t eol = source.find('\n', line);
+            const size_t line_end = eol == std::string::npos ? source.size() : eol;
+            size_t p = line;
+            while (p < line_end &&
+                   (source[p] == ' ' || source[p] == '\t' || source[p] == '\r'))
+                ++p;
+            if (p < line_end && source[p] == '#') {
+                info.valid = false;
+                break;
+            }
+            if (eol == std::string::npos) break;
+            line = eol + 1;
+        }
+        return info; // otherwise GLSL 1.10
+    }
+
+    ++pos; // consume '#'
+    while (pos < source.size() && (source[pos] == ' ' || source[pos] == '\t')) ++pos;
+    if (source.compare(pos, 7, "version") != 0 ||
+        (pos + 7 < source.size() && identChar(source[pos + 7]))) {
+        info.valid = false;
+        return info;
+    }
+    pos += 7;
+    while (pos < source.size() && (source[pos] == ' ' || source[pos] == '\t')) ++pos;
+
+    unsigned version = 0;
+    while (pos < source.size() && std::isdigit((unsigned char)source[pos])) {
+        version = version * 10u + (unsigned)(source[pos] - '0');
+        ++pos;
+    }
+    if (version == 0) {
+        info.valid = false;
+        return info;
+    }
+    info.version = version;
+
+    while (pos < source.size() && (source[pos] == ' ' || source[pos] == '\t')) ++pos;
+    size_t line_end = source.find('\n', pos);
+    if (line_end == std::string::npos) line_end = source.size();
+    std::string tail = source.substr(pos, line_end - pos);
+    while (!tail.empty() && (tail.back() == ' ' || tail.back() == '\t' || tail.back() == '\r'))
+        tail.pop_back();
+
+    size_t t = 0;
+    while (t < tail.size() && (tail[t] == ' ' || tail[t] == '\t')) ++t;
+    if (t < tail.size()) {
+        size_t end = t;
+        while (end < tail.size() && tail[end] != ' ' && tail[end] != '\t') ++end;
+        const std::string token = tail.substr(t, end - t);
+        if (token == "es") {
+            info.dialect = shader_language_info_t::dialect_t::essl;
+        } else if (token != "core" && token != "compatibility") {
+            info.valid = false;
+            return info;
+        }
+        while (end < tail.size() && (tail[end] == ' ' || tail[end] == '\t')) ++end;
+        if (end < tail.size()) {
+            info.valid = false;
+            return info;
+        }
+    }
+    return info;
+}
+
+bool shader_can_passthrough(const std::string& source, const target_language_t& target) {
+    const auto lang = detect_shader_language(source);
+    if (!lang.valid || lang.version == 0) return false;
+    // Desktop GLSL <= 1.40 is not a safe native form for the 3.2+ core
+    // backend, so route those sources through the translator even when the
+    // version number is within the backend's accepted range.
+    if (lang.dialect == shader_language_info_t::dialect_t::desktop_glsl && lang.version <= 140)
+        return false;
+    const bool dialect_matches =
+        (lang.dialect == shader_language_info_t::dialect_t::essl) == target.es;
+    return dialect_matches && lang.version <= target.accepted_version;
+}
+
 translation_result_t translate(GLenum stage, const std::string& source,
                                const target_language_t& target) {
     return translate(stage, std::vector<std::string>{source}, target);
@@ -1246,6 +1372,30 @@ translation_result_t translateUnits(GLenum stage, const std::vector<std::string>
 
 namespace SFPEW::Shader {
 
+namespace {
+
+unsigned parseShadingLanguageVersionString(const char* text) {
+    if (text == nullptr) return 0;
+    const char* p = text;
+    while (*p != '\0' && !std::isdigit((unsigned char)*p)) ++p;
+    unsigned major = 0;
+    while (*p != '\0' && std::isdigit((unsigned char)*p)) {
+        major = major * 10u + (unsigned)(*p - '0');
+        ++p;
+    }
+    while (*p != '\0' && *p != '.') ++p;
+    if (*p != '.') return major;
+    ++p;
+    unsigned minor = 0;
+    while (*p != '\0' && std::isdigit((unsigned char)*p)) {
+        minor = minor * 10u + (unsigned)(*p - '0');
+        ++p;
+    }
+    return major * 100u + minor * 10u;
+}
+
+} // namespace
+
 target_language_t detect_backend_target() {
     // The backend tables must be resolved first or every probe below reads
     // null function pointers and the detection silently degrades to the
@@ -1264,6 +1414,9 @@ target_language_t detect_backend_target() {
     if (current != EGL_NO_CONTEXT && g_glFuncs.glGetString != nullptr &&
         g_glFuncs.glGetIntegerv != nullptr) {
         const char* version = (const char*)g_glFuncs.glGetString(GL_VERSION);
+        const char* shading_version =
+            (const char*)g_glFuncs.glGetString(GL_SHADING_LANGUAGE_VERSION);
+        target.accepted_version = parseShadingLanguageVersionString(shading_version);
         GLint major = 3, minor = 0;
         g_glFuncs.glGetIntegerv(GL_MAJOR_VERSION, &major);
         g_glFuncs.glGetIntegerv(GL_MINOR_VERSION, &minor);
@@ -1281,6 +1434,7 @@ target_language_t detect_backend_target() {
         if (max_draw_buffers >= 1)
             target.max_draw_buffers = (unsigned)std::min(max_draw_buffers, 8);
     }
+    if (target.accepted_version == 0) target.accepted_version = target.version;
     cache.context = current;
     cache.target = target;
     return target;
@@ -1302,4 +1456,16 @@ sfpewTranslateGlslForTest(unsigned int stage, const char* source, char* out, int
     std::memcpy(out, payload.data(), (size_t)n);
     out[n] = '\0';
     return result.ok ? 0 : 1;
+}
+
+extern "C" __attribute__((visibility("default"))) int
+sfpewShaderCanPassthroughForTest(unsigned int stage, const char* source, int backend_es,
+                                 unsigned int backend_version) {
+    (void)stage;
+    if (source == nullptr) return -1;
+    SFPEW::Shader::target_language_t target;
+    target.es = backend_es != 0;
+    target.version = backend_version;
+    target.accepted_version = backend_version;
+    return SFPEW::Shader::shader_can_passthrough(source, target) ? 1 : 0;
 }

@@ -1161,9 +1161,34 @@ void drawArraysNow(GLenum mode, GLint first, GLsizei count, bool forceFixedFunct
                                                           : attr.size * (GLsizei)sizeof(GLfloat);
             const auto* base = static_cast<const uint8_t*>(attr.pointer) +
                                (size_t)first * (size_t)stride_bytes;
+            const auto feedbackAttribute = [&](int slot, const GLfloat** pointer,
+                                               size_t* stride_floats, GLint* size) {
+                if (((vertex_array.enabled_pointers >> slot) & 1u) == 0 ||
+                    getClientArrayBufferBinding(slot) != 0) {
+                    return;
+                }
+                const auto& feedback_attr = vertex_array.attributes[slot];
+                if (feedback_attr.pointer == nullptr || feedback_attr.type != GL_FLOAT) return;
+                const GLsizei feedback_stride =
+                    feedback_attr.stride != 0
+                        ? feedback_attr.stride
+                        : feedback_attr.size * static_cast<GLsizei>(sizeof(GLfloat));
+                *pointer = reinterpret_cast<const GLfloat*>(
+                    static_cast<const uint8_t*>(feedback_attr.pointer) +
+                    static_cast<size_t>(first) * static_cast<size_t>(feedback_stride));
+                *stride_floats = static_cast<size_t>(feedback_stride) / sizeof(GLfloat);
+                *size = feedback_attr.size;
+            };
+            const GLfloat* colors = nullptr;
+            const GLfloat* texcoords = nullptr;
+            size_t color_stride = 0, texcoord_stride = 0;
+            GLint color_size = 0, texcoord_size = 0;
+            feedbackAttribute(vp2idx(GL_COLOR_ARRAY), &colors, &color_stride, &color_size);
+            feedbackAttribute(7, &texcoords, &texcoord_stride, &texcoord_size);
             sfpewSelectionProcessVertices(mode, reinterpret_cast<const GLfloat*>(base),
                                           (size_t)stride_bytes / sizeof(GLfloat), attr.size,
-                                          (size_t)count);
+                                          (size_t)count, colors, color_stride, color_size,
+                                          texcoords, texcoord_stride, texcoord_size);
         } else {
             SFPEW_LOGW("selection: unsupported vertex source (VBO or non-float), draw skipped");
         }

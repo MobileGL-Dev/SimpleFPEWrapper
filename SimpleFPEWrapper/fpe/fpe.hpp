@@ -68,7 +68,11 @@ bool sfpewEvaluatorEnable(GLenum cap, bool enable);
 // Selection/feedback CPU pipeline (fpe/selection.cpp, plans/10 10.3).
 void sfpewFlushSelectionHit();
 void sfpewSelectionProcessVertices(GLenum mode, const GLfloat* positions, size_t stride_floats,
-                                   GLint position_size, size_t vertex_count);
+                                   GLint position_size, size_t vertex_count,
+                                   const GLfloat* colors = nullptr,
+                                   size_t color_stride_floats = 0, GLint color_size = 0,
+                                   const GLfloat* texcoords = nullptr,
+                                   size_t texcoord_stride_floats = 0, GLint texcoord_size = 0);
 bool prepare_quad_indices(GLsizei count, GLuint first = 0);
 const void* quad_index_data();
 size_t quad_index_size_bytes();

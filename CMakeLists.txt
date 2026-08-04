@@ -325,7 +325,8 @@ if(NOT ANDROID)
                                        multidraw_native mixed_pipeline vbo_surface render
                                        transpose_matrix texture_residency clear_depth_drawbuffer
                                        secondary_color vertex_attrib_variants point_parameters
-                                       texture_1d_copy drawpixels_formats copypixels_depth)
+                                       texture_1d_copy drawpixels_formats copypixels_depth
+                                       feedback_payloads)
                                 sfpew_add_gtest(sfpew_${suite}_test SOURCES tests/gtest_${suite}.cc
                                                 LIBRARIES ${SFPEW_TEST_EGL})
                         endforeach()

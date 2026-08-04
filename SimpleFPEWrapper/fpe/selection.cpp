@@ -23,6 +23,13 @@ namespace {
 
 constexpr GLuint kMaxNameStackDepth = 64;
 
+struct feedback_vertex_t {
+    glm::vec3 ndc{};
+    GLfloat clip_w = 1.0f;
+    glm::vec4 color{1.0f};
+    glm::vec4 texcoord{0.0f, 0.0f, 0.0f, 1.0f};
+};
+
 // Writes one word into the selection buffer with overflow latching.
 void selectWrite(glstate_t& gs, GLuint value) {
     if (gs.select_written < (GLuint)gs.select_buffer_size) {
@@ -63,7 +70,10 @@ void sfpewFlushSelectionHit() {
 // CPU processing of one FPE draw while selecting / in feedback mode.
 // vertices: interleaved float data; stride/offset in floats.
 void sfpewSelectionProcessVertices(GLenum mode, const GLfloat* positions, size_t stride_floats,
-                                   GLint position_size, size_t vertex_count) {
+                                   GLint position_size, size_t vertex_count,
+                                   const GLfloat* colors, size_t color_stride_floats,
+                                   GLint color_size, const GLfloat* texcoords,
+                                   size_t texcoord_stride_floats, GLint texcoord_size) {
     auto& gs = g_glstate;
     const auto& un = gs.fpe_uniform;
     const glm::mat4 mvp = un.transformation.matrices[matrix_idx(GL_PROJECTION)] *
@@ -71,8 +81,18 @@ void sfpewSelectionProcessVertices(GLenum mode, const GLfloat* positions, size_t
 
     bool any_inside = false;
     float min_z = 1.0f, max_z = 0.0f;
-    std::vector<glm::vec3> ndc_points;
-    if (gs.render_mode == GL_FEEDBACK) ndc_points.reserve(vertex_count);
+    std::vector<feedback_vertex_t> feedback_vertices;
+    if (gs.render_mode == GL_FEEDBACK) feedback_vertices.reserve(vertex_count);
+
+    const auto readAttribute = [](const GLfloat* source, size_t stride, GLint size, size_t vertex,
+                                  const glm::vec4& fallback) {
+        if (source == nullptr || size <= 0) return fallback;
+        glm::vec4 value(0.0f, 0.0f, 0.0f, 1.0f);
+        if (stride == 0) stride = static_cast<size_t>(size);
+        for (GLint component = 0; component < size && component < 4; ++component)
+            glm::value_ptr(value)[component] = source[vertex * stride + component];
+        return value;
+    };
 
     for (size_t v = 0; v < vertex_count; ++v) {
         glm::vec4 pos(0.0f, 0.0f, 0.0f, 1.0f);
@@ -88,7 +108,19 @@ void sfpewSelectionProcessVertices(GLenum mode, const GLfloat* positions, size_t
             min_z = std::min(min_z, window_z);
             max_z = std::max(max_z, window_z);
         }
-        if (gs.render_mode == GL_FEEDBACK) ndc_points.push_back(ndc);
+        if (gs.render_mode == GL_FEEDBACK) {
+            feedback_vertex_t feedback_vertex;
+            feedback_vertex.ndc = ndc;
+            feedback_vertex.clip_w = clip.w;
+            feedback_vertex.color =
+                readAttribute(colors, color_stride_floats, color_size, v,
+                              gs.fpe_state.fpe_draw.current_data.color);
+            const glm::vec4 raw_texcoord =
+                readAttribute(texcoords, texcoord_stride_floats, texcoord_size, v,
+                              gs.fpe_state.fpe_draw.current_data.texcoord[0]);
+            feedback_vertex.texcoord = un.transformation.texture_matrices[0] * raw_texcoord;
+            feedback_vertices.push_back(feedback_vertex);
+        }
     }
 
     if (gs.render_mode == GL_SELECT) {
@@ -104,31 +136,44 @@ void sfpewSelectionProcessVertices(GLenum mode, const GLfloat* positions, size_t
         return;
     }
 
-    // GL_FEEDBACK: emit a token stream. GL_2D/GL_3D vertex payloads; the
-    // primitive is reported through the polygon/line/point tokens.
-    if (gs.feedback_buffer == nullptr || ndc_points.empty()) return;
+    // GL_FEEDBACK: emit the vertex shape selected by glFeedbackBuffer. This
+    // wrapper has no color-index mode (GL_INDEX_MODE is always false), so the
+    // color-bearing forms always contain four RGBA values.
+    if (gs.feedback_buffer == nullptr || feedback_vertices.empty()) return;
     GLint viewport[4] = {0, 0, 1, 1};
     if (g_glFuncs.glGetIntegerv != nullptr) g_glFuncs.glGetIntegerv(GL_VIEWPORT, viewport);
-    const auto emitVertex = [&](const glm::vec3& ndc) {
-        feedbackWrite(gs, viewport[0] + (ndc.x * 0.5f + 0.5f) * viewport[2]);
-        feedbackWrite(gs, viewport[1] + (ndc.y * 0.5f + 0.5f) * viewport[3]);
-        if (gs.feedback_type != GL_2D) feedbackWrite(gs, ndc.z * 0.5f + 0.5f);
+    const auto emitVertex = [&](const feedback_vertex_t& vertex) {
+        feedbackWrite(gs, viewport[0] + (vertex.ndc.x * 0.5f + 0.5f) * viewport[2]);
+        feedbackWrite(gs, viewport[1] + (vertex.ndc.y * 0.5f + 0.5f) * viewport[3]);
+        if (gs.feedback_type == GL_2D) return;
+        feedbackWrite(gs, vertex.ndc.z * 0.5f + 0.5f);
+        if (gs.feedback_type == GL_4D_COLOR_TEXTURE) feedbackWrite(gs, vertex.clip_w);
+        if (gs.feedback_type == GL_3D_COLOR || gs.feedback_type == GL_3D_COLOR_TEXTURE ||
+            gs.feedback_type == GL_4D_COLOR_TEXTURE) {
+            for (GLint component = 0; component < 4; ++component)
+                feedbackWrite(gs, glm::value_ptr(vertex.color)[component]);
+        }
+        if (gs.feedback_type == GL_3D_COLOR_TEXTURE ||
+            gs.feedback_type == GL_4D_COLOR_TEXTURE) {
+            for (GLint component = 0; component < 4; ++component)
+                feedbackWrite(gs, glm::value_ptr(vertex.texcoord)[component]);
+        }
     };
     if (mode == GL_POINTS) {
-        for (const auto& p : ndc_points) {
+        for (const auto& vertex : feedback_vertices) {
             feedbackWrite(gs, (GLfloat)GL_POINT_TOKEN);
-            emitVertex(p);
+            emitVertex(vertex);
         }
     } else if (mode == GL_LINES || mode == GL_LINE_STRIP || mode == GL_LINE_LOOP) {
-        for (size_t i = 0; i + 1 < ndc_points.size(); i += (mode == GL_LINES ? 2 : 1)) {
+        for (size_t i = 0; i + 1 < feedback_vertices.size(); i += (mode == GL_LINES ? 2 : 1)) {
             feedbackWrite(gs, (GLfloat)GL_LINE_TOKEN);
-            emitVertex(ndc_points[i]);
-            emitVertex(ndc_points[i + 1]);
+            emitVertex(feedback_vertices[i]);
+            emitVertex(feedback_vertices[i + 1]);
         }
     } else {
         feedbackWrite(gs, (GLfloat)GL_POLYGON_TOKEN);
-        feedbackWrite(gs, (GLfloat)ndc_points.size());
-        for (const auto& p : ndc_points) emitVertex(p);
+        feedbackWrite(gs, (GLfloat)feedback_vertices.size());
+        for (const auto& vertex : feedback_vertices) emitVertex(vertex);
     }
 }
 
@@ -195,8 +240,6 @@ void glFeedbackBuffer(GLsizei size, GLenum type, GLfloat* buffer) {
         gs.set_error(GL_INVALID_OPERATION);
         return;
     }
-    // Color/texture payload variants degrade to coordinate-only emission;
-    // documented deviation until plans/10 10.6 review.
     gs.feedback_buffer = buffer;
     gs.feedback_buffer_size = size;
     gs.feedback_type = type;

@@ -307,11 +307,27 @@ void drawImmediateVertices(GLenum primitive, const GLfloat* vertices, size_t flo
         // Selection/feedback: the interleaved buffer starts with the
         // position attribute; stride is the whole per-vertex float count.
         size_t stride_floats = 0;
-        for (GLint component_count : sizes.data)
-            if (component_count > 0) stride_floats += (size_t)component_count;
-        if (stride_floats > 0)
+        for (int slot = 0; slot < VERTEX_POINTER_COUNT; ++slot) {
+            // Index and edge flags are not part of vb (edge flags have their
+            // own byte vector); every other sized stream slot is packed.
+            if (slot == 3 || slot == 4 || sizes.data[slot] <= 0) continue;
+            stride_floats += static_cast<size_t>(sizes.data[slot]);
+        }
+        if (stride_floats > 0) {
+            size_t offset = static_cast<size_t>(sizes.vertex_size);
+            offset += sizes.normal_size > 0 ? static_cast<size_t>(sizes.normal_size) : 0u;
+            const GLfloat* colors = sizes.color_size > 0 ? vertices + offset : nullptr;
+            offset += sizes.color_size > 0 ? static_cast<size_t>(sizes.color_size) : 0u;
+            offset += sizes.fog_size > 0 ? 1u : 0u;
+            offset += sizes.secondary_color_size > 0
+                          ? static_cast<size_t>(sizes.secondary_color_size)
+                          : 0u;
+            const GLfloat* texcoords =
+                sizes.texcoord_size[0] > 0 ? vertices + offset : nullptr;
             sfpewSelectionProcessVertices(primitive, vertices, stride_floats, sizes.vertex_size,
-                                          vertexCount);
+                                          vertexCount, colors, stride_floats, sizes.color_size,
+                                          texcoords, stride_floats, sizes.texcoord_size[0]);
+        }
         return;
     }
 

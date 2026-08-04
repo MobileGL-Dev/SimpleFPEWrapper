@@ -1257,7 +1257,7 @@ either close it or make the deviation explicit and bounded.
 | Item | Status |
 |---|---|
 | I.1 `glDrawPixels` formats/types + PBO | [x] |
-| I.2 `glCopyPixels` `GL_DEPTH` / `GL_STENCIL` | [ ] |
+| I.2 `glCopyPixels` `GL_DEPTH` / `GL_STENCIL` | [x] |
 | I.3 `glPolygonMode` independent front/back | [ ] |
 | I.4 Feedback color/texture payloads | [ ] |
 | I.5 Selection with VBO / non-float vertices | [ ] |
@@ -1868,8 +1868,8 @@ Group B; decide when you get there.
 | F — Secondary colour immediate | 16 | 16 / 16 |
 | G — Vertex attrib variants | 29 | 29 / 29 |
 | H — Half-implemented fixes | 3 | 3 / 3 |
-| I — Completing partial paths | 6 items | 1 / 6 |
-| **Total** | **95 entry points + 6 items** | **64 / 101** |
+| I — Completing partial paths | 6 items | 2 / 6 |
+| **Total** | **95 entry points + 6 items** | **65 / 101** |
 
 Update this table as groups complete. When it reads 95/95, the three-part API
 contract in §0.1 holds for everything `docs.gl`'s GL 2.1 pages describe, minus

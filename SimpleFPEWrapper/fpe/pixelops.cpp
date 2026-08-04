@@ -984,14 +984,186 @@ void glDrawPixels(GLsizei width, GLsizei height, GLenum format, GLenum type, con
              format_info.depth ? quad_mode_t::depth : quad_mode_t::color, glm::vec4(1.0f));
 }
 
+namespace {
+
+struct framebuffer_plane_t {
+    bool present = false;
+    GLint object_type = GL_NONE;
+    GLint object_name = 0;
+    GLint bits = 0;
+    GLint component_type = 0;
+};
+
+GLenum framebufferPlaneAttachment(GLint framebuffer, GLenum type) {
+    if (framebuffer == 0) return type == GL_DEPTH ? GL_DEPTH : GL_STENCIL;
+    return type == GL_DEPTH ? GL_DEPTH_ATTACHMENT : GL_STENCIL_ATTACHMENT;
+}
+
+bool queryFramebufferPlane(GLenum target, GLint framebuffer, GLenum type,
+                           framebuffer_plane_t* out) {
+    if (g_glFuncs.glGetFramebufferAttachmentParameteriv == nullptr) return false;
+    const GLenum attachment = framebufferPlaneAttachment(framebuffer, type);
+    g_glFuncs.glGetFramebufferAttachmentParameteriv(
+        target, attachment, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE, &out->object_type);
+    if (out->object_type == GL_NONE) return true;
+    if (framebuffer != 0) {
+        g_glFuncs.glGetFramebufferAttachmentParameteriv(
+            target, attachment, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, &out->object_name);
+    }
+    g_glFuncs.glGetFramebufferAttachmentParameteriv(
+        target, attachment,
+        type == GL_DEPTH ? GL_FRAMEBUFFER_ATTACHMENT_DEPTH_SIZE
+                         : GL_FRAMEBUFFER_ATTACHMENT_STENCIL_SIZE,
+        &out->bits);
+    g_glFuncs.glGetFramebufferAttachmentParameteriv(
+        target, attachment, GL_FRAMEBUFFER_ATTACHMENT_COMPONENT_TYPE, &out->component_type);
+    out->present = out->bits > 0;
+    return true;
+}
+
+bool planesShareStorage(GLint framebuffer, const framebuffer_plane_t& depth,
+                        const framebuffer_plane_t& stencil) {
+    if (!depth.present || !stencil.present || depth.object_type != stencil.object_type) return false;
+    if (framebuffer == 0) return true;
+    return depth.object_name != 0 && depth.object_name == stencil.object_name;
+}
+
+GLenum scratchPlaneFormat(GLenum type, GLint framebuffer, const framebuffer_plane_t& requested,
+                          const framebuffer_plane_t& other) {
+    const framebuffer_plane_t& depth = type == GL_DEPTH ? requested : other;
+    const framebuffer_plane_t& stencil = type == GL_STENCIL ? requested : other;
+    if (planesShareStorage(framebuffer, depth, stencil)) {
+        return depth.component_type == GL_FLOAT ? GL_DEPTH32F_STENCIL8
+                                                : GL_DEPTH24_STENCIL8;
+    }
+    if (type == GL_STENCIL) return requested.bits <= 8 ? GL_STENCIL_INDEX8 : GL_NONE;
+    if (requested.bits <= 16) return GL_DEPTH_COMPONENT16;
+    if (requested.bits <= 24) return GL_DEPTH_COMPONENT24;
+    return requested.component_type == GL_FLOAT ? GL_DEPTH_COMPONENT32F
+                                                : 0x81A7 /* GL_DEPTH_COMPONENT32 */;
+}
+
+struct copy_pixels_scratch_t {
+    GLuint fbo = 0;
+    GLuint renderbuffer = 0;
+    GLsizei width = 0;
+    GLsizei height = 0;
+    GLint samples = 0;
+    GLenum internal_format = GL_NONE;
+};
+
+copy_pixels_scratch_t& copyPixelsScratch() {
+    static thread_local struct {
+        EGLContext context = EGL_NO_CONTEXT;
+        copy_pixels_scratch_t scratch{};
+    } cache;
+    const EGLContext current = sfpewCurrentContext();
+    if (cache.context != current) {
+        cache.context = current;
+        cache.scratch = {};
+    }
+    return cache.scratch;
+}
+
+bool ensureCopyPixelsScratch(copy_pixels_scratch_t& scratch, GLsizei width, GLsizei height,
+                             GLint samples, GLenum internal_format) {
+    if (g_glFuncs.glGenFramebuffers == nullptr || g_glFuncs.glGenRenderbuffers == nullptr ||
+        g_glFuncs.glBindRenderbuffer == nullptr || g_glFuncs.glRenderbufferStorage == nullptr ||
+        g_glFuncs.glFramebufferRenderbuffer == nullptr ||
+        g_glFuncs.glCheckFramebufferStatus == nullptr || g_glFuncs.glDrawBuffers == nullptr ||
+        g_glFuncs.glReadBuffer == nullptr) {
+        return false;
+    }
+    if (scratch.fbo == 0) g_glFuncs.glGenFramebuffers(1, &scratch.fbo);
+    if (scratch.renderbuffer == 0) g_glFuncs.glGenRenderbuffers(1, &scratch.renderbuffer);
+    if (scratch.fbo == 0 || scratch.renderbuffer == 0) return false;
+
+    const bool resized = scratch.width != width || scratch.height != height ||
+                         scratch.samples != samples || scratch.internal_format != internal_format;
+    g_glFuncs.glBindRenderbuffer(GL_RENDERBUFFER, scratch.renderbuffer);
+    if (resized) {
+        if (samples > 0) {
+            if (g_glFuncs.glRenderbufferStorageMultisample == nullptr) return false;
+            g_glFuncs.glRenderbufferStorageMultisample(GL_RENDERBUFFER, samples, internal_format,
+                                                       width, height);
+        } else {
+            g_glFuncs.glRenderbufferStorage(GL_RENDERBUFFER, internal_format, width, height);
+        }
+    }
+
+    g_glFuncs.glBindFramebuffer(GL_FRAMEBUFFER, scratch.fbo);
+    g_glFuncs.glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, 0);
+    g_glFuncs.glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_RENDERBUFFER, 0);
+    g_glFuncs.glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER,
+                                        0);
+    if (internal_format == GL_STENCIL_INDEX8) {
+        g_glFuncs.glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_RENDERBUFFER,
+                                            scratch.renderbuffer);
+    } else if (internal_format == GL_DEPTH24_STENCIL8 ||
+               internal_format == GL_DEPTH32F_STENCIL8) {
+        g_glFuncs.glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT,
+                                            GL_RENDERBUFFER, scratch.renderbuffer);
+    } else {
+        g_glFuncs.glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER,
+                                            scratch.renderbuffer);
+    }
+    const GLenum none = GL_NONE;
+    g_glFuncs.glDrawBuffers(1, &none);
+    g_glFuncs.glReadBuffer(GL_NONE);
+    if (g_glFuncs.glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) return false;
+    if (resized) {
+        scratch.width = width;
+        scratch.height = height;
+        scratch.samples = samples;
+        scratch.internal_format = internal_format;
+    }
+    return true;
+}
+
+struct copy_pixels_backend_guard_t {
+    GLint read_fbo = 0;
+    GLint draw_fbo = 0;
+    GLint renderbuffer = 0;
+    bool scissor = false;
+
+    copy_pixels_backend_guard_t() {
+        g_glFuncs.glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &read_fbo);
+        g_glFuncs.glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &draw_fbo);
+        g_glFuncs.glGetIntegerv(GL_RENDERBUFFER_BINDING, &renderbuffer);
+        scissor = g_glFuncs.glIsEnabled != nullptr &&
+                  g_glFuncs.glIsEnabled(GL_SCISSOR_TEST) == GL_TRUE;
+    }
+
+    ~copy_pixels_backend_guard_t() {
+        g_glFuncs.glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(read_fbo));
+        g_glFuncs.glBindFramebuffer(GL_DRAW_FRAMEBUFFER, static_cast<GLuint>(draw_fbo));
+        g_glFuncs.glBindRenderbuffer(GL_RENDERBUFFER, static_cast<GLuint>(renderbuffer));
+        if (scissor)
+            g_glFuncs.glEnable(GL_SCISSOR_TEST);
+        else
+            g_glFuncs.glDisable(GL_SCISSOR_TEST);
+    }
+};
+
+bool rectanglesOverlap(GLint ax0, GLint ay0, GLint ax1, GLint ay1, GLint bx0, GLint by0,
+                       GLint bx1, GLint by1) {
+    const GLint amin_x = std::min(ax0, ax1), amax_x = std::max(ax0, ax1);
+    const GLint amin_y = std::min(ay0, ay1), amax_y = std::max(ay0, ay1);
+    const GLint bmin_x = std::min(bx0, bx1), bmax_x = std::max(bx0, bx1);
+    const GLint bmin_y = std::min(by0, by1), bmax_y = std::max(by0, by1);
+    return std::max(amin_x, bmin_x) < std::min(amax_x, bmax_x) &&
+           std::max(amin_y, bmin_y) < std::min(amax_y, bmax_y);
+}
+
+} // namespace
+
 void glCopyPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum type) {
     sfpewEntryBarrier();
     if (width < 0 || height < 0) {
         g_glstate.set_error(GL_INVALID_VALUE);
         return;
     }
-    if (type != GL_COLOR) {
-        SFPEW_LOGW("glCopyPixels: only GL_COLOR is supported (0x%x requested)", type);
+    if (type != GL_COLOR && type != GL_DEPTH && type != GL_STENCIL) {
         g_glstate.set_error(GL_INVALID_ENUM);
         return;
     }
@@ -1004,8 +1176,57 @@ void glCopyPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum type) 
     const GLint dy0 = (GLint)un.raster_position.y;
     const GLint dx1 = dx0 + (GLint)(width * un.pixel_zoom_x);
     const GLint dy1 = dy0 + (GLint)(height * un.pixel_zoom_y);
-    // Same-framebuffer blit with overlapping regions is undefined per spec;
-    // legacy callers use disjoint regions, matching desktop GL behavior.
-    g_glFuncs.glBlitFramebuffer(x, y, x + width, y + height, dx0, dy0, dx1, dy1, GL_COLOR_BUFFER_BIT,
+    const GLbitfield mask = type == GL_COLOR     ? GL_COLOR_BUFFER_BIT
+                            : type == GL_DEPTH   ? GL_DEPTH_BUFFER_BIT
+                                                : GL_STENCIL_BUFFER_BIT;
+
+    copy_pixels_backend_guard_t backend;
+    if (type != GL_COLOR) {
+        framebuffer_plane_t source_plane, source_other, destination_plane;
+        const GLenum other_type = type == GL_DEPTH ? GL_STENCIL : GL_DEPTH;
+        if (!queryFramebufferPlane(GL_READ_FRAMEBUFFER, backend.read_fbo, type, &source_plane) ||
+            !queryFramebufferPlane(GL_READ_FRAMEBUFFER, backend.read_fbo, other_type,
+                                   &source_other) ||
+            !queryFramebufferPlane(GL_DRAW_FRAMEBUFFER, backend.draw_fbo, type,
+                                   &destination_plane) ||
+            !source_plane.present || !destination_plane.present) {
+            g_glstate.set_error(GL_INVALID_OPERATION);
+            return;
+        }
+
+        const bool overlap = backend.read_fbo == backend.draw_fbo &&
+                             rectanglesOverlap(x, y, x + width, y + height, dx0, dy0, dx1, dy1);
+        if (overlap) {
+            GLint samples = 0;
+            g_glFuncs.glGetIntegerv(GL_SAMPLES, &samples);
+            const GLenum internal_format =
+                scratchPlaneFormat(type, backend.read_fbo, source_plane, source_other);
+            auto& scratch = copyPixelsScratch();
+            if (internal_format == GL_NONE ||
+                !ensureCopyPixelsScratch(scratch, width, height, samples, internal_format)) {
+                g_glstate.set_error(GL_INVALID_OPERATION);
+                return;
+            }
+
+            // The caller's scissor belongs to the destination pixel
+            // operation. It must not clip the intermediate source snapshot.
+            if (backend.scissor) g_glFuncs.glDisable(GL_SCISSOR_TEST);
+            g_glFuncs.glBindFramebuffer(GL_READ_FRAMEBUFFER,
+                                        static_cast<GLuint>(backend.read_fbo));
+            g_glFuncs.glBindFramebuffer(GL_DRAW_FRAMEBUFFER, scratch.fbo);
+            g_glFuncs.glBlitFramebuffer(x, y, x + width, y + height, 0, 0, width, height, mask,
+                                        GL_NEAREST);
+
+            g_glFuncs.glBindFramebuffer(GL_READ_FRAMEBUFFER, scratch.fbo);
+            g_glFuncs.glBindFramebuffer(GL_DRAW_FRAMEBUFFER,
+                                        static_cast<GLuint>(backend.draw_fbo));
+            if (backend.scissor) g_glFuncs.glEnable(GL_SCISSOR_TEST);
+            g_glFuncs.glBlitFramebuffer(0, 0, width, height, dx0, dy0, dx1, dy1, mask,
+                                        GL_NEAREST);
+            return;
+        }
+    }
+
+    g_glFuncs.glBlitFramebuffer(x, y, x + width, y + height, dx0, dy0, dx1, dy1, mask,
                                 GL_NEAREST);
 }

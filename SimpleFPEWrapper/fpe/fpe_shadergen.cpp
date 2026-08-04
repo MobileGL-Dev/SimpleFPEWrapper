@@ -1241,12 +1241,14 @@ int texture_unit_from_attribute(int attribute_index) {
 
 
 // Declared in fpe_shadergen.h (shared with glstate.cpp). Deliberately NOT
-// consulted by unit_uses_texgen/texgen_needs_eye/texgen_needs_normal below -
-// texture coordinate generation composed with a 3D or cube target
-// (GL_REFLECTION_MAP/GL_NORMAL_MAP's natural use, ironically) is a known,
-// documented gap, not silently wrong: those three functions still gate on
-// texture_2d_enable only, so texgen never activates for a 3D/cube unit and
-// the plain vertex texcoord attribute is sampled instead.
+// consulted by unit_uses_texgen/texgen_needs_eye/texgen_needs_normal below,
+// which also gate on it (defects-plan-2.md 2.6) - GL_REFLECTION_MAP and
+// GL_NORMAL_MAP already produce a full 3-component eye-space vector
+// (tgR{i} below), which is exactly a cube map's natural sample coordinate
+// (ARB_texture_cube_map's whole reason to exist), so once these three
+// functions stopped gating on texture_2d_enable alone the existing codegen
+// needed no further change to feed it: the needs_3_component swizzle in
+// add_fs_body already picks .xyz for a 3D/cube target.
 texture_target_kind_t active_texture_target(const fixed_function_state_t& state, int unit) {
     if (state.fpe_bools.texture_cube_enable[unit]) return texture_target_kind_t::cube;
     if (state.fpe_bools.texture_3d_enable[unit]) return texture_target_kind_t::tex3d;
@@ -1256,7 +1258,7 @@ texture_target_kind_t active_texture_target(const fixed_function_state_t& state,
 
 // Any texgen coordinate live on a textured unit?
 bool unit_uses_texgen(const fixed_function_state_t& state, int unit) {
-    if (!state.fpe_bools.texture_2d_enable[unit]) return false;
+    if (active_texture_target(state, unit) == texture_target_kind_t::none) return false;
     for (int c = 0; c < 4; ++c)
         if (state.fpe_bools.texture_gen_enable[unit][c]) return true;
     return false;
@@ -1277,7 +1279,7 @@ bool any_texgen(const fixed_function_state_t& state) {
 // Do any live texgen coords need eye-space data / the normal?
 bool texgen_needs_eye(const fixed_function_state_t& state) {
     for (int i = 0; i < MAX_TEX; ++i) {
-        if (!state.fpe_bools.texture_2d_enable[i]) continue;
+        if (active_texture_target(state, i) == texture_target_kind_t::none) continue;
         for (int c = 0; c < 4; ++c) {
             if (!state.fpe_bools.texture_gen_enable[i][c]) continue;
             const GLenum mode = state.texture_gen_mode[i][c];
@@ -1291,7 +1293,7 @@ bool texgen_needs_eye(const fixed_function_state_t& state) {
 
 bool texgen_needs_normal(const fixed_function_state_t& state) {
     for (int i = 0; i < MAX_TEX; ++i) {
-        if (!state.fpe_bools.texture_2d_enable[i]) continue;
+        if (active_texture_target(state, i) == texture_target_kind_t::none) continue;
         for (int c = 0; c < 4; ++c) {
             if (!state.fpe_bools.texture_gen_enable[i][c]) continue;
             const GLenum mode = state.texture_gen_mode[i][c];

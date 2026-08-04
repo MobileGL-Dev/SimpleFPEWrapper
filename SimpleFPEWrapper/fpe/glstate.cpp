@@ -108,18 +108,29 @@ void glstate_t::send_uniforms(program_t& program) {
     if (model_view_changed) values.model_view = mv;
     if (projection_changed) values.projection = proj;
 
+    // NormalMat is declared (and consumed) whenever lighting needs it OR
+    // texgen_needs_normal() does (defects-plan-2.md 2.6 exposed this: a
+    // SPHERE_MAP/NORMAL_MAP/REFLECTION_MAP texgen unit with lighting OFF
+    // reads NormalMat too - see add_vs_uniforms's own `!lighting_enable &&
+    // texgen_needs_normal(state)` condition), so this upload cannot stay
+    // inside the lighting_enable block below: locations.normal was
+    // otherwise only ever populated with a value while lighting was on,
+    // leaving a texgen-only unit's NormalMat at whatever a fresh uniform
+    // defaults to (driver-dependent, typically all-zero) - a degenerate
+    // transform for every normal that unit's texgen ever generated from.
+    // Harmless no-op when the shader never declared the uniform at all:
+    // locations.normal stays -1 from glGetUniformLocation either way.
+    if (model_view_changed && locations.normal >= 0) {
+        const glm::mat3 normal_matrix = glm::inverseTranspose(glm::mat3(mv));
+        g_glFuncs.glUniformMatrix3fv(locations.normal, 1, GL_FALSE, glm::value_ptr(normal_matrix));
+    }
+
     if (fpe_state.fpe_bools.lighting_enable) {
         const auto send_vec4 = [&differs](GLint location, const glm::vec4& value, glm::vec4& previous) {
             if (!differs(value, previous)) return;
             if (location >= 0) g_glFuncs.glUniform4fv(location, 1, glm::value_ptr(value));
             previous = value;
         };
-
-        if (model_view_changed && locations.normal >= 0) {
-            const glm::mat3 normal_matrix = glm::inverseTranspose(glm::mat3(mv));
-            g_glFuncs.glUniformMatrix3fv(locations.normal, 1, GL_FALSE,
-                                         glm::value_ptr(normal_matrix));
-        }
 
         send_vec4(locations.light_model_ambient, fpe_uniform.light_model_ambient,
                   values.light_model_ambient);

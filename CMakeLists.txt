@@ -131,6 +131,7 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         SimpleFPEWrapper/fpe/list.cpp
         SimpleFPEWrapper/fpe/attribstack.cpp
         SimpleFPEWrapper/fpe/pixelops.cpp
+        SimpleFPEWrapper/fpe/imaging.cpp
         SimpleFPEWrapper/fpe/selection.cpp
         SimpleFPEWrapper/fpe/evaluators.cpp
         SimpleFPEWrapper/fpe/evaluators.cpp
@@ -326,7 +327,9 @@ if(NOT ANDROID)
                                        transpose_matrix texture_residency clear_depth_drawbuffer
                                        secondary_color vertex_attrib_variants point_parameters
                                        texture_1d_copy drawpixels_formats copypixels_depth
-                                       feedback_payloads selection_vbo pixel_maps)
+                                       feedback_payloads selection_vbo pixel_maps
+                                       imaging_color_table imaging_convolution
+                                       imaging_histogram_minmax imaging_pipeline)
                                 sfpew_add_gtest(sfpew_${suite}_test SOURCES tests/gtest_${suite}.cc
                                                 LIBRARIES ${SFPEW_TEST_EGL})
                         endforeach()

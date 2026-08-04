@@ -160,7 +160,7 @@ cmake --build build -j$(nproc)
 ctest --test-dir build --output-on-failure
 # real NVIDIA rather than llvmpipe:
 EGL_PLATFORM=x11 ctest --test-dir build --output-on-failure
-python3 tools/gen_api_manifest.py .            # rewrites docs/api-manifest.{json,md}
+python3 tools/gen_api_manifest.py . docs       # rewrites docs/api-manifest.{json,md}
 python3 tools/check_backend_profile.py . --write docs/backend-profile.json
 ```
 
@@ -1526,15 +1526,15 @@ anything else. Same shape for convolutions.
 
 | Entry point | Status |
 |---|---|
-| `glColorTable` | [ ] |
-| `glColorSubTable` | [ ] |
-| `glColorTableParameterfv` | [ ] |
-| `glColorTableParameteriv` | [ ] |
-| `glCopyColorTable` | [ ] |
-| `glCopyColorSubTable` | [ ] |
-| `glGetColorTable` | [ ] |
-| `glGetColorTableParameterfv` | [ ] |
-| `glGetColorTableParameteriv` | [ ] |
+| `glColorTable` | [x] |
+| `glColorSubTable` | [x] |
+| `glColorTableParameterfv` | [x] |
+| `glColorTableParameteriv` | [x] |
+| `glCopyColorTable` | [x] |
+| `glCopyColorSubTable` | [x] |
+| `glGetColorTable` | [x] |
+| `glGetColorTableParameterfv` | [x] |
+| `glGetColorTableParameteriv` | [x] |
 
 `glColorTable(target, internalformat, width, format, type, table)`:
 
@@ -1578,19 +1578,19 @@ for the float ones, 0 for components the format omits.
 
 | Entry point | Status |
 |---|---|
-| `glConvolutionFilter1D` | [ ] |
-| `glConvolutionFilter2D` | [ ] |
-| `glConvolutionParameterf` | [ ] |
-| `glConvolutionParameterfv` | [ ] |
-| `glConvolutionParameteri` | [ ] |
-| `glConvolutionParameteriv` | [ ] |
-| `glCopyConvolutionFilter1D` | [ ] |
-| `glCopyConvolutionFilter2D` | [ ] |
-| `glGetConvolutionFilter` | [ ] |
-| `glGetConvolutionParameterfv` | [ ] |
-| `glGetConvolutionParameteriv` | [ ] |
-| `glSeparableFilter2D` | [ ] |
-| `glGetSeparableFilter` | [ ] |
+| `glConvolutionFilter1D` | [x] |
+| `glConvolutionFilter2D` | [x] |
+| `glConvolutionParameterf` | [x] |
+| `glConvolutionParameterfv` | [x] |
+| `glConvolutionParameteri` | [x] |
+| `glConvolutionParameteriv` | [x] |
+| `glCopyConvolutionFilter1D` | [x] |
+| `glCopyConvolutionFilter2D` | [x] |
+| `glGetConvolutionFilter` | [x] |
+| `glGetConvolutionParameterfv` | [x] |
+| `glGetConvolutionParameteriv` | [x] |
+| `glSeparableFilter2D` | [x] |
+| `glGetSeparableFilter` | [x] |
 
 Filter upload mirrors §A.3: decode `(format, type)` → RGBA float, apply
 `GL_CONVOLUTION_FILTER_SCALE` / `_FILTER_BIAS` at load time, store.
@@ -1643,11 +1643,11 @@ scale/bias are *not* colours and are rounded, not scaled. Read the spec text.
 
 | Entry point | Status |
 |---|---|
-| `glHistogram` | [ ] |
-| `glGetHistogram` | [ ] |
-| `glGetHistogramParameterfv` | [ ] |
-| `glGetHistogramParameteriv` | [ ] |
-| `glResetHistogram` | [ ] |
+| `glHistogram` | [x] |
+| `glGetHistogram` | [x] |
+| `glGetHistogramParameterfv` | [x] |
+| `glGetHistogramParameteriv` | [x] |
+| `glResetHistogram` | [x] |
 
 `glHistogram(target, width, internalformat, sink)`: `width` must be a power of
 two; `GL_PROXY_HISTOGRAM` validates only. Allocates and zeroes `width` bins per
@@ -1673,11 +1673,11 @@ they were a `width × 1` image in `(format, type)`, honoring pack state; if
 
 | Entry point | Status |
 |---|---|
-| `glMinmax` | [ ] |
-| `glGetMinmax` | [ ] |
-| `glGetMinmaxParameterfv` | [ ] |
-| `glGetMinmaxParameteriv` | [ ] |
-| `glResetMinmax` | [ ] |
+| `glMinmax` | [x] |
+| `glGetMinmax` | [x] |
+| `glGetMinmaxParameterfv` | [x] |
+| `glGetMinmaxParameteriv` | [x] |
+| `glResetMinmax` | [x] |
 
 `glMinmax(target, internalformat, sink)` — target is `GL_MINMAX` only.
 
@@ -1800,26 +1800,26 @@ The post-convolution and post-color-matrix scale/bias pnames are set through
 
 Split by subsystem; one giant file will be unmaintainable.
 
-- `tests/gtest_imaging_color_table.cc` — load/subload/copy/get round-trips for
+- [x] `tests/gtest_imaging_color_table.cc` — load/subload/copy/get round-trips for
   each internalformat; non-power-of-two width → `GL_INVALID_VALUE`; scale/bias
   applied at load; proxy targets store nothing but answer parameters; all ten
   `glGetColorTableParameter*` pnames.
-- `tests/gtest_imaging_convolution.cc` — a 3×3 identity kernel leaves an image
+- [x] `tests/gtest_imaging_convolution.cc` — a 3×3 identity kernel leaves an image
   unchanged; a known blur kernel produces hand-computed values;
   **`GL_REDUCE` shrinks the output by `kw-1` × `kh-1`** (the assertion most
   worth having); `GL_CONSTANT_BORDER` uses the border colour;
   `GL_REPLICATE_BORDER` clamps; separable and equivalent-2D kernels agree
   pixel-for-pixel; oversized kernels error.
-- `tests/gtest_imaging_histogram_minmax.cc` — a known image produces
+- [x] `tests/gtest_imaging_histogram_minmax.cc` — a known image produces
   hand-computed bins; `reset` empties them; the initial minmax is (1,0) and one
   pixel sets both; `sink` suppresses the destination write; saturation at
   `2^32-1`; both `glGet*Parameter*` families.
-- `tests/gtest_imaging_pipeline.cc` — the stages compose **in the specified
+- [x] `tests/gtest_imaging_pipeline.cc` — the stages compose **in the specified
   order**: enable a colour table that inverts, a convolution that blurs, and a
   post-convolution table that halves, then assert the result matches
   applying them in that sequence and not any other. This is the test that
   proves the pipeline, and it is the one that would catch a mis-ordered stage.
-- **Zero-overhead regression**: with nothing enabled, a `glTexImage2D` +
+- [x] **Zero-overhead regression**: with nothing enabled, a `glTexImage2D` +
   textured draw produces byte-identical output to the same sequence before this
   group existed. Assert against a hardcoded expected pixel set, so a future
   change that accidentally routes the default path through the imaging code is
@@ -1860,7 +1860,7 @@ Group B; decide when you get there.
 
 | Group | Entry points | Done |
 |---|---|---|
-| A — Imaging subset | 32 | 0 / 32 |
+| A — Imaging subset | 32 | 32 / 32 |
 | B — 1D/compressed/copy texture | 5 | 5 / 5 |
 | C — Texture residency | 2 | 2 / 2 |
 | D — Transpose matrices | 4 | 4 / 4 |
@@ -1869,8 +1869,8 @@ Group B; decide when you get there.
 | G — Vertex attrib variants | 29 | 29 / 29 |
 | H — Half-implemented fixes | 3 | 3 / 3 |
 | I — Completing partial paths | 6 items | 6 / 6 |
-| **Total** | **95 entry points + 6 items** | **69 / 101** |
+| **Total** | **95 entry points + 6 items** | **101 / 101** |
 
-Update this table as groups complete. When it reads 95/95, the three-part API
+Update this table as groups complete. When it reads 101/101, the three-part API
 contract in §0.1 holds for everything `docs.gl`'s GL 2.1 pages describe, minus
 the documented out-of-scope surface above.

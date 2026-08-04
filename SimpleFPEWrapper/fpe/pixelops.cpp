@@ -16,6 +16,7 @@
 #include "fpe.hpp"
 #include "list.h"
 #include "drawing1x.h"
+#include "imaging.h"
 #include "../log.h"
 
 #include <algorithm>
@@ -1140,7 +1141,8 @@ void glDrawPixels(GLsizei width, GLsizei height, GLenum format, GLenum type, con
     }
 
     const auto& un = g_glstate.fpe_uniform;
-    const bool float_output = format_info.depth || type == GL_FLOAT || type == GL_HALF_FLOAT;
+    const bool imaging = !format_info.depth && sfpewImagingActive();
+    const bool float_output = format_info.depth || type == GL_FLOAT || type == GL_HALF_FLOAT || imaging;
     std::vector<GLfloat> float_pixels;
     std::vector<GLubyte> byte_pixels;
     try {
@@ -1191,13 +1193,18 @@ void glDrawPixels(GLsizei width, GLsizei height, GLenum format, GLenum type, con
         }
     }
 
+    GLsizei output_width = width, output_height = height;
+    if (imaging) {
+        sfpewImagingTransfer(float_pixels.data(), &output_width, &output_height);
+        if (sfpewImagingSink()) return;
+    }
     const auto& raster = un.raster_position;
     const void* upload = float_output ? static_cast<const void*>(float_pixels.data())
                                       : static_cast<const void*>(byte_pixels.data());
     const GLenum upload_format = format_info.depth ? GL_RED : GL_RGBA;
     const GLenum upload_type = float_output ? GL_FLOAT : GL_UNSIGNED_BYTE;
-    drawQuad(upload, width, height, upload_format, upload_type, raster.x, raster.y,
-             width * un.pixel_zoom_x, height * un.pixel_zoom_y, raster.z,
+    drawQuad(upload, output_width, output_height, upload_format, upload_type, raster.x, raster.y,
+             output_width * un.pixel_zoom_x, output_height * un.pixel_zoom_y, raster.z,
              format_info.depth ? quad_mode_t::depth : quad_mode_t::color, glm::vec4(1.0f));
 }
 
@@ -1396,6 +1403,19 @@ void glCopyPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum type) 
     const GLbitfield mask = type == GL_COLOR     ? GL_COLOR_BUFFER_BIT
                             : type == GL_DEPTH   ? GL_DEPTH_BUFFER_BIT
                                                 : GL_STENCIL_BUFFER_BIT;
+
+    if (type == GL_COLOR && sfpewImagingActive()) {
+        std::vector<GLfloat> rgba;
+        GLsizei output_width = width, output_height = height;
+        if (!sfpewImagingReadRgba(x, y, width, height, &rgba, &output_width, &output_height))
+            return;
+        if (sfpewImagingSink() || rgba.empty()) return;
+        drawQuad(rgba.data(), output_width, output_height, GL_RGBA, GL_FLOAT,
+                 un.raster_position.x, un.raster_position.y,
+                 output_width * un.pixel_zoom_x, output_height * un.pixel_zoom_y,
+                 un.raster_position.z, quad_mode_t::color, glm::vec4(1.0f));
+        return;
+    }
 
     copy_pixels_backend_guard_t backend;
     if (type != GL_COLOR) {

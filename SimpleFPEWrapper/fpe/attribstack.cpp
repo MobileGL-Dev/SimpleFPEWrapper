@@ -17,6 +17,7 @@
 #include "list.h"
 #include "drawing1x.h"
 
+#include <algorithm>
 #include <vector>
 
 namespace {
@@ -51,6 +52,17 @@ struct attrib_snapshot_t {
     // transform
     GLenum matrix_mode;
     glm::dvec4 clip_planes[6];
+    // pixel transfer / imaging
+    GLfloat pixel_zoom_x, pixel_zoom_y;
+    GLfloat pixel_scale[5], pixel_bias[5];
+    bool pixel_map_color, pixel_map_stencil;
+    GLfloat post_convolution_scale[4], post_convolution_bias[4];
+    GLfloat post_color_matrix_scale[4], post_color_matrix_bias[4];
+    GLfloat color_table_scale[3][4], color_table_bias[3][4];
+    GLfloat convolution_scale[3][4], convolution_bias[3][4];
+    GLfloat convolution_border_color[3][4];
+    GLenum convolution_border_mode[3];
+    bool imaging_enables[8]{};
     // point / polygon
     GLfloat point_size, point_size_min, point_size_max, point_fade_threshold_size;
     glm::vec3 point_distance_attenuation;
@@ -166,6 +178,37 @@ void glPushAttrib(GLbitfield mask) {
         snap.matrix_mode = un.transformation.matrix_mode;
         copy_array(snap.clip_planes, un.clip_planes);
     }
+    if (mask & GL_PIXEL_MODE_BIT) {
+        snap.pixel_zoom_x = un.pixel_zoom_x;
+        snap.pixel_zoom_y = un.pixel_zoom_y;
+        copy_array(snap.pixel_scale, un.pixel_scale);
+        copy_array(snap.pixel_bias, un.pixel_bias);
+        snap.pixel_map_color = un.pixel_map_color;
+        snap.pixel_map_stencil = un.pixel_map_stencil;
+        copy_array(snap.post_convolution_scale, un.post_convolution_scale);
+        copy_array(snap.post_convolution_bias, un.post_convolution_bias);
+        copy_array(snap.post_color_matrix_scale, un.post_color_matrix_scale);
+        copy_array(snap.post_color_matrix_bias, un.post_color_matrix_bias);
+        for (int stage = 0; stage < 3; ++stage) {
+            std::copy_n(gs.color_tables[stage].scale, 4, snap.color_table_scale[stage]);
+            std::copy_n(gs.color_tables[stage].bias, 4, snap.color_table_bias[stage]);
+            std::copy_n(gs.convolutions[stage].filter_scale, 4,
+                        snap.convolution_scale[stage]);
+            std::copy_n(gs.convolutions[stage].filter_bias, 4,
+                        snap.convolution_bias[stage]);
+            std::copy_n(gs.convolutions[stage].border_color, 4,
+                        snap.convolution_border_color[stage]);
+            snap.convolution_border_mode[stage] = gs.convolutions[stage].border_mode;
+        }
+    }
+    if (mask & GL_ENABLE_BIT) {
+        for (int stage = 0; stage < 3; ++stage) {
+            snap.imaging_enables[stage] = gs.color_tables[stage].enabled;
+            snap.imaging_enables[3 + stage] = gs.convolutions[stage].enabled;
+        }
+        snap.imaging_enables[6] = gs.histogram.enabled;
+        snap.imaging_enables[7] = gs.minmax.enabled;
+    }
     if (mask & GL_POINT_BIT) {
         sfpewInitializePointSizeMax(gs);
         snap.point_size = un.point_size;
@@ -205,6 +248,12 @@ void glPopAttrib() {
 
     if (mask & GL_ENABLE_BIT) {
         st.fpe_bools = snap.bools;
+        for (int stage = 0; stage < 3; ++stage) {
+            gs.color_tables[stage].enabled = snap.imaging_enables[stage];
+            gs.convolutions[stage].enabled = snap.imaging_enables[3 + stage];
+        }
+        gs.histogram.enabled = snap.imaging_enables[6];
+        gs.minmax.enabled = snap.imaging_enables[7];
     }
     if (mask & GL_FOG_BIT) {
         st.fpe_bools.fog_enable = snap.bools.fog_enable;
@@ -265,6 +314,29 @@ void glPopAttrib() {
         st.fpe_bools.rescale_normal_enable = snap.bools.rescale_normal_enable;
         copy_array(st.fpe_bools.clip_plane_enable, snap.bools.clip_plane_enable);
         copy_array(un.clip_planes, snap.clip_planes);
+    }
+    if (mask & GL_PIXEL_MODE_BIT) {
+        un.pixel_zoom_x = snap.pixel_zoom_x;
+        un.pixel_zoom_y = snap.pixel_zoom_y;
+        copy_array(un.pixel_scale, snap.pixel_scale);
+        copy_array(un.pixel_bias, snap.pixel_bias);
+        un.pixel_map_color = snap.pixel_map_color;
+        un.pixel_map_stencil = snap.pixel_map_stencil;
+        copy_array(un.post_convolution_scale, snap.post_convolution_scale);
+        copy_array(un.post_convolution_bias, snap.post_convolution_bias);
+        copy_array(un.post_color_matrix_scale, snap.post_color_matrix_scale);
+        copy_array(un.post_color_matrix_bias, snap.post_color_matrix_bias);
+        for (int stage = 0; stage < 3; ++stage) {
+            std::copy_n(snap.color_table_scale[stage], 4, gs.color_tables[stage].scale);
+            std::copy_n(snap.color_table_bias[stage], 4, gs.color_tables[stage].bias);
+            std::copy_n(snap.convolution_scale[stage], 4,
+                        gs.convolutions[stage].filter_scale);
+            std::copy_n(snap.convolution_bias[stage], 4,
+                        gs.convolutions[stage].filter_bias);
+            std::copy_n(snap.convolution_border_color[stage], 4,
+                        gs.convolutions[stage].border_color);
+            gs.convolutions[stage].border_mode = snap.convolution_border_mode[stage];
+        }
     }
     if (mask & GL_POINT_BIT) {
         un.point_size = snap.point_size;

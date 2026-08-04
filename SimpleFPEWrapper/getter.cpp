@@ -19,6 +19,7 @@
 #include "fpe/fpe.hpp"
 #include "fpe/drawing1x.h"
 #include "fpe/list.h"
+#include "fpe/imaging.h"
 #include "fpe/vertexpointer_utils.h"
 
 namespace {
@@ -859,6 +860,7 @@ const char* const kDesktopExtensions[] = {
     "GL_ARB_draw_buffers",
     "GL_ARB_point_parameters",
     "GL_ARB_point_sprite",
+    "GL_ARB_imaging",
     "GL_ARB_framebuffer_object",
     "GL_ARB_texture_float",
     "GL_ARB_half_float_pixel",
@@ -871,7 +873,13 @@ const char* const kDesktopExtensions[] = {
     "GL_EXT_blend_color",
     "GL_EXT_fog_coord",
     "GL_EXT_secondary_color",
+    "GL_EXT_color_table",
+    "GL_EXT_color_subtable",
+    "GL_EXT_convolution",
+    "GL_EXT_histogram",
     "GL_EXT_texture_lod_bias",
+    "GL_SGI_color_table",
+    "GL_SGI_color_matrix",
     "GL_SGIS_generate_mipmap",
 };
 constexpr GLint kDesktopExtensionCount =
@@ -1182,12 +1190,7 @@ void glCopyTexImage1D(GLenum target, GLint level, GLenum internalformat, GLint x
         return;
     }
     LIST_RECORD(glCopyTexImage1D, {}, target, level, internalformat, x, y, width, border)
-    sfpewEntryBarrier();
-    if (!sfpewEnsureBackend() || g_glFuncs.glCopyTexImage2D == nullptr) return;
-    g_glFuncs.glCopyTexImage2D(GL_TEXTURE_2D, level, internalformat, x, y, width, 1, border);
-    rememberTextureLevel(sfpewLogicalTextureBinding(GL_TEXTURE_2D), level, width, 1,
-                         static_cast<GLint>(internalformat), border, false, 0);
-    sfpewMaybeGenerateMipmap(GL_TEXTURE_2D);
+    SELF_CALL(glCopyTexImage2D, GL_TEXTURE_2D, level, internalformat, x, y, width, 1, border)
 }
 
 void glCopyTexSubImage1D(GLenum target, GLint level, GLint xoffset, GLint x, GLint y,
@@ -1202,10 +1205,81 @@ void glCopyTexSubImage1D(GLenum target, GLint level, GLint xoffset, GLint x, GLi
         return;
     }
     LIST_RECORD(glCopyTexSubImage1D, {}, target, level, xoffset, x, y, width)
+    SELF_CALL(glCopyTexSubImage2D, GL_TEXTURE_2D, level, xoffset, 0, x, y, width, 1)
+}
+
+void glCopyTexImage2D(GLenum target, GLint level, GLenum internalformat, GLint x, GLint y,
+                      GLsizei width, GLsizei height, GLint border) {
+    if (level < 0 || width < 0 || height < 0 || border != 0) {
+        g_glstate.set_error(GL_INVALID_VALUE);
+        return;
+    }
+    LIST_RECORD(glCopyTexImage2D, {}, target, level, internalformat, x, y, width, height, border)
+    sfpewEntryBarrier();
+    if (!sfpewEnsureBackend() || g_glFuncs.glCopyTexImage2D == nullptr) return;
+    if (sfpewImagingActive()) {
+        std::vector<GLfloat> rgba;
+        GLsizei output_width = width, output_height = height;
+        if (!sfpewImagingReadRgba(x, y, width, height, &rgba, &output_width, &output_height))
+            return;
+        if (!sfpewImagingSink() && rgba.empty() && width != 0 && height != 0) return;
+        sfpew_imaging_upload_t tight;
+        sfpewBeginTightImagingUpload(&tight);
+        struct guard_t {
+            sfpew_imaging_upload_t& tight;
+            guard_t(sfpew_imaging_upload_t& value) : tight(value) { sfpewPushImagingBypass(); }
+            ~guard_t() {
+                sfpewPopImagingBypass();
+                sfpewFinishImagingUpload(tight);
+            }
+        } guard(tight);
+        if (sfpewImagingSink()) {
+            SELF_CALL(glTexImage2D, target, level, internalformat, output_width, output_height,
+                      border, GL_RGBA, GL_FLOAT, nullptr)
+        } else {
+            SELF_CALL(glTexImage2D, target, level, internalformat, output_width, output_height,
+                      border, GL_RGBA, GL_FLOAT, rgba.data())
+        }
+        return;
+    }
+    g_glFuncs.glCopyTexImage2D(target, level, internalformat, x, y, width, height, border);
+    if (target == GL_TEXTURE_2D)
+        rememberTextureLevel(sfpewLogicalTextureBinding(GL_TEXTURE_2D), level, width, height,
+                             internalformat, border, false, 0);
+    sfpewMaybeGenerateMipmap(target);
+}
+
+void glCopyTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint x, GLint y,
+                         GLsizei width, GLsizei height) {
+    if (level < 0 || width < 0 || height < 0) {
+        g_glstate.set_error(GL_INVALID_VALUE);
+        return;
+    }
+    LIST_RECORD(glCopyTexSubImage2D, {}, target, level, xoffset, yoffset, x, y, width, height)
     sfpewEntryBarrier();
     if (!sfpewEnsureBackend() || g_glFuncs.glCopyTexSubImage2D == nullptr) return;
-    g_glFuncs.glCopyTexSubImage2D(GL_TEXTURE_2D, level, xoffset, 0, x, y, width, 1);
-    sfpewMaybeGenerateMipmap(GL_TEXTURE_2D);
+    if (sfpewImagingActive()) {
+        std::vector<GLfloat> rgba;
+        GLsizei output_width = width, output_height = height;
+        if (!sfpewImagingReadRgba(x, y, width, height, &rgba, &output_width, &output_height))
+            return;
+        if (sfpewImagingSink() || (rgba.empty() && width != 0 && height != 0)) return;
+        sfpew_imaging_upload_t tight;
+        sfpewBeginTightImagingUpload(&tight);
+        struct guard_t {
+            sfpew_imaging_upload_t& tight;
+            guard_t(sfpew_imaging_upload_t& value) : tight(value) { sfpewPushImagingBypass(); }
+            ~guard_t() {
+                sfpewPopImagingBypass();
+                sfpewFinishImagingUpload(tight);
+            }
+        } guard(tight);
+        SELF_CALL(glTexSubImage2D, target, level, xoffset, yoffset, output_width, output_height,
+                  GL_RGBA, GL_FLOAT, rgba.data())
+        return;
+    }
+    g_glFuncs.glCopyTexSubImage2D(target, level, xoffset, yoffset, x, y, width, height);
+    sfpewMaybeGenerateMipmap(target);
 }
 
 void glCompressedTexImage1D(GLenum target, GLint level, GLenum internalformat, GLsizei width,
@@ -1536,9 +1610,7 @@ bool fixedFunctionState(GLenum pname, GLdouble* values, int* count, bool* colour
     case GL_TEXTURE_GEN_R: return capability(bools.texture_gen_enable[unit][2]);
     case GL_TEXTURE_GEN_Q: return capability(bools.texture_gen_enable[unit][3]);
 
-    // ---- enables for pipeline stages this wrapper does not have ----
-    // Reporting them as disabled is the truth about what will be drawn, and
-    // it is what an application testing for the feature needs to see.
+    // ---- enables for wrapper-side and unsupported pipeline stages ----
     case GL_TEXTURE_3D:
     case GL_TEXTURE_CUBE_MAP:
     case GL_POINT_SMOOTH:
@@ -1551,15 +1623,15 @@ bool fixedFunctionState(GLenum pname, GLdouble* values, int* count, bool* colour
     case GL_POLYGON_OFFSET_POINT:
     case GL_VERTEX_PROGRAM_POINT_SIZE:
     case GL_VERTEX_PROGRAM_TWO_SIDE:
-    case GL_HISTOGRAM:
-    case GL_MINMAX:
-    case GL_CONVOLUTION_1D:
-    case GL_CONVOLUTION_2D:
-    case GL_SEPARABLE_2D:
-    case GL_COLOR_TABLE:
-    case GL_POST_CONVOLUTION_COLOR_TABLE:
-    case GL_POST_COLOR_MATRIX_COLOR_TABLE:
         return capability(false);
+    case GL_COLOR_TABLE: return capability(gs.color_tables[0].enabled);
+    case GL_POST_CONVOLUTION_COLOR_TABLE: return capability(gs.color_tables[1].enabled);
+    case GL_POST_COLOR_MATRIX_COLOR_TABLE: return capability(gs.color_tables[2].enabled);
+    case GL_CONVOLUTION_1D: return capability(gs.convolutions[0].enabled);
+    case GL_CONVOLUTION_2D: return capability(gs.convolutions[1].enabled);
+    case GL_SEPARABLE_2D: return capability(gs.convolutions[2].enabled);
+    case GL_HISTOGRAM: return capability(gs.histogram.enabled);
+    case GL_MINMAX: return capability(gs.minmax.enabled);
     // Secondary colors are tracked and queryable, but the generated shader
     // does not sum them yet. Reporting COLOR_SUM disabled keeps that boundary
     // explicit instead of advertising a render effect that is not present.
@@ -1713,6 +1785,8 @@ bool fixedFunctionState(GLenum pname, GLdouble* values, int* count, bool* colour
     case GL_MAX_NAME_STACK_DEPTH: return scalar(64);
     case GL_MAX_EVAL_ORDER: return scalar(32);
     case GL_MAX_PIXEL_MAP_TABLE: return scalar(SFPEW_MAX_PIXEL_MAP_TABLE);
+    case GL_MAX_CONVOLUTION_WIDTH:
+    case GL_MAX_CONVOLUTION_HEIGHT: return scalar(SFPEW_MAX_CONVOLUTION_SIZE);
 
     // ---- client vertex arrays ----
     case GL_CLIENT_ACTIVE_TEXTURE: return scalar(ff.client_active_texture);
@@ -1819,24 +1893,26 @@ bool fixedFunctionState(GLenum pname, GLdouble* values, int* count, bool* colour
     case GL_PIXEL_MAP_B_TO_B_SIZE:
     case GL_PIXEL_MAP_A_TO_A_SIZE:
         return scalar(gs.pixel_maps[pname - GL_PIXEL_MAP_I_TO_I_SIZE].size());
-    // The imaging subset is absent, so its scales and biases stay at the
-    // identity rather than reporting an error.
     case GL_POST_CONVOLUTION_RED_SCALE:
     case GL_POST_CONVOLUTION_GREEN_SCALE:
     case GL_POST_CONVOLUTION_BLUE_SCALE:
     case GL_POST_CONVOLUTION_ALPHA_SCALE:
+        return scalar(uni.post_convolution_scale[pname - GL_POST_CONVOLUTION_RED_SCALE]);
     case GL_POST_COLOR_MATRIX_RED_SCALE:
     case GL_POST_COLOR_MATRIX_GREEN_SCALE:
     case GL_POST_COLOR_MATRIX_BLUE_SCALE:
-    case GL_POST_COLOR_MATRIX_ALPHA_SCALE: return scalar(1);
+    case GL_POST_COLOR_MATRIX_ALPHA_SCALE:
+        return scalar(uni.post_color_matrix_scale[pname - GL_POST_COLOR_MATRIX_RED_SCALE]);
     case GL_POST_CONVOLUTION_RED_BIAS:
     case GL_POST_CONVOLUTION_GREEN_BIAS:
     case GL_POST_CONVOLUTION_BLUE_BIAS:
     case GL_POST_CONVOLUTION_ALPHA_BIAS:
+        return scalar(uni.post_convolution_bias[pname - GL_POST_CONVOLUTION_RED_BIAS]);
     case GL_POST_COLOR_MATRIX_RED_BIAS:
     case GL_POST_COLOR_MATRIX_GREEN_BIAS:
     case GL_POST_COLOR_MATRIX_BLUE_BIAS:
-    case GL_POST_COLOR_MATRIX_ALPHA_BIAS: return scalar(0);
+    case GL_POST_COLOR_MATRIX_ALPHA_BIAS:
+        return scalar(uni.post_color_matrix_bias[pname - GL_POST_COLOR_MATRIX_RED_BIAS]);
 
     // ---- accumulation buffer ----
     // Emulated on an RGBA16F attachment (pixelops.cpp), which is what the
@@ -2534,8 +2610,32 @@ void glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei widt
             if (active) sfpewFinishBgraUpload(state);
         }
     } bgraUpload;
+    struct imaging_upload_guard_t {
+        sfpew_imaging_upload_t state{};
+        bool active = false;
+        ~imaging_upload_guard_t() {
+            if (active) sfpewFinishImagingUpload(state);
+        }
+    } imagingUpload;
     (void)g_glstate; // entry strict resolve; the binding/proxy shadows read the snapshot
     sfpewEntryBarrier();
+    if (target != GL_PROXY_TEXTURE_2D && sfpewImagingActive() &&
+        (pixels != nullptr || sfpewUnpackPboBound())) {
+        imagingUpload.active =
+            sfpewPrepareImagingUpload(width, height, format, type, pixels, &imagingUpload.state);
+        if (imagingUpload.active) {
+            if (!imagingUpload.state.valid) return;
+            format = GL_RGBA;
+            type = GL_FLOAT;
+            width = imagingUpload.state.width;
+            height = imagingUpload.state.height;
+            if (imagingUpload.state.sink) {
+                pixels = nullptr;
+            } else {
+                pixels = imagingUpload.state.rgba.data();
+            }
+        }
+    }
     if (target != GL_PROXY_TEXTURE_2D) {
         // Desktop GL takes GL_BGRA as-is; on GLES every BGRA source - client
         // memory or a pixel unpack buffer - is reordered into tight RGBA by

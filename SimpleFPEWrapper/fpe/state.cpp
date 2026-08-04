@@ -306,6 +306,17 @@ void glEnable(GLenum cap) {
     LIST_RECORD(glEnable, {}, cap)
 
     auto& gs = g_glstate;
+    switch (cap) {
+    case GL_COLOR_TABLE: gs.color_tables[0].enabled = true; return;
+    case GL_POST_CONVOLUTION_COLOR_TABLE: gs.color_tables[1].enabled = true; return;
+    case GL_POST_COLOR_MATRIX_COLOR_TABLE: gs.color_tables[2].enabled = true; return;
+    case GL_CONVOLUTION_1D: gs.convolutions[0].enabled = true; return;
+    case GL_CONVOLUTION_2D: gs.convolutions[1].enabled = true; return;
+    case GL_SEPARABLE_2D: gs.convolutions[2].enabled = true; return;
+    case GL_HISTOGRAM: gs.histogram.enabled = true; return;
+    case GL_MINMAX: gs.minmax.enabled = true; return;
+    default: break;
+    }
     if (hijack_fpe_states(cap, true, &gs.fpe_state.fpe_bools)) return;
 
     shadow_backend_enable(cap, true);
@@ -322,6 +333,17 @@ void glDisable(GLenum cap) {
     LIST_RECORD(glDisable, {}, cap)
 
     auto& gs = g_glstate;
+    switch (cap) {
+    case GL_COLOR_TABLE: gs.color_tables[0].enabled = false; return;
+    case GL_POST_CONVOLUTION_COLOR_TABLE: gs.color_tables[1].enabled = false; return;
+    case GL_POST_COLOR_MATRIX_COLOR_TABLE: gs.color_tables[2].enabled = false; return;
+    case GL_CONVOLUTION_1D: gs.convolutions[0].enabled = false; return;
+    case GL_CONVOLUTION_2D: gs.convolutions[1].enabled = false; return;
+    case GL_SEPARABLE_2D: gs.convolutions[2].enabled = false; return;
+    case GL_HISTOGRAM: gs.histogram.enabled = false; return;
+    case GL_MINMAX: gs.minmax.enabled = false; return;
+    default: break;
+    }
     if (hijack_fpe_states(cap, false, &gs.fpe_state.fpe_bools)) return;
 
     shadow_backend_enable(cap, false);
@@ -1401,6 +1423,30 @@ void glPixelTransferf(GLenum pname, GLfloat param) {
     case GL_DEPTH_BIAS: un.pixel_bias[4] = param; break;
     case GL_MAP_COLOR: un.pixel_map_color = param != 0.0f; break;
     case GL_MAP_STENCIL: un.pixel_map_stencil = param != 0.0f; break;
+    case GL_POST_CONVOLUTION_RED_SCALE:
+    case GL_POST_CONVOLUTION_GREEN_SCALE:
+    case GL_POST_CONVOLUTION_BLUE_SCALE:
+    case GL_POST_CONVOLUTION_ALPHA_SCALE:
+        un.post_convolution_scale[pname - GL_POST_CONVOLUTION_RED_SCALE] = param;
+        break;
+    case GL_POST_CONVOLUTION_RED_BIAS:
+    case GL_POST_CONVOLUTION_GREEN_BIAS:
+    case GL_POST_CONVOLUTION_BLUE_BIAS:
+    case GL_POST_CONVOLUTION_ALPHA_BIAS:
+        un.post_convolution_bias[pname - GL_POST_CONVOLUTION_RED_BIAS] = param;
+        break;
+    case GL_POST_COLOR_MATRIX_RED_SCALE:
+    case GL_POST_COLOR_MATRIX_GREEN_SCALE:
+    case GL_POST_COLOR_MATRIX_BLUE_SCALE:
+    case GL_POST_COLOR_MATRIX_ALPHA_SCALE:
+        un.post_color_matrix_scale[pname - GL_POST_COLOR_MATRIX_RED_SCALE] = param;
+        break;
+    case GL_POST_COLOR_MATRIX_RED_BIAS:
+    case GL_POST_COLOR_MATRIX_GREEN_BIAS:
+    case GL_POST_COLOR_MATRIX_BLUE_BIAS:
+    case GL_POST_COLOR_MATRIX_ALPHA_BIAS:
+        un.post_color_matrix_bias[pname - GL_POST_COLOR_MATRIX_RED_BIAS] = param;
+        break;
     // Index shift/offset belong to color-index mode, which this
     // implementation does not provide (plans/10, 10.5).
     case GL_INDEX_SHIFT:

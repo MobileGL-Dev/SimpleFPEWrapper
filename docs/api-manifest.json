@@ -1,6 +1,6 @@
 {
  "source": "lookup.cpp",
- "count": 678,
+ "count": 748,
  "entries": {
   "eglSwapBuffersWithDamageKHR": {
    "status": "alias",
@@ -318,6 +318,42 @@
    "status": "resolvable",
    "target": "glColorPointer"
   },
+  "glColorSubTable": {
+   "status": "resolvable",
+   "target": "glColorSubTable"
+  },
+  "glColorSubTableEXT": {
+   "status": "alias",
+   "target": "glColorSubTable"
+  },
+  "glColorTable": {
+   "status": "resolvable",
+   "target": "glColorTable"
+  },
+  "glColorTableEXT": {
+   "status": "alias",
+   "target": "glColorTable"
+  },
+  "glColorTableParameterfv": {
+   "status": "resolvable",
+   "target": "glColorTableParameterfv"
+  },
+  "glColorTableParameterfvSGI": {
+   "status": "alias",
+   "target": "glColorTableParameterfv"
+  },
+  "glColorTableParameteriv": {
+   "status": "resolvable",
+   "target": "glColorTableParameteriv"
+  },
+  "glColorTableParameterivSGI": {
+   "status": "alias",
+   "target": "glColorTableParameteriv"
+  },
+  "glColorTableSGI": {
+   "status": "alias",
+   "target": "glColorTable"
+  },
   "glCompileShader": {
    "status": "resolvable",
    "target": "glCompileShader"
@@ -342,6 +378,86 @@
    "status": "alias",
    "target": "glCompressedTexSubImage1D"
   },
+  "glConvolutionFilter1D": {
+   "status": "resolvable",
+   "target": "glConvolutionFilter1D"
+  },
+  "glConvolutionFilter1DEXT": {
+   "status": "alias",
+   "target": "glConvolutionFilter1D"
+  },
+  "glConvolutionFilter2D": {
+   "status": "resolvable",
+   "target": "glConvolutionFilter2D"
+  },
+  "glConvolutionFilter2DEXT": {
+   "status": "alias",
+   "target": "glConvolutionFilter2D"
+  },
+  "glConvolutionParameterf": {
+   "status": "resolvable",
+   "target": "glConvolutionParameterf"
+  },
+  "glConvolutionParameterfEXT": {
+   "status": "alias",
+   "target": "glConvolutionParameterf"
+  },
+  "glConvolutionParameterfv": {
+   "status": "resolvable",
+   "target": "glConvolutionParameterfv"
+  },
+  "glConvolutionParameterfvEXT": {
+   "status": "alias",
+   "target": "glConvolutionParameterfv"
+  },
+  "glConvolutionParameteri": {
+   "status": "resolvable",
+   "target": "glConvolutionParameteri"
+  },
+  "glConvolutionParameteriEXT": {
+   "status": "alias",
+   "target": "glConvolutionParameteri"
+  },
+  "glConvolutionParameteriv": {
+   "status": "resolvable",
+   "target": "glConvolutionParameteriv"
+  },
+  "glConvolutionParameterivEXT": {
+   "status": "alias",
+   "target": "glConvolutionParameteriv"
+  },
+  "glCopyColorSubTable": {
+   "status": "resolvable",
+   "target": "glCopyColorSubTable"
+  },
+  "glCopyColorSubTableEXT": {
+   "status": "alias",
+   "target": "glCopyColorSubTable"
+  },
+  "glCopyColorTable": {
+   "status": "resolvable",
+   "target": "glCopyColorTable"
+  },
+  "glCopyColorTableSGI": {
+   "status": "alias",
+   "target": "glCopyColorTable"
+  },
+  "glCopyConvolutionFilter1D": {
+   "status": "resolvable",
+   "target": "glCopyConvolutionFilter1D"
+  },
+  "glCopyConvolutionFilter1DEXT": {
+   "status": "alias",
+   "target": "glCopyConvolutionFilter1D"
+  },
+  "glCopyConvolutionFilter2D": {
+   "status": "resolvable",
+   "target": "glCopyConvolutionFilter2D"
+  },
+  "glCopyConvolutionFilter2DEXT": {
+   "status": "alias",
+   "target": "glCopyConvolutionFilter2D"
+  },
   "glCopyPixels": {
    "status": "resolvable",
    "target": "glCopyPixels"
@@ -354,6 +470,10 @@
    "status": "alias",
    "target": "glCopyTexImage1D"
   },
+  "glCopyTexImage2D": {
+   "status": "resolvable",
+   "target": "glCopyTexImage2D"
+  },
   "glCopyTexSubImage1D": {
    "status": "resolvable",
    "target": "glCopyTexSubImage1D"
@@ -361,6 +481,10 @@
   "glCopyTexSubImage1DEXT": {
    "status": "alias",
    "target": "glCopyTexSubImage1D"
+  },
+  "glCopyTexSubImage2D": {
+   "status": "resolvable",
+   "target": "glCopyTexSubImage2D"
   },
   "glCreateProgramObjectARB": {
    "status": "alias",
@@ -742,6 +866,42 @@
    "status": "resolvable",
    "target": "glGetClipPlane"
   },
+  "glGetColorTable": {
+   "status": "resolvable",
+   "target": "glGetColorTable"
+  },
+  "glGetColorTableEXT": {
+   "status": "alias",
+   "target": "glGetColorTable"
+  },
+  "glGetColorTableParameterfv": {
+   "status": "resolvable",
+   "target": "glGetColorTableParameterfv"
+  },
+  "glGetColorTableParameterfvEXT": {
+   "status": "alias",
+   "target": "glGetColorTableParameterfv"
+  },
+  "glGetColorTableParameterfvSGI": {
+   "status": "alias",
+   "target": "glGetColorTableParameterfv"
+  },
+  "glGetColorTableParameteriv": {
+   "status": "resolvable",
+   "target": "glGetColorTableParameteriv"
+  },
+  "glGetColorTableParameterivEXT": {
+   "status": "alias",
+   "target": "glGetColorTableParameteriv"
+  },
+  "glGetColorTableParameterivSGI": {
+   "status": "alias",
+   "target": "glGetColorTableParameteriv"
+  },
+  "glGetColorTableSGI": {
+   "status": "alias",
+   "target": "glGetColorTable"
+  },
   "glGetCompressedTexImage": {
    "status": "resolvable",
    "target": "glGetCompressedTexImage"
@@ -749,6 +909,30 @@
   "glGetCompressedTexImageARB": {
    "status": "alias",
    "target": "glGetCompressedTexImage"
+  },
+  "glGetConvolutionFilter": {
+   "status": "resolvable",
+   "target": "glGetConvolutionFilter"
+  },
+  "glGetConvolutionFilterEXT": {
+   "status": "alias",
+   "target": "glGetConvolutionFilter"
+  },
+  "glGetConvolutionParameterfv": {
+   "status": "resolvable",
+   "target": "glGetConvolutionParameterfv"
+  },
+  "glGetConvolutionParameterfvEXT": {
+   "status": "alias",
+   "target": "glGetConvolutionParameterfv"
+  },
+  "glGetConvolutionParameteriv": {
+   "status": "resolvable",
+   "target": "glGetConvolutionParameteriv"
+  },
+  "glGetConvolutionParameterivEXT": {
+   "status": "alias",
+   "target": "glGetConvolutionParameteriv"
   },
   "glGetDoublev": {
    "status": "resolvable",
@@ -769,6 +953,30 @@
   "glGetHandleARB": {
    "status": "alias",
    "target": "sfpewGetHandleARB"
+  },
+  "glGetHistogram": {
+   "status": "resolvable",
+   "target": "glGetHistogram"
+  },
+  "glGetHistogramEXT": {
+   "status": "alias",
+   "target": "glGetHistogram"
+  },
+  "glGetHistogramParameterfv": {
+   "status": "resolvable",
+   "target": "glGetHistogramParameterfv"
+  },
+  "glGetHistogramParameterfvEXT": {
+   "status": "alias",
+   "target": "glGetHistogramParameterfv"
+  },
+  "glGetHistogramParameteriv": {
+   "status": "resolvable",
+   "target": "glGetHistogramParameteriv"
+  },
+  "glGetHistogramParameterivEXT": {
+   "status": "alias",
+   "target": "glGetHistogramParameteriv"
   },
   "glGetInfoLogARB": {
    "status": "alias",
@@ -805,6 +1013,30 @@
   "glGetMaterialiv": {
    "status": "resolvable",
    "target": "glGetMaterialiv"
+  },
+  "glGetMinmax": {
+   "status": "resolvable",
+   "target": "glGetMinmax"
+  },
+  "glGetMinmaxEXT": {
+   "status": "alias",
+   "target": "glGetMinmax"
+  },
+  "glGetMinmaxParameterfv": {
+   "status": "resolvable",
+   "target": "glGetMinmaxParameterfv"
+  },
+  "glGetMinmaxParameterfvEXT": {
+   "status": "alias",
+   "target": "glGetMinmaxParameterfv"
+  },
+  "glGetMinmaxParameteriv": {
+   "status": "resolvable",
+   "target": "glGetMinmaxParameteriv"
+  },
+  "glGetMinmaxParameterivEXT": {
+   "status": "alias",
+   "target": "glGetMinmaxParameteriv"
   },
   "glGetObjectParameterivARB": {
    "status": "alias",
@@ -869,6 +1101,14 @@
   "glGetRenderbufferParameterivEXT": {
    "status": "backend-alias",
    "target": "glGetRenderbufferParameteriv"
+  },
+  "glGetSeparableFilter": {
+   "status": "resolvable",
+   "target": "glGetSeparableFilter"
+  },
+  "glGetSeparableFilterEXT": {
+   "status": "alias",
+   "target": "glGetSeparableFilter"
   },
   "glGetShaderInfoLog": {
    "status": "resolvable",
@@ -961,6 +1201,14 @@
   "glHint": {
    "status": "resolvable",
    "target": "glHint"
+  },
+  "glHistogram": {
+   "status": "resolvable",
+   "target": "glHistogram"
+  },
+  "glHistogramEXT": {
+   "status": "alias",
+   "target": "glHistogram"
   },
   "glIndexPointer": {
    "status": "resolvable",
@@ -1141,6 +1389,14 @@
   "glMatrixMode": {
    "status": "resolvable",
    "target": "glMatrixMode"
+  },
+  "glMinmax": {
+   "status": "resolvable",
+   "target": "glMinmax"
+  },
+  "glMinmaxEXT": {
+   "status": "alias",
+   "target": "glMinmax"
   },
   "glMultMatrixd": {
    "status": "resolvable",
@@ -1786,6 +2042,22 @@
    "status": "alias",
    "target": "glRenderbufferStorageMultisample"
   },
+  "glResetHistogram": {
+   "status": "resolvable",
+   "target": "glResetHistogram"
+  },
+  "glResetHistogramEXT": {
+   "status": "alias",
+   "target": "glResetHistogram"
+  },
+  "glResetMinmax": {
+   "status": "resolvable",
+   "target": "glResetMinmax"
+  },
+  "glResetMinmaxEXT": {
+   "status": "alias",
+   "target": "glResetMinmax"
+  },
   "glRotated": {
    "status": "resolvable",
    "target": "glRotated"
@@ -1945,6 +2217,14 @@
   "glSelectBuffer": {
    "status": "resolvable",
    "target": "glSelectBuffer"
+  },
+  "glSeparableFilter2D": {
+   "status": "resolvable",
+   "target": "glSeparableFilter2D"
+  },
+  "glSeparableFilter2DEXT": {
+   "status": "alias",
+   "target": "glSeparableFilter2D"
   },
   "glShadeModel": {
    "status": "resolvable",

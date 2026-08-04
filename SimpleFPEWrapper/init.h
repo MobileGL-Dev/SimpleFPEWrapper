@@ -226,6 +226,58 @@ SFPEW_APIENTRY void glPixelMapusv(GLenum map, GLsizei mapsize, const GLushort* v
 SFPEW_APIENTRY void glGetPixelMapfv(GLenum map, GLfloat* values);
 SFPEW_APIENTRY void glGetPixelMapuiv(GLenum map, GLuint* values);
 SFPEW_APIENTRY void glGetPixelMapusv(GLenum map, GLushort* values);
+SFPEW_APIENTRY void glColorTable(GLenum target, GLenum internalformat, GLsizei width,
+                                 GLenum format, GLenum type, const GLvoid* table);
+SFPEW_APIENTRY void glColorSubTable(GLenum target, GLsizei start, GLsizei count,
+                                    GLenum format, GLenum type, const GLvoid* data);
+SFPEW_APIENTRY void glColorTableParameterfv(GLenum target, GLenum pname, const GLfloat* params);
+SFPEW_APIENTRY void glColorTableParameteriv(GLenum target, GLenum pname, const GLint* params);
+SFPEW_APIENTRY void glCopyColorTable(GLenum target, GLenum internalformat, GLint x, GLint y,
+                                     GLsizei width);
+SFPEW_APIENTRY void glCopyColorSubTable(GLenum target, GLsizei start, GLint x, GLint y,
+                                        GLsizei width);
+SFPEW_APIENTRY void glCopyTexImage2D(GLenum target, GLint level, GLenum internalformat, GLint x,
+                                     GLint y, GLsizei width, GLsizei height, GLint border);
+SFPEW_APIENTRY void glCopyTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset,
+                                        GLint x, GLint y, GLsizei width, GLsizei height);
+SFPEW_APIENTRY void glGetColorTable(GLenum target, GLenum format, GLenum type, GLvoid* table);
+SFPEW_APIENTRY void glGetColorTableParameterfv(GLenum target, GLenum pname, GLfloat* params);
+SFPEW_APIENTRY void glGetColorTableParameteriv(GLenum target, GLenum pname, GLint* params);
+SFPEW_APIENTRY void glConvolutionFilter1D(GLenum target, GLenum internalformat, GLsizei width,
+                                          GLenum format, GLenum type, const GLvoid* image);
+SFPEW_APIENTRY void glConvolutionFilter2D(GLenum target, GLenum internalformat, GLsizei width,
+                                          GLsizei height, GLenum format, GLenum type,
+                                          const GLvoid* image);
+SFPEW_APIENTRY void glConvolutionParameterf(GLenum target, GLenum pname, GLfloat param);
+SFPEW_APIENTRY void glConvolutionParameterfv(GLenum target, GLenum pname, const GLfloat* params);
+SFPEW_APIENTRY void glConvolutionParameteri(GLenum target, GLenum pname, GLint param);
+SFPEW_APIENTRY void glConvolutionParameteriv(GLenum target, GLenum pname, const GLint* params);
+SFPEW_APIENTRY void glCopyConvolutionFilter1D(GLenum target, GLenum internalformat, GLint x,
+                                              GLint y, GLsizei width);
+SFPEW_APIENTRY void glCopyConvolutionFilter2D(GLenum target, GLenum internalformat, GLint x,
+                                              GLint y, GLsizei width, GLsizei height);
+SFPEW_APIENTRY void glGetConvolutionFilter(GLenum target, GLenum format, GLenum type,
+                                           GLvoid* image);
+SFPEW_APIENTRY void glGetConvolutionParameterfv(GLenum target, GLenum pname, GLfloat* params);
+SFPEW_APIENTRY void glGetConvolutionParameteriv(GLenum target, GLenum pname, GLint* params);
+SFPEW_APIENTRY void glSeparableFilter2D(GLenum target, GLenum internalformat, GLsizei width,
+                                        GLsizei height, GLenum format, GLenum type,
+                                        const GLvoid* row, const GLvoid* column);
+SFPEW_APIENTRY void glGetSeparableFilter(GLenum target, GLenum format, GLenum type, GLvoid* row,
+                                         GLvoid* column, GLvoid* span);
+SFPEW_APIENTRY void glHistogram(GLenum target, GLsizei width, GLenum internalformat,
+                                GLboolean sink);
+SFPEW_APIENTRY void glGetHistogram(GLenum target, GLboolean reset, GLenum format, GLenum type,
+                                   GLvoid* values);
+SFPEW_APIENTRY void glGetHistogramParameterfv(GLenum target, GLenum pname, GLfloat* params);
+SFPEW_APIENTRY void glGetHistogramParameteriv(GLenum target, GLenum pname, GLint* params);
+SFPEW_APIENTRY void glResetHistogram(GLenum target);
+SFPEW_APIENTRY void glMinmax(GLenum target, GLenum internalformat, GLboolean sink);
+SFPEW_APIENTRY void glGetMinmax(GLenum target, GLboolean reset, GLenum format, GLenum type,
+                                GLvoid* values);
+SFPEW_APIENTRY void glGetMinmaxParameterfv(GLenum target, GLenum pname, GLfloat* params);
+SFPEW_APIENTRY void glGetMinmaxParameteriv(GLenum target, GLenum pname, GLint* params);
+SFPEW_APIENTRY void glResetMinmax(GLenum target);
 SFPEW_APIENTRY void glTexImage1D(GLenum target, GLint level, GLint internalformat, GLsizei width, GLint border,
                                  GLenum format, GLenum type, const GLvoid* pixels);
 SFPEW_APIENTRY void glTexSubImage1D(GLenum target, GLint level, GLint xoffset, GLsizei width, GLenum format,

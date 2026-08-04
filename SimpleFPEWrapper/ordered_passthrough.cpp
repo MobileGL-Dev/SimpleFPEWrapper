@@ -9,6 +9,7 @@
 #include "init.h"
 #include "fpe/drawing1x.h"
 #include "fpe/list.h"
+#include "fpe/imaging.h"
 #include <vector>
 #include <algorithm>
 #include <cstdint>
@@ -286,6 +287,7 @@ void glReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format
                   GLvoid* pixels) {
     if (!sfpewEnsureBackend() || g_glFuncs.glReadPixels == nullptr) return;
     sfpewEntryBarrier();
+    if (sfpewImagingReadPixels(x, y, width, height, format, type, pixels)) return;
     // Desktop apps read GL_BGRA, which GLES3 core does not offer: read RGBA
     // and swap in place (tight rows, the common screenshot/AWT case). A
     // desktop GL backend reads it directly.
@@ -606,8 +608,27 @@ void glTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, G
             if (active) sfpewFinishBgraUpload(state);
         }
     } bgraUpload;
+    struct imaging_upload_guard_t {
+        sfpew_imaging_upload_t state{};
+        bool active = false;
+        ~imaging_upload_guard_t() {
+            if (active) sfpewFinishImagingUpload(state);
+        }
+    } imagingUpload;
     (void)g_glstate; // entry strict resolve; mipmap tracking reads the binding shadow
     sfpewEntryBarrier();
+    if (sfpewImagingActive() && (pixels != nullptr || sfpewUnpackPboBound())) {
+        imagingUpload.active =
+            sfpewPrepareImagingUpload(width, height, format, type, pixels, &imagingUpload.state);
+        if (imagingUpload.active) {
+            if (!imagingUpload.state.valid || imagingUpload.state.sink) return;
+            width = imagingUpload.state.width;
+            height = imagingUpload.state.height;
+            format = GL_RGBA;
+            type = GL_FLOAT;
+            pixels = imagingUpload.state.rgba.data();
+        }
+    }
     // Legacy formats must match the RED/RG storage glTexImage2D allocated
     // for them; BGRA is swapped on the CPU (tight rows assumed, mirroring
     // the allocation path in getter.cpp).

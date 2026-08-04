@@ -84,6 +84,47 @@ GLsizei type_size(GLenum type);
 
 constexpr GLsizei SFPEW_MAX_PIXEL_MAP_TABLE = 32;
 constexpr size_t SFPEW_PIXEL_MAP_COUNT = 10;
+constexpr GLsizei SFPEW_MAX_COLOR_TABLE_SIZE = 256;
+constexpr GLsizei SFPEW_MAX_CONVOLUTION_SIZE = 32;
+constexpr GLsizei SFPEW_MAX_HISTOGRAM_SIZE = 256;
+
+struct color_table_t {
+    bool enabled = false;
+    GLenum internalformat = GL_RGBA;
+    GLsizei width = 0;
+    std::vector<glm::vec4> entries;
+    GLfloat scale[4] = {1, 1, 1, 1};
+    GLfloat bias[4] = {0, 0, 0, 0};
+};
+
+struct convolution_t {
+    bool enabled = false;
+    GLenum internalformat = GL_RGBA;
+    GLsizei width = 0, height = 0;
+    std::vector<glm::vec4> entries;
+    std::vector<glm::vec4> separable_row;
+    std::vector<glm::vec4> separable_column;
+    GLfloat filter_scale[4] = {1, 1, 1, 1};
+    GLfloat filter_bias[4] = {0, 0, 0, 0};
+    GLenum border_mode = GL_REDUCE;
+    GLfloat border_color[4] = {0, 0, 0, 0};
+};
+
+struct histogram_t {
+    bool enabled = false;
+    GLenum internalformat = GL_RGBA;
+    GLsizei width = 0;
+    bool sink = false;
+    std::vector<glm::uvec4> counts;
+};
+
+struct minmax_t {
+    bool enabled = false;
+    GLenum internalformat = GL_RGBA;
+    bool sink = false;
+    glm::vec4 minimum = {1, 1, 1, 1};
+    glm::vec4 maximum = {0, 0, 0, 0};
+};
 
 struct transformation_t {
     glm::mat4 matrices[4] = {
@@ -568,6 +609,10 @@ struct fixed_function_uniform_t {
     GLfloat pixel_bias[5] = {0, 0, 0, 0, 0};
     bool pixel_map_color = false;
     bool pixel_map_stencil = false;
+    GLfloat post_convolution_scale[4] = {1, 1, 1, 1};
+    GLfloat post_convolution_bias[4] = {0, 0, 0, 0};
+    GLfloat post_color_matrix_scale[4] = {1, 1, 1, 1};
+    GLfloat post_color_matrix_bias[4] = {0, 0, 0, 0};
 
     // Raster position state (glRasterPos*/glWindowPos*): window coords,
     // validity, and associated attributes. Consumed by the plans/08
@@ -821,6 +866,16 @@ struct glstate_t {
         {0.0f}, {0.0f}, {0.0f}, {0.0f}, {0.0f},
         {0.0f}, {0.0f}, {0.0f}, {0.0f}, {0.0f},
     };
+
+    // GL_ARB_imaging transfer stages. Proxy objects retain validation/query
+    // results separately and never replace the live transfer state.
+    color_table_t color_tables[3];
+    color_table_t color_table_proxies[3];
+    convolution_t convolutions[3];
+    convolution_t convolution_proxies[3];
+    histogram_t histogram;
+    histogram_t histogram_proxy;
+    minmax_t minmax;
 
     // GL 2.1 texture residency is advisory and unavailable on either
     // backend floor. Keep the priority per texture name so the legacy

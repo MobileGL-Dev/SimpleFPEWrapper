@@ -333,7 +333,8 @@ if(NOT ANDROID)
                                        imaging_histogram_minmax imaging_pipeline
                                        pushattrib_depth_stencil_scissor getteximage_3d_cube
                                        color_sum logicop line_stipple texture_3d_cube
-                                       read_buffer point_sprite texgen_cube)
+                                       read_buffer point_sprite texgen_cube
+                                       drawpixels_stencil)
                                 sfpew_add_gtest(sfpew_${suite}_test SOURCES tests/gtest_${suite}.cc
                                                 LIBRARIES ${SFPEW_TEST_EGL})
                         endforeach()

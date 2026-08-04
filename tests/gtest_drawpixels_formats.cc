@@ -67,7 +67,7 @@ constexpr GLenum GL_LESS_ = 0x0201;
 
 class DrawPixelsLibraryTest : public LibraryTest {};
 
-TEST_F(DrawPixelsLibraryTest, ValidationAndExplicitStencilRefusalNeedNoContext) {
+TEST_F(DrawPixelsLibraryTest, ValidationNeedsNoContext) {
     auto draw_pixels = Get<void (*)(GLsizei, GLsizei, GLenum, GLenum, const void*)>(
         "glDrawPixels");
     auto get_error = Get<GLenum (*)()>("glGetError");
@@ -81,8 +81,15 @@ TEST_F(DrawPixelsLibraryTest, ValidationAndExplicitStencilRefusalNeedNoContext) 
     EXPECT_EQ(get_error(), GL_INVALID_ENUM_);
     draw_pixels(1, 1, GL_RGB_, GL_UNSIGNED_SHORT_4_4_4_4_, pixel.data());
     EXPECT_EQ(get_error(), GL_INVALID_OPERATION_);
+    // defects-plan-2.md 2.5: GL_STENCIL_INDEX used to be an unconditional,
+    // context-independent GL_INVALID_OPERATION refusal (hence this test's
+    // former name). It is now a real, attempted write - see
+    // tests/gtest_drawpixels_stencil.cc for its actual behavior with a
+    // context and a framebuffer. Without one, drawStencilPixels reaches
+    // sfpewEnsureBackend() and returns silently, same as any other
+    // backend-needing entry point called before a context exists - no
+    // error to check here, just that it does not crash.
     draw_pixels(1, 1, GL_STENCIL_INDEX_, GL_UNSIGNED_BYTE_, pixel.data());
-    EXPECT_EQ(get_error(), GL_INVALID_OPERATION_);
 }
 
 class DrawPixelsTest : public ContextTest {

@@ -44,7 +44,17 @@ constexpr char kQuadFS[] = "#version 300 es\n"
                            "precision highp float;\n"
                            "uniform sampler2D uTex;\n"
                            "uniform vec4 uColor; // bitmap ink\n"
-                           "uniform int uMode;   // 0 = color, 1 = bitmap, 2 = depth\n"
+                           "uniform int uMode;   // 0 = color, 1 = bitmap, 2 = depth, 3 = stencil bit-plane\n"
+                           // defects-plan-2.md 2.5: which bit of the 8-bit
+                           // stencil index (uTex.r, an exact GL_R8 round trip
+                           // for every 0-255 value) this pass paints, and
+                           // whether it paints where that bit is 1 or 0 - see
+                           // drawStencilBitplanes, which runs 16 passes (two
+                           // per bit) so every fragment's stencil ends up
+                           // exactly right regardless of what was there
+                           // before, with no pre-clear needed.
+                           "uniform int uBitIndex;\n"
+                           "uniform int uWantBit;\n"
                            "in vec2 vUV;\n"
                            "out vec4 FragColor;\n"
                            "void main() {\n"
@@ -66,18 +76,24 @@ constexpr char kQuadFS[] = "#version 300 es\n"
                            "    } else if (uMode == 2) {\n"
                            "        gl_FragDepth = clamp(texel.r, 0.0, 1.0);\n"
                            "        FragColor = vec4(0.0);\n"
+                           "    } else if (uMode == 3) {\n"
+                           "        uint stencilByte = uint(texel.r * 255.0 + 0.5);\n"
+                           "        int bit = int((stencilByte >> uint(uBitIndex)) & 1u);\n"
+                           "        if (bit != uWantBit) discard;\n"
+                           "        FragColor = vec4(0.0);\n"
                            "    } else {\n"
                            "        FragColor = texel * uColor;\n"
                            "    }\n"
                            "}\n";
 
-enum class quad_mode_t : GLint { color = 0, bitmap = 1, depth = 2 };
+enum class quad_mode_t : GLint { color = 0, bitmap = 1, depth = 2, stencil = 3 };
 
 struct quad_drawer_t {
     GLuint program = 0;
     GLuint vao = 0;
     GLuint texture = 0;
     GLint loc_rect = -1, loc_depth = -1, loc_color = -1, loc_mode = -1, loc_tex = -1;
+    GLint loc_bit_index = -1, loc_want_bit = -1;
     bool init_failed = false;
 };
 
@@ -152,6 +168,8 @@ bool ensureDrawer(quad_drawer_t& d) {
     d.loc_color = g_glFuncs.glGetUniformLocation(program, "uColor");
     d.loc_mode = g_glFuncs.glGetUniformLocation(program, "uMode");
     d.loc_tex = g_glFuncs.glGetUniformLocation(program, "uTex");
+    d.loc_bit_index = g_glFuncs.glGetUniformLocation(program, "uBitIndex");
+    d.loc_want_bit = g_glFuncs.glGetUniformLocation(program, "uWantBit");
     g_glFuncs.glGenVertexArrays(1, &d.vao);
     g_glFuncs.glGenTextures(1, &d.texture);
     return d.vao != 0 && d.texture != 0;
@@ -256,6 +274,115 @@ void drawQuad(const void* pixels, GLsizei tex_w, GLsizei tex_h, GLenum tex_forma
     }
 
     // Restore unit-0 binding and the caller's active unit.
+    g_glFuncs.glBindTexture(GL_TEXTURE_2D, unit_zero_binding);
+    glActiveTexture(caller_active);
+}
+
+// defects-plan-2.md 2.5: glDrawPixels(GL_STENCIL_INDEX, ...). No portable
+// way exists to write a per-fragment-VARYING stencil value in one pass on
+// either backend floor - the fixed-function stencil test's REPLACE always
+// writes the single glStencilFunc `ref` for every fragment that passes in
+// a draw call, not something a fragment shader can vary per pixel (no
+// stencil-export extension is assumed here). So this runs 16 passes: for
+// each of the 8 bits, one pass paints (REPLACEs, through a 1-bit
+// glStencilMask) that bit to 1 wherever the source byte has it set, and a
+// second paints it to 0 wherever the source has it clear - together every
+// fragment's bit ends up exactly right regardless of what the stencil
+// buffer held before, with no pre-clear of the destination region needed.
+// A dedicated function, not 16 calls into drawQuad above: drawQuad's own
+// per-call overhead (texture re-upload, unpack-state save/restore) would
+// otherwise repeat 16 times for what is genuinely one upload.
+//
+// Matches drawQuad's depth-mode precedent for how much of the caller's own
+// fragment-test state to honor: none. Depth mode forces GL_ALWAYS instead
+// of composing with the caller's depth func; this forces GL_STENCIL_TEST
+// enabled with GL_ALWAYS and its own glStencilOp instead of composing with
+// the caller's stencil func/ops, for the same reason - an unconditional
+// "write these values into this rectangle," not a tested draw. If the
+// current framebuffer has no stencil attachment at all, glStencilMask's
+// bits and the REPLACE writes simply land nowhere, matching how a
+// colour-only default framebuffer already treats a depth write it has no
+// buffer for - no explicit presence check needed.
+void drawStencilBitplanes(const GLubyte* stencil_bytes, GLsizei tex_w, GLsizei tex_h, GLfloat x0,
+                          GLfloat y0, GLfloat wpx, GLfloat hpx, GLfloat depth) {
+    auto& d = drawer();
+    if (!ensureDrawer(d)) return;
+    if (g_glFuncs.glStencilFunc == nullptr || g_glFuncs.glStencilOp == nullptr ||
+        g_glFuncs.glStencilMask == nullptr || g_glFuncs.glEnable == nullptr ||
+        g_glFuncs.glIsEnabled == nullptr || g_glFuncs.glGetIntegerv == nullptr) {
+        return;
+    }
+
+    fpe_backend_draw_state_guard_t backend_state;
+
+    GLint viewport[4] = {0, 0, 1, 1};
+    g_glFuncs.glGetIntegerv(GL_VIEWPORT, viewport);
+    if (viewport[2] <= 0 || viewport[3] <= 0) return;
+
+    const GLenum caller_active = sfpewLogicalActiveTexture();
+    glActiveTexture(GL_TEXTURE0);
+    const GLuint unit_zero_binding = sfpewLogicalTextureBinding(GL_TEXTURE_2D);
+    g_glFuncs.glBindTexture(GL_TEXTURE_2D, d.texture);
+
+    // stencil_bytes is this function's own tightly packed buffer (built by
+    // glDrawPixels below, not the caller's raw pointer), so only the
+    // alignment needs neutralizing - no row-length/PBO state to fight.
+    GLint unpack_alignment = 4;
+    g_glFuncs.glGetIntegerv(GL_UNPACK_ALIGNMENT, &unpack_alignment);
+    g_glFuncs.glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    g_glFuncs.glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, tex_w, tex_h, 0, GL_RED, GL_UNSIGNED_BYTE,
+                           stencil_bytes);
+    g_glFuncs.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    g_glFuncs.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    g_glFuncs.glPixelStorei(GL_UNPACK_ALIGNMENT, unpack_alignment);
+
+    const auto to_ndc_x = [&](GLfloat wx) { return (wx - viewport[0]) / viewport[2] * 2.0f - 1.0f; };
+    const auto to_ndc_y = [&](GLfloat wy) { return (wy - viewport[1]) / viewport[3] * 2.0f - 1.0f; };
+
+    sfpewInvalidateImmediateDrawState();
+    g_glFuncs.glUseProgram(d.program);
+    sfpewBackendBindVertexArray(d.vao);
+    g_glFuncs.glUniform4f(d.loc_rect, to_ndc_x(x0), to_ndc_y(y0), to_ndc_x(x0 + wpx), to_ndc_y(y0 + hpx));
+    g_glFuncs.glUniform1f(d.loc_depth, depth * 2.0f - 1.0f);
+    g_glFuncs.glUniform1i(d.loc_mode, static_cast<GLint>(quad_mode_t::stencil));
+    g_glFuncs.glUniform1i(d.loc_tex, 0);
+
+    const GLboolean caller_stencil_test = g_glFuncs.glIsEnabled(GL_STENCIL_TEST);
+    GLint caller_func = GL_ALWAYS, caller_ref = 0, caller_value_mask = 0xFF, caller_write_mask = 0xFF;
+    GLint caller_fail = GL_KEEP, caller_zfail = GL_KEEP, caller_zpass = GL_KEEP;
+    g_glFuncs.glGetIntegerv(GL_STENCIL_FUNC, &caller_func);
+    g_glFuncs.glGetIntegerv(GL_STENCIL_REF, &caller_ref);
+    g_glFuncs.glGetIntegerv(GL_STENCIL_VALUE_MASK, &caller_value_mask);
+    g_glFuncs.glGetIntegerv(GL_STENCIL_WRITEMASK, &caller_write_mask);
+    g_glFuncs.glGetIntegerv(GL_STENCIL_FAIL, &caller_fail);
+    g_glFuncs.glGetIntegerv(GL_STENCIL_PASS_DEPTH_FAIL, &caller_zfail);
+    g_glFuncs.glGetIntegerv(GL_STENCIL_PASS_DEPTH_PASS, &caller_zpass);
+    const auto& caller_mask = g_glstate_c.fpe_state.color_buffer.color_mask;
+
+    g_glFuncs.glEnable(GL_STENCIL_TEST);
+    g_glFuncs.glStencilOp(GL_REPLACE, GL_REPLACE, GL_REPLACE);
+    if (g_glFuncs.glColorMask != nullptr)
+        g_glFuncs.glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+
+    for (int bit = 0; bit < 8; ++bit) {
+        g_glFuncs.glUniform1i(d.loc_bit_index, bit);
+        g_glFuncs.glStencilMask(static_cast<GLuint>(1 << bit));
+        for (int want = 0; want <= 1; ++want) {
+            g_glFuncs.glUniform1i(d.loc_want_bit, want);
+            g_glFuncs.glStencilFunc(GL_ALWAYS, want != 0 ? 0xFF : 0x00, 0xFF);
+            g_glFuncs.glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        }
+    }
+
+    if (g_glFuncs.glColorMask != nullptr)
+        g_glFuncs.glColorMask(caller_mask[0], caller_mask[1], caller_mask[2], caller_mask[3]);
+    g_glFuncs.glStencilOp(static_cast<GLenum>(caller_fail), static_cast<GLenum>(caller_zfail),
+                          static_cast<GLenum>(caller_zpass));
+    g_glFuncs.glStencilFunc(static_cast<GLenum>(caller_func), caller_ref,
+                            static_cast<GLuint>(caller_value_mask));
+    g_glFuncs.glStencilMask(static_cast<GLuint>(caller_write_mask));
+    if (caller_stencil_test == GL_FALSE) g_glFuncs.glDisable(GL_STENCIL_TEST);
+
     g_glFuncs.glBindTexture(GL_TEXTURE_2D, unit_zero_binding);
     glActiveTexture(caller_active);
 }
@@ -932,6 +1059,38 @@ float readPixelComponent(const uint8_t* source, GLenum type, bool swap_bytes) {
     }
 }
 
+// defects-plan-2.md 2.5: a GL_STENCIL_INDEX value is the index itself, not
+// a [0,1]-normalized quantity - unlike readPixelComponent above, which
+// exists for colour/depth. Signed types reinterpret their bit pattern as
+// unsigned (a source byte 0xFF/-1 becomes index 255), the same convention
+// GL_UNSIGNED_BYTE already uses implicitly. GL_FLOAT/GL_HALF_FLOAT are not
+// legal glDrawPixels(GL_STENCIL_INDEX) types (GL 2.1 table 3.6) and
+// GL_BITMAP is a further, documented scope cut - both return false.
+bool readPixelStencilIndex(const uint8_t* source, GLenum type, bool swap_bytes, uint32_t* out) {
+    switch (type) {
+    case GL_BYTE:
+        *out = static_cast<uint8_t>(loadPixelScalar<GLbyte>(source, false));
+        return true;
+    case GL_UNSIGNED_BYTE:
+        *out = loadPixelScalar<GLubyte>(source, false);
+        return true;
+    case GL_SHORT:
+        *out = static_cast<uint16_t>(loadPixelScalar<GLshort>(source, swap_bytes));
+        return true;
+    case GL_UNSIGNED_SHORT:
+        *out = loadPixelScalar<GLushort>(source, swap_bytes);
+        return true;
+    case GL_INT:
+        *out = static_cast<uint32_t>(loadPixelScalar<GLint>(source, swap_bytes));
+        return true;
+    case GL_UNSIGNED_INT:
+        *out = loadPixelScalar<GLuint>(source, swap_bytes);
+        return true;
+    default:
+        return false;
+    }
+}
+
 void decodePackedPixel(const uint8_t* source, GLenum type, bool swap_bytes, float values[4],
                        int* components) {
     int widths[4] = {};
@@ -1136,6 +1295,73 @@ float clampPixel(float value) {
     return std::clamp(value, 0.0f, 1.0f);
 }
 
+// defects-plan-2.md 2.5. GL_INDEX_SHIFT/GL_INDEX_OFFSET are deliberately
+// not applied here - they belong to color-index mode, which state.cpp's
+// glPixelTransfer already treats as a no-op project-wide (plans/10, 10.5;
+// see defects-plan.md's §2 boundary note), and this inherits that same
+// decision rather than special-casing stencil out of it. GL_PIXEL_MAP_S_TO_S
+// (a real, separate feature from colour-index mode) IS applied, since
+// pixel_map_stencil/pixel_maps already exist and are otherwise unused.
+void drawStencilPixels(GLsizei width, GLsizei height, GLenum type, const GLvoid* pixels) {
+    // The six integer scalar types readPixelStencilIndex handles.
+    // scalarPixelType() alone isn't a tight enough filter: it also accepts
+    // GL_FLOAT/GL_HALF_FLOAT, which are not legal glDrawPixels(GL_STENCIL_
+    // INDEX) types (GL 2.1 table 3.6). GL_BITMAP is a further, documented
+    // scope cut - packedPixelType's formats are all colour-component
+    // packings with no stencil equivalent.
+    size_t pixel_bytes = 0;
+    if ((type != GL_BYTE && type != GL_UNSIGNED_BYTE && type != GL_SHORT &&
+        type != GL_UNSIGNED_SHORT && type != GL_INT && type != GL_UNSIGNED_INT) ||
+        !scalarPixelType(type, &pixel_bytes)) {
+        g_glstate.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    if (!g_glstate.fpe_uniform.raster_position_valid || width == 0 || height == 0) return;
+    if (!sfpewEnsureBackend() || g_glFuncs.glTexImage2D == nullptr) return;
+
+    size_t pixel_count = 0;
+    if (!checkedPixelMultiply(static_cast<size_t>(width), static_cast<size_t>(height),
+                              &pixel_count)) {
+        g_glstate.set_error(GL_OUT_OF_MEMORY);
+        return;
+    }
+    std::vector<GLubyte> stencil_bytes;
+    try {
+        stencil_bytes.resize(pixel_count);
+    } catch (const std::bad_alloc&) {
+        g_glstate.set_error(GL_OUT_OF_MEMORY);
+        return;
+    }
+
+    const auto& un = g_glstate.fpe_uniform;
+    const auto& map =
+        g_glstate.pixel_maps[static_cast<size_t>(GL_PIXEL_MAP_S_TO_S - GL_PIXEL_MAP_I_TO_I)];
+    {
+        pixel_unpack_view_t source;
+        if (!preparePixelUnpackView(width, height, pixel_bytes, pixels, &source)) return;
+        const bool swap_bytes = g_glstate.pixel_store_unpack_swap_bytes;
+        for (GLsizei row = 0; row < height; ++row) {
+            const uint8_t* line = source.pixels + static_cast<size_t>(row) * source.row_stride;
+            for (GLsizei column = 0; column < width; ++column) {
+                const size_t pixel = static_cast<size_t>(row) * static_cast<size_t>(width) +
+                                     static_cast<size_t>(column);
+                uint32_t index = 0;
+                readPixelStencilIndex(line + static_cast<size_t>(column) * pixel_bytes, type,
+                                      swap_bytes, &index);
+                if (un.pixel_map_stencil && !map.empty()) {
+                    index = static_cast<uint32_t>(map[index & (map.size() - 1)]);
+                }
+                stencil_bytes[pixel] = static_cast<GLubyte>(index & 0xFFu);
+            }
+        }
+    }
+
+    const auto& raster = un.raster_position;
+    drawStencilBitplanes(stencil_bytes.data(), width, height, raster.x, raster.y,
+                         static_cast<GLfloat>(width) * un.pixel_zoom_x,
+                         static_cast<GLfloat>(height) * un.pixel_zoom_y, raster.z);
+}
+
 } // namespace
 
 void glDrawPixels(GLsizei width, GLsizei height, GLenum format, GLenum type, const GLvoid* pixels) {
@@ -1156,10 +1382,10 @@ void glDrawPixels(GLsizei width, GLsizei height, GLenum format, GLenum type, con
         return;
     }
     if (format_info.stencil) {
-        // ES 3.0 cannot upload stencil values through a fragment shader, and
-        // no portable framebuffer path exposes per-fragment stencil replace
-        // values. Refuse the operation explicitly instead of drawing color.
-        g_glstate.set_error(GL_INVALID_OPERATION);
+        // defects-plan-2.md 2.5: a 16-pass (2 per bit) bit-plane stencil
+        // write - see drawStencilBitplanes for why one pass per bit isn't
+        // enough (no per-fragment stencil-export on either backend floor).
+        drawStencilPixels(width, height, type, pixels);
         return;
     }
     if (!g_glstate.fpe_uniform.raster_position_valid || width == 0 || height == 0) return;

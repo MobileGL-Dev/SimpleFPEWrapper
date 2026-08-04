@@ -221,10 +221,21 @@ void glDrawBuffer(GLenum buf) {
         if (attachment) {
             GLint maximum = 0;
             g_glFuncs.glGetIntegerv(GL_MAX_COLOR_ATTACHMENTS, &maximum);
-            if (maximum <= 0 || static_cast<GLint>(buf - GL_COLOR_ATTACHMENT0) >= maximum) {
+            const GLint index = static_cast<GLint>(buf - GL_COLOR_ATTACHMENT0);
+            if (maximum <= 0 || index >= maximum) {
                 gs.set_error(GL_INVALID_OPERATION);
                 return;
             }
+            // GLES3 requires bufs[i] to be GL_NONE or GL_COLOR_ATTACHMENTi -
+            // positional, unlike desktop GL, which accepts any valid
+            // attachment token at any array position. A one-element {buf}
+            // array (the fallback below) is only legal here when buf is
+            // already GL_COLOR_ATTACHMENT0; anything past that needs every
+            // earlier slot explicitly disabled with GL_NONE.
+            std::vector<GLenum> buffers(static_cast<size_t>(index) + 1, GL_NONE);
+            buffers[static_cast<size_t>(index)] = buf;
+            g_glFuncs.glDrawBuffers(static_cast<GLsizei>(buffers.size()), buffers.data());
+            return;
         }
     }
     g_glFuncs.glDrawBuffers(1, &mapped);

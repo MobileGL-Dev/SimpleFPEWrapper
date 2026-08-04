@@ -267,6 +267,7 @@ struct texture_size_t { GLsizei width = 0, height = 0; };
 struct texture_level_t {
     GLsizei width = 0;
     GLsizei height = 0;
+    GLsizei depth = 1; // GL_TEXTURE_DEPTH; meaningless (stays 1) off GL_TEXTURE_3D
     GLint internal_format = 0;
     GLint border = 0;
     bool compressed = false;
@@ -274,9 +275,40 @@ struct texture_level_t {
 };
 struct texture_metadata_cache_t {
     EGLContext context = EGL_NO_CONTEXT;
+    // Keyed on texture name alone: this is only ever written/read for
+    // GL_TEXTURE_2D (see repairMipmapChain2D), never for another target, so
+    // there is no cross-target collision to guard against.
     std::unordered_map<GLuint, texture_size_t> sizes;
-    std::unordered_map<GLuint, std::unordered_map<GLint, texture_level_t>> levels;
+    // defects-plan-2.md 2.7: keyed on (name, target), not name alone - a 2D
+    // texture and a 3D/cube texture can share a name over their lifetimes
+    // (GL only forbids rebinding one already-used name to a *different*
+    // target, not reusing a deleted name for any target), and a cube map's
+    // six faces collapse onto one GL_TEXTURE_CUBE_MAP entry per level - spec
+    // requires every face at a given level to share the same size/format
+    // for cube completeness, so there is nothing to distinguish between
+    // them (see textureMetadataTarget() below, the same face-collapsing
+    // rule swizzleTargetFor() applies for GL_TEXTURE_SWIZZLE_RGBA).
+    std::unordered_map<uint64_t, std::unordered_map<GLint, texture_level_t>> levels;
 };
+
+// Collapses a cube face target to GL_TEXTURE_CUBE_MAP and a GL_TEXTURE_1D
+// target to GL_TEXTURE_2D (the storage it actually shares, see
+// hijack_fpe_states's GL_TEXTURE_1D case) - the metadata key only needs to
+// distinguish storage, not every alias GL accepts for it. Defined ahead of
+// swizzleTargetFor()'s own copy of the cube-face half of this rule further
+// down in this file; kept separate rather than reordered, since that one is
+// scoped to its own BGRA-upload section and this one predates it.
+GLenum textureMetadataTarget(GLenum target) {
+    if (target >= GL_TEXTURE_CUBE_MAP_POSITIVE_X && target <= GL_TEXTURE_CUBE_MAP_NEGATIVE_Z)
+        return GL_TEXTURE_CUBE_MAP;
+    if (target == GL_TEXTURE_1D) return GL_TEXTURE_2D;
+    return target;
+}
+
+uint64_t textureMetadataKey(GLuint texture, GLenum target) {
+    return (static_cast<uint64_t>(texture) << 32) |
+           static_cast<uint64_t>(textureMetadataTarget(target));
+}
 // A raw pointer behind a lazy heap allocation, not a thread_local
 // texture_metadata_cache_t directly: the struct carries two
 // std::unordered_maps, and this library is always reached via dlopen (the
@@ -297,19 +329,22 @@ texture_metadata_cache_t& textureMetadata() {
     return textureMetadataCache;
 }
 
-void rememberTextureLevel(GLuint texture, GLint level, GLsizei width, GLsizei height,
+void rememberTextureLevel(GLuint texture, GLenum target, GLint level, GLsizei width, GLsizei height,
                           GLint internal_format, GLint border, bool compressed,
-                          GLsizei compressed_size) {
+                          GLsizei compressed_size, GLsizei depth = 1) {
     if (texture == 0 || level < 0) return;
     auto& metadata = textureMetadata();
-    metadata.levels[texture][level] =
-        {width, height, internal_format, border, compressed, compressed_size};
-    if (level == 0) metadata.sizes[texture] = {width, height};
+    metadata.levels[textureMetadataKey(texture, target)][level] =
+        {width, height, depth, internal_format, border, compressed, compressed_size};
+    // .sizes is 2D-only (see the field comment); a non-2D target has
+    // nothing to record there.
+    if (level == 0 && textureMetadataTarget(target) == GL_TEXTURE_2D)
+        metadata.sizes[texture] = {width, height};
 }
 
-const texture_level_t* findTextureLevel(GLuint texture, GLint level) {
+const texture_level_t* findTextureLevel(GLuint texture, GLenum target, GLint level) {
     auto& levels = textureMetadata().levels;
-    const auto texture_it = levels.find(texture);
+    const auto texture_it = levels.find(textureMetadataKey(texture, target));
     if (texture_it == levels.end()) return nullptr;
     const auto level_it = texture_it->second.find(level);
     return level_it == texture_it->second.end() ? nullptr : &level_it->second;
@@ -1257,9 +1292,12 @@ void glCopyTexImage2D(GLenum target, GLint level, GLenum internalformat, GLint x
         return;
     }
     g_glFuncs.glCopyTexImage2D(target, level, internalformat, x, y, width, height, border);
-    if (target == GL_TEXTURE_2D)
-        rememberTextureLevel(sfpewLogicalTextureBinding(GL_TEXTURE_2D), level, width, height,
-                             internalformat, border, false, 0);
+    // defects-plan-2.md 2.7: glCopyTexImage2D can target a cube face too.
+    if (target == GL_TEXTURE_2D ||
+        (target >= GL_TEXTURE_CUBE_MAP_POSITIVE_X && target <= GL_TEXTURE_CUBE_MAP_NEGATIVE_Z)) {
+        rememberTextureLevel(sfpewLogicalTextureBinding(textureMetadataTarget(target)), target, level,
+                             width, height, internalformat, border, false, 0);
+    }
     sfpewMaybeGenerateMipmap(target);
 }
 
@@ -1326,7 +1364,7 @@ void glCompressedTexImage1D(GLenum target, GLint level, GLenum internalformat, G
     if (!sfpewEnsureBackend() || g_glFuncs.glCompressedTexImage2D == nullptr) return;
     g_glFuncs.glCompressedTexImage2D(GL_TEXTURE_2D, level, internalformat, width, 1, border,
                                      imageSize, data);
-    rememberTextureLevel(sfpewLogicalTextureBinding(GL_TEXTURE_2D), level, width, 1,
+    rememberTextureLevel(sfpewLogicalTextureBinding(GL_TEXTURE_2D), GL_TEXTURE_2D, level, width, 1,
                          static_cast<GLint>(internalformat), border, true, imageSize);
     sfpewMaybeGenerateMipmap(GL_TEXTURE_2D);
 }
@@ -2719,9 +2757,14 @@ void glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei widt
             else if (format == GL_LUMINANCE_ALPHA) upload_format = GL_RG;
             g_glFuncs.glTexImage2D(target, level, mapping.internalformat, width, height, border,
                                    upload_format, type, pixels);
-            if (target == GL_TEXTURE_2D)
-                rememberTextureLevel(sfpewLogicalTextureBinding(GL_TEXTURE_2D), level, width,
-                                     height, internalformat, border, false, 0);
+            // defects-plan-2.md 2.7: glTexImage2D also uploads cube faces -
+            // these fell out of texture_metadata_cache_t entirely before,
+            // same gap as glGetTexImage's 3D/cube case (defects-plan.md 1.2).
+            if (target == GL_TEXTURE_2D ||
+                (target >= GL_TEXTURE_CUBE_MAP_POSITIVE_X && target <= GL_TEXTURE_CUBE_MAP_NEGATIVE_Z)) {
+                rememberTextureLevel(sfpewLogicalTextureBinding(textureMetadataTarget(target)), target,
+                                     level, width, height, internalformat, border, false, 0);
+            }
             if (g_glFuncs.glTexParameteriv != nullptr)
                 g_glFuncs.glTexParameteriv(swizzleTargetFor(target), GL_TEXTURE_SWIZZLE_RGBA, mapping.swizzle);
             sfpewMaybeGenerateMipmap(target);
@@ -2729,9 +2772,11 @@ void glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei widt
         }
 
         g_glFuncs.glTexImage2D(target, level, internalformat, width, height, border, format, type, pixels);
-        if (target == GL_TEXTURE_2D)
-            rememberTextureLevel(sfpewLogicalTextureBinding(GL_TEXTURE_2D), level, width, height,
-                                 internalformat, border, false, 0);
+        if (target == GL_TEXTURE_2D ||
+            (target >= GL_TEXTURE_CUBE_MAP_POSITIVE_X && target <= GL_TEXTURE_CUBE_MAP_NEGATIVE_Z)) {
+            rememberTextureLevel(sfpewLogicalTextureBinding(textureMetadataTarget(target)), target, level,
+                                 width, height, internalformat, border, false, 0);
+        }
         sfpewMaybeGenerateMipmap(target);
         return;
     }
@@ -2763,6 +2808,29 @@ void glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei widt
     getProxyTexture2DLevels()[level] = state;
 }
 
+// defects-plan-2.md 2.7: glTexImage3D was entirely unwrapped before this -
+// not in lookup.cpp's GETPROC table, so eglGetProcAddress("glTexImage3D")
+// fell straight through to the real backend (both floors have it
+// natively, ES 3.0 core and GL 3.2 core) with zero wrapper-side
+// bookkeeping. Deliberately minimal, unlike glTexImage2D above: no BGRA
+// conversion, no legacy-internal-format rewriting, no ARB_imaging hook -
+// those exist for glTexImage2D because that is the path every legacy
+// texture upload actually takes; a 3D upload choosing one of those same
+// formats is a vanishingly rare combination not worth this function's
+// complexity. Passes straight through and only adds the metadata
+// glGetTexLevelParameteriv's ES fallback needs.
+void glTexImage3D(GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height,
+                  GLsizei depth, GLint border, GLenum format, GLenum type, const GLvoid* pixels) {
+    if (!sfpewEnsureBackend() || g_glFuncs.glTexImage3D == nullptr) return;
+    sfpewEntryBarrier();
+    g_glFuncs.glTexImage3D(target, level, internalformat, width, height, depth, border, format, type,
+                           pixels);
+    if (target == GL_TEXTURE_3D) {
+        rememberTextureLevel(sfpewLogicalTextureBinding(GL_TEXTURE_3D), target, level, width, height,
+                             internalformat, border, false, 0, depth);
+    }
+}
+
 void glGetTexImage(GLenum target, GLint level, GLenum format, GLenum type, GLvoid* pixels) {
     if (pixels == nullptr) return;
     if (!sfpewEnsureBackend() || g_glFuncs.glGenFramebuffers == nullptr ||
@@ -2773,12 +2841,14 @@ void glGetTexImage(GLenum target, GLint level, GLenum format, GLenum type, GLvoi
     if (target == GL_TEXTURE_1D) target = GL_TEXTURE_2D; // Nx1 emulation
 
     // GL_TEXTURE_3D and the six cube faces: same "GLES has no texture
-    // readback" ceiling as glGetCompressedTexImage, plus GLES has no
-    // per-level size query either (the 2D path below covers that with
-    // texture_metadata_cache_t, which nothing populates for these targets
-    // yet). Forward exactly on desktop, where glGetTexImage handles every
-    // target and size natively; refuse loudly on GLES rather than guessing
-    // a size or reading the wrong slice.
+    // readback" ceiling as glGetCompressedTexImage - unlike the per-level
+    // SIZE query (glGetTexLevelParameteriv), which texture_metadata_cache_t
+    // now covers for these targets too (defects-plan-2.md 2.7), reading
+    // pixel data back needs a GLES readback path that does not exist for
+    // any target, not even 2D's own FBO+glReadPixels trick. Forward exactly
+    // on desktop, where glGetTexImage handles every target and size
+    // natively; refuse loudly on GLES rather than guessing a size or
+    // reading the wrong slice.
     switch (target) {
     case GL_TEXTURE_3D:
     case GL_TEXTURE_CUBE_MAP_POSITIVE_X:
@@ -2853,10 +2923,13 @@ void glGetTexLevelParameteriv(GLenum target, GLint level, GLenum pname, GLint* p
         return;
     }
 
-    // ES 3.0 has no level query. The N x 1 texture paths record the properties
+    // ES 3.0 has no level query. The N x 1 texture paths, glTexImage3D, and
+    // the six cube faces (defects-plan-2.md 2.7) record the properties
     // observable without retaining image bytes; unknown targets/levels are
     // refused instead of returning an invented value.
-    if (target != GL_TEXTURE_2D) {
+    const bool is_cube_face =
+        target >= GL_TEXTURE_CUBE_MAP_POSITIVE_X && target <= GL_TEXTURE_CUBE_MAP_NEGATIVE_Z;
+    if (target != GL_TEXTURE_2D && target != GL_TEXTURE_3D && !is_cube_face) {
         gs.set_error(GL_INVALID_OPERATION);
         return;
     }
@@ -2864,8 +2937,9 @@ void glGetTexLevelParameteriv(GLenum target, GLint level, GLenum pname, GLint* p
         gs.set_error(GL_INVALID_VALUE);
         return;
     }
+    const GLenum binding_point = textureMetadataTarget(target);
     const texture_level_t* info =
-        findTextureLevel(sfpewLogicalTextureBinding(GL_TEXTURE_2D), level);
+        findTextureLevel(sfpewLogicalTextureBinding(binding_point), target, level);
     if (info == nullptr) {
         gs.set_error(GL_INVALID_OPERATION);
         return;
@@ -2873,7 +2947,7 @@ void glGetTexLevelParameteriv(GLenum target, GLint level, GLenum pname, GLint* p
     switch (pname) {
     case GL_TEXTURE_WIDTH: *params = info->width; break;
     case GL_TEXTURE_HEIGHT: *params = info->height; break;
-    case GL_TEXTURE_DEPTH: *params = 1; break;
+    case GL_TEXTURE_DEPTH: *params = info->depth; break;
     case GL_TEXTURE_INTERNAL_FORMAT: *params = info->internal_format; break;
     case GL_TEXTURE_BORDER: *params = info->border; break;
     case GL_TEXTURE_COMPRESSED: *params = info->compressed ? GL_TRUE : GL_FALSE; break;

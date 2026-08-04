@@ -284,6 +284,12 @@ bool hijack_fpe_states(GLenum cap, bool enable, fixed_function_bool_t* bools) {
     case GL_TEXTURE_2D:
         bools->texture_2d_enable[active_texture_index()] = enable;
         return true;
+    case GL_TEXTURE_3D:
+        bools->texture_3d_enable[active_texture_index()] = enable;
+        return true;
+    case GL_TEXTURE_CUBE_MAP:
+        bools->texture_cube_enable[active_texture_index()] = enable;
+        return true;
     case GL_NORMALIZE:
         bools->normalize_enable = enable;
         return true;
@@ -309,6 +315,9 @@ bool hijack_fpe_states(GLenum cap, bool enable, fixed_function_bool_t* bools) {
         return true;
     case GL_RESCALE_NORMAL:
         bools->rescale_normal_enable = enable;
+        return true;
+    case GL_COLOR_SUM:
+        bools->color_sum_enable = enable;
         return true;
     default:
         break;
@@ -376,6 +385,11 @@ void glEnable(GLenum cap) {
 
     shadow_backend_enable(cap, true);
     if (backendEnableRedundant(gs, cap, true)) return;
+    // A cap hijack_fpe_states/backendEnableRedundant doesn't recognize (e.g.
+    // GL_COLOR_LOGIC_OP) can be the very first backend-touching call this
+    // context ever makes, so the backend must be lazily loaded here too -
+    // every other raw passthrough in the wrapper already guards this way.
+    if (!sfpewEnsureBackend() || g_glFuncs.glEnable == nullptr) return;
     g_glFuncs.glEnable(cap);
 }
 
@@ -403,6 +417,8 @@ void glDisable(GLenum cap) {
 
     shadow_backend_enable(cap, false);
     if (backendEnableRedundant(gs, cap, false)) return;
+    // See the matching guard in glEnable.
+    if (!sfpewEnsureBackend() || g_glFuncs.glDisable == nullptr) return;
     g_glFuncs.glDisable(cap);
 }
 
@@ -498,6 +514,28 @@ void glAlphaFunc(GLenum func, GLclampf ref) {
 
     gs.fpe_state.alpha_func = func;
     gs.fpe_uniform.alpha_ref = ref;
+}
+
+// glLogicOp (GL 1.0, spec 4.1.10): stored so GL_LOGIC_OP_MODE reads back
+// exactly what was set, but neither backend floor gets a real logic-op
+// effect from it - ES 3.0 core removed fixed-function logic ops entirely,
+// and there is no extension-free way to read the framebuffer's current
+// color inside a fragment shader on that floor to emulate one. Per this
+// project's two-backend, no-branching invariant, a feature only one floor
+// can execute does not get a real implementation (see how texture
+// residency/priorities are handled - real, honest state tracking with no
+// forwarded rendering effect). GL_COLOR_LOGIC_OP/GL_INDEX_LOGIC_OP
+// deliberately keep reporting disabled in getter.cpp for the same reason:
+// enabling them would advertise a render effect that is not present.
+void glLogicOp(GLenum opcode) {
+    sfpewClientStateBarrier();
+    auto& gs = g_glstate;
+    if (opcode < GL_CLEAR || opcode > GL_SET) {
+        gs.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    LIST_RECORD(glLogicOp, {}, opcode)
+    gs.fpe_state.logic_op_mode = opcode;
 }
 
 void glFogf(GLenum pname, GLfloat param) {
@@ -1550,8 +1588,9 @@ void glLineStipple(GLint factor, GLushort pattern) {
     auto& gs = g_glstate;
     gs.fpe_uniform.line_stipple_factor = factor;
     gs.fpe_uniform.line_stipple_pattern = pattern;
-    // Line rendering consumption is the plans/08 screen-space
-    // approximation; state and queries are exact as of this commit.
+    // Consumed by sfpewDrawStippledLines (fpe/linestipple.cpp) for the
+    // immediate-mode GL_LINES/GL_LINE_STRIP/GL_LINE_LOOP path when
+    // GL_LINE_STIPPLE is enabled; see that file's header for scope.
 }
 
 namespace {

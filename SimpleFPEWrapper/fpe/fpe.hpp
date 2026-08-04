@@ -151,6 +151,15 @@ bool sfpewDrawMixedPolygonMode(GLenum primitive, const glm::vec4* positions,
                                const uint8_t* edge_flags = nullptr,
                                size_t edge_flag_count = 0);
 
+// glLineStipple rasterization (defects-plan.md 1.5), immediate-mode path
+// only - see linestipple.cpp's header comment for the full scope and the
+// spec's per-primitive counter-reset rule this follows. `vertices`,
+// `floatCount`, `vertexCount` and `sizes` are exactly
+// drawImmediateVertices' own parameters; `primitive` must be one of
+// GL_LINES/GL_LINE_STRIP/GL_LINE_LOOP.
+void sfpewDrawStippledLines(GLenum primitive, const GLfloat* vertices, size_t floatCount,
+                            size_t vertexCount, const fixed_function_draw_size_t& sizes);
+
 // Expands a filled primitive into the GL_LINES index pairs that outline it,
 // for GL_LINE polygon mode. Indices are emitted relative to `base`. Shared
 // edges are emitted twice, which is visually identical to a wireframe.

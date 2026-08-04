@@ -1,6 +1,6 @@
 {
  "source": "lookup.cpp",
- "count": 748,
+ "count": 833,
  "entries": {
   "eglSwapBuffersWithDamageKHR": {
    "status": "alias",
@@ -45,6 +45,14 @@
   "glBegin": {
    "status": "resolvable",
    "target": "glBegin"
+  },
+  "glBeginQuery": {
+   "status": "backend-fallthrough",
+   "target": "glBeginQuery"
+  },
+  "glBindAttribLocation": {
+   "status": "backend-fallthrough",
+   "target": "glBindAttribLocation"
   },
   "glBindAttribLocationARB": {
    "status": "backend-alias",
@@ -158,6 +166,10 @@
    "status": "resolvable",
    "target": "glClearAccum"
   },
+  "glClearColor": {
+   "status": "backend-fallthrough",
+   "target": "glClearColor"
+  },
   "glClearDepth": {
    "status": "resolvable",
    "target": "glClearDepth"
@@ -165,6 +177,14 @@
   "glClearDepthf": {
    "status": "resolvable",
    "target": "glClearDepthf"
+  },
+  "glClearIndex": {
+   "status": "backend-fallthrough",
+   "target": "glClearIndex"
+  },
+  "glClearStencil": {
+   "status": "backend-fallthrough",
+   "target": "glClearStencil"
   },
   "glClientActiveTexture": {
    "status": "resolvable",
@@ -370,6 +390,14 @@
    "status": "alias",
    "target": "glCompressedTexImage1D"
   },
+  "glCompressedTexImage2D": {
+   "status": "backend-fallthrough",
+   "target": "glCompressedTexImage2D"
+  },
+  "glCompressedTexImage3D": {
+   "status": "backend-fallthrough",
+   "target": "glCompressedTexImage3D"
+  },
   "glCompressedTexSubImage1D": {
    "status": "resolvable",
    "target": "glCompressedTexSubImage1D"
@@ -377,6 +405,14 @@
   "glCompressedTexSubImage1DARB": {
    "status": "alias",
    "target": "glCompressedTexSubImage1D"
+  },
+  "glCompressedTexSubImage2D": {
+   "status": "backend-fallthrough",
+   "target": "glCompressedTexSubImage2D"
+  },
+  "glCompressedTexSubImage3D": {
+   "status": "backend-fallthrough",
+   "target": "glCompressedTexSubImage3D"
   },
   "glConvolutionFilter1D": {
    "status": "resolvable",
@@ -486,6 +522,14 @@
    "status": "resolvable",
    "target": "glCopyTexSubImage2D"
   },
+  "glCopyTexSubImage3D": {
+   "status": "backend-fallthrough",
+   "target": "glCopyTexSubImage3D"
+  },
+  "glCreateProgram": {
+   "status": "backend-fallthrough",
+   "target": "glCreateProgram"
+  },
   "glCreateProgramObjectARB": {
    "status": "alias",
    "target": "sfpewCreateProgramObjectARB"
@@ -525,6 +569,10 @@
   "glDeleteProgram": {
    "status": "resolvable",
    "target": "glDeleteProgram"
+  },
+  "glDeleteQueries": {
+   "status": "backend-fallthrough",
+   "target": "glDeleteQueries"
   },
   "glDeleteRenderbuffersEXT": {
    "status": "backend-alias",
@@ -586,6 +634,10 @@
    "status": "resolvable",
    "target": "glDrawBuffer"
   },
+  "glDrawBuffers": {
+   "status": "backend-fallthrough",
+   "target": "glDrawBuffers"
+  },
   "glDrawBuffersARB": {
    "status": "backend-alias",
    "target": "glDrawBuffers"
@@ -645,6 +697,10 @@
   "glEndList": {
    "status": "resolvable",
    "target": "glEndList"
+  },
+  "glEndQuery": {
+   "status": "backend-fallthrough",
+   "target": "glEndQuery"
   },
   "glEvalCoord1d": {
    "status": "resolvable",
@@ -798,6 +854,10 @@
    "status": "resolvable",
    "target": "glFrustumf"
   },
+  "glGenBuffers": {
+   "status": "backend-fallthrough",
+   "target": "glGenBuffers"
+  },
   "glGenBuffersARB": {
    "status": "backend-alias",
    "target": "glGenBuffers"
@@ -810,9 +870,17 @@
    "status": "resolvable",
    "target": "glGenLists"
   },
+  "glGenQueries": {
+   "status": "backend-fallthrough",
+   "target": "glGenQueries"
+  },
   "glGenRenderbuffersEXT": {
    "status": "backend-alias",
    "target": "glGenRenderbuffers"
+  },
+  "glGenTextures": {
+   "status": "backend-fallthrough",
+   "target": "glGenTextures"
   },
   "glGenerateMipmap": {
    "status": "resolvable",
@@ -822,9 +890,17 @@
    "status": "alias",
    "target": "glGenerateMipmap"
   },
+  "glGetActiveAttrib": {
+   "status": "backend-fallthrough",
+   "target": "glGetActiveAttrib"
+  },
   "glGetActiveAttribARB": {
    "status": "backend-alias",
    "target": "glGetActiveAttrib"
+  },
+  "glGetActiveUniform": {
+   "status": "backend-fallthrough",
+   "target": "glGetActiveUniform"
   },
   "glGetActiveUniformARB": {
    "status": "backend-alias",
@@ -853,6 +929,10 @@
   "glGetBufferParameterivARB": {
    "status": "alias",
    "target": "glGetBufferParameteriv"
+  },
+  "glGetBufferPointerv": {
+   "status": "backend-fallthrough",
+   "target": "glGetBufferPointerv"
   },
   "glGetBufferSubData": {
    "status": "resolvable",
@@ -1098,6 +1178,14 @@
    "status": "alias",
    "target": "glGetQueryObjectui64v"
   },
+  "glGetQueryObjectuiv": {
+   "status": "backend-fallthrough",
+   "target": "glGetQueryObjectuiv"
+  },
+  "glGetQueryiv": {
+   "status": "backend-fallthrough",
+   "target": "glGetQueryiv"
+  },
   "glGetRenderbufferParameterivEXT": {
    "status": "backend-alias",
    "target": "glGetRenderbufferParameteriv"
@@ -1182,13 +1270,25 @@
    "status": "alias",
    "target": "glGetUniformLocation"
   },
+  "glGetUniformfv": {
+   "status": "backend-fallthrough",
+   "target": "glGetUniformfv"
+  },
   "glGetUniformfvARB": {
    "status": "backend-alias",
    "target": "glGetUniformfv"
   },
+  "glGetUniformiv": {
+   "status": "backend-fallthrough",
+   "target": "glGetUniformiv"
+  },
   "glGetUniformivARB": {
    "status": "backend-alias",
    "target": "glGetUniformiv"
+  },
+  "glGetVertexAttribPointerv": {
+   "status": "backend-fallthrough",
+   "target": "glGetVertexAttribPointerv"
   },
   "glGetVertexAttribdv": {
    "status": "resolvable",
@@ -1197,6 +1297,14 @@
   "glGetVertexAttribdvARB": {
    "status": "alias",
    "target": "glGetVertexAttribdv"
+  },
+  "glGetVertexAttribfv": {
+   "status": "backend-fallthrough",
+   "target": "glGetVertexAttribfv"
+  },
+  "glGetVertexAttribiv": {
+   "status": "backend-fallthrough",
+   "target": "glGetVertexAttribiv"
   },
   "glHint": {
    "status": "resolvable",
@@ -1210,9 +1318,53 @@
    "status": "alias",
    "target": "glHistogram"
   },
+  "glIndexMask": {
+   "status": "backend-fallthrough",
+   "target": "glIndexMask"
+  },
   "glIndexPointer": {
    "status": "resolvable",
    "target": "glIndexPointer"
+  },
+  "glIndexd": {
+   "status": "backend-fallthrough",
+   "target": "glIndexd"
+  },
+  "glIndexdv": {
+   "status": "backend-fallthrough",
+   "target": "glIndexdv"
+  },
+  "glIndexf": {
+   "status": "backend-fallthrough",
+   "target": "glIndexf"
+  },
+  "glIndexfv": {
+   "status": "backend-fallthrough",
+   "target": "glIndexfv"
+  },
+  "glIndexi": {
+   "status": "backend-fallthrough",
+   "target": "glIndexi"
+  },
+  "glIndexiv": {
+   "status": "backend-fallthrough",
+   "target": "glIndexiv"
+  },
+  "glIndexs": {
+   "status": "backend-fallthrough",
+   "target": "glIndexs"
+  },
+  "glIndexsv": {
+   "status": "backend-fallthrough",
+   "target": "glIndexsv"
+  },
+  "glIndexub": {
+   "status": "backend-fallthrough",
+   "target": "glIndexub"
+  },
+  "glIndexubv": {
+   "status": "backend-fallthrough",
+   "target": "glIndexubv"
   },
   "glInitNames": {
    "status": "resolvable",
@@ -1221,6 +1373,10 @@
   "glInterleavedArrays": {
    "status": "resolvable",
    "target": "glInterleavedArrays"
+  },
+  "glIsBuffer": {
+   "status": "backend-fallthrough",
+   "target": "glIsBuffer"
   },
   "glIsBufferARB": {
    "status": "backend-alias",
@@ -1238,9 +1394,25 @@
    "status": "resolvable",
    "target": "glIsList"
   },
+  "glIsProgram": {
+   "status": "backend-fallthrough",
+   "target": "glIsProgram"
+  },
+  "glIsQuery": {
+   "status": "backend-fallthrough",
+   "target": "glIsQuery"
+  },
   "glIsRenderbufferEXT": {
    "status": "backend-alias",
    "target": "glIsRenderbuffer"
+  },
+  "glIsShader": {
+   "status": "backend-fallthrough",
+   "target": "glIsShader"
+  },
+  "glIsTexture": {
+   "status": "backend-fallthrough",
+   "target": "glIsTexture"
   },
   "glLightModelf": {
    "status": "resolvable",
@@ -1325,6 +1497,10 @@
   "glLoadTransposeMatrixfARB": {
    "status": "alias",
    "target": "glLoadTransposeMatrixf"
+  },
+  "glLogicOp": {
+   "status": "resolvable",
+   "target": "glLogicOp"
   },
   "glMap1d": {
    "status": "resolvable",
@@ -1986,6 +2162,10 @@
    "status": "resolvable",
    "target": "glRasterPos4sv"
   },
+  "glReadBuffer": {
+   "status": "backend-fallthrough",
+   "target": "glReadBuffer"
+  },
   "glReadPixels": {
    "status": "resolvable",
    "target": "glReadPixels"
@@ -2065,6 +2245,10 @@
   "glRotatef": {
    "status": "resolvable",
    "target": "glRotatef"
+  },
+  "glSampleCoverage": {
+   "status": "backend-fallthrough",
+   "target": "glSampleCoverage"
   },
   "glScaled": {
    "status": "resolvable",
@@ -2242,13 +2426,25 @@
    "status": "resolvable",
    "target": "glStencilFunc"
   },
+  "glStencilFuncSeparate": {
+   "status": "backend-fallthrough",
+   "target": "glStencilFuncSeparate"
+  },
   "glStencilMask": {
    "status": "resolvable",
    "target": "glStencilMask"
   },
+  "glStencilMaskSeparate": {
+   "status": "backend-fallthrough",
+   "target": "glStencilMaskSeparate"
+  },
   "glStencilOp": {
    "status": "resolvable",
    "target": "glStencilOp"
+  },
+  "glStencilOpSeparate": {
+   "status": "backend-fallthrough",
+   "target": "glStencilOpSeparate"
   },
   "glTexCoord1d": {
    "status": "resolvable",
@@ -2430,6 +2626,10 @@
    "status": "resolvable",
    "target": "glTexImage2D"
   },
+  "glTexImage3D": {
+   "status": "backend-fallthrough",
+   "target": "glTexImage3D"
+  },
   "glTexParameterf": {
    "status": "resolvable",
    "target": "glTexParameterf"
@@ -2454,6 +2654,10 @@
    "status": "resolvable",
    "target": "glTexSubImage2D"
   },
+  "glTexSubImage3D": {
+   "status": "backend-fallthrough",
+   "target": "glTexSubImage3D"
+  },
   "glTranslated": {
    "status": "resolvable",
    "target": "glTranslated"
@@ -2462,81 +2666,181 @@
    "status": "resolvable",
    "target": "glTranslatef"
   },
+  "glUniform1f": {
+   "status": "backend-fallthrough",
+   "target": "glUniform1f"
+  },
   "glUniform1fARB": {
    "status": "backend-alias",
    "target": "glUniform1f"
+  },
+  "glUniform1fv": {
+   "status": "backend-fallthrough",
+   "target": "glUniform1fv"
   },
   "glUniform1fvARB": {
    "status": "backend-alias",
    "target": "glUniform1fv"
   },
+  "glUniform1i": {
+   "status": "backend-fallthrough",
+   "target": "glUniform1i"
+  },
   "glUniform1iARB": {
    "status": "backend-alias",
    "target": "glUniform1i"
+  },
+  "glUniform1iv": {
+   "status": "backend-fallthrough",
+   "target": "glUniform1iv"
   },
   "glUniform1ivARB": {
    "status": "backend-alias",
    "target": "glUniform1iv"
   },
+  "glUniform2f": {
+   "status": "backend-fallthrough",
+   "target": "glUniform2f"
+  },
   "glUniform2fARB": {
    "status": "backend-alias",
    "target": "glUniform2f"
+  },
+  "glUniform2fv": {
+   "status": "backend-fallthrough",
+   "target": "glUniform2fv"
   },
   "glUniform2fvARB": {
    "status": "backend-alias",
    "target": "glUniform2fv"
   },
+  "glUniform2i": {
+   "status": "backend-fallthrough",
+   "target": "glUniform2i"
+  },
   "glUniform2iARB": {
    "status": "backend-alias",
    "target": "glUniform2i"
+  },
+  "glUniform2iv": {
+   "status": "backend-fallthrough",
+   "target": "glUniform2iv"
   },
   "glUniform2ivARB": {
    "status": "backend-alias",
    "target": "glUniform2iv"
   },
+  "glUniform3f": {
+   "status": "backend-fallthrough",
+   "target": "glUniform3f"
+  },
   "glUniform3fARB": {
    "status": "backend-alias",
    "target": "glUniform3f"
+  },
+  "glUniform3fv": {
+   "status": "backend-fallthrough",
+   "target": "glUniform3fv"
   },
   "glUniform3fvARB": {
    "status": "backend-alias",
    "target": "glUniform3fv"
   },
+  "glUniform3i": {
+   "status": "backend-fallthrough",
+   "target": "glUniform3i"
+  },
   "glUniform3iARB": {
    "status": "backend-alias",
    "target": "glUniform3i"
+  },
+  "glUniform3iv": {
+   "status": "backend-fallthrough",
+   "target": "glUniform3iv"
   },
   "glUniform3ivARB": {
    "status": "backend-alias",
    "target": "glUniform3iv"
   },
+  "glUniform4f": {
+   "status": "backend-fallthrough",
+   "target": "glUniform4f"
+  },
   "glUniform4fARB": {
    "status": "backend-alias",
    "target": "glUniform4f"
+  },
+  "glUniform4fv": {
+   "status": "backend-fallthrough",
+   "target": "glUniform4fv"
   },
   "glUniform4fvARB": {
    "status": "backend-alias",
    "target": "glUniform4fv"
   },
+  "glUniform4i": {
+   "status": "backend-fallthrough",
+   "target": "glUniform4i"
+  },
   "glUniform4iARB": {
    "status": "backend-alias",
    "target": "glUniform4i"
+  },
+  "glUniform4iv": {
+   "status": "backend-fallthrough",
+   "target": "glUniform4iv"
   },
   "glUniform4ivARB": {
    "status": "backend-alias",
    "target": "glUniform4iv"
   },
+  "glUniformMatrix2fv": {
+   "status": "backend-fallthrough",
+   "target": "glUniformMatrix2fv"
+  },
   "glUniformMatrix2fvARB": {
    "status": "backend-alias",
    "target": "glUniformMatrix2fv"
+  },
+  "glUniformMatrix2x3fv": {
+   "status": "backend-fallthrough",
+   "target": "glUniformMatrix2x3fv"
+  },
+  "glUniformMatrix2x4fv": {
+   "status": "backend-fallthrough",
+   "target": "glUniformMatrix2x4fv"
+  },
+  "glUniformMatrix3fv": {
+   "status": "backend-fallthrough",
+   "target": "glUniformMatrix3fv"
   },
   "glUniformMatrix3fvARB": {
    "status": "backend-alias",
    "target": "glUniformMatrix3fv"
   },
+  "glUniformMatrix3x2fv": {
+   "status": "backend-fallthrough",
+   "target": "glUniformMatrix3x2fv"
+  },
+  "glUniformMatrix3x4fv": {
+   "status": "backend-fallthrough",
+   "target": "glUniformMatrix3x4fv"
+  },
+  "glUniformMatrix4fv": {
+   "status": "backend-fallthrough",
+   "target": "glUniformMatrix4fv"
+  },
   "glUniformMatrix4fvARB": {
    "status": "backend-alias",
    "target": "glUniformMatrix4fv"
+  },
+  "glUniformMatrix4x2fv": {
+   "status": "backend-fallthrough",
+   "target": "glUniformMatrix4x2fv"
+  },
+  "glUniformMatrix4x3fv": {
+   "status": "backend-fallthrough",
+   "target": "glUniformMatrix4x3fv"
   },
   "glUnmapBuffer": {
    "status": "resolvable",
@@ -2553,6 +2857,10 @@
   "glUseProgramObjectARB": {
    "status": "alias",
    "target": "glUseProgram"
+  },
+  "glValidateProgram": {
+   "status": "backend-fallthrough",
+   "target": "glValidateProgram"
   },
   "glValidateProgramARB": {
    "status": "backend-alias",
@@ -2670,9 +2978,17 @@
    "status": "alias",
    "target": "glVertexAttrib1dv"
   },
+  "glVertexAttrib1f": {
+   "status": "backend-fallthrough",
+   "target": "glVertexAttrib1f"
+  },
   "glVertexAttrib1fARB": {
    "status": "backend-alias",
    "target": "glVertexAttrib1f"
+  },
+  "glVertexAttrib1fv": {
+   "status": "backend-fallthrough",
+   "target": "glVertexAttrib1fv"
   },
   "glVertexAttrib1fvARB": {
    "status": "backend-alias",
@@ -2710,9 +3026,17 @@
    "status": "alias",
    "target": "glVertexAttrib2dv"
   },
+  "glVertexAttrib2f": {
+   "status": "backend-fallthrough",
+   "target": "glVertexAttrib2f"
+  },
   "glVertexAttrib2fARB": {
    "status": "backend-alias",
    "target": "glVertexAttrib2f"
+  },
+  "glVertexAttrib2fv": {
+   "status": "backend-fallthrough",
+   "target": "glVertexAttrib2fv"
   },
   "glVertexAttrib2fvARB": {
    "status": "backend-alias",
@@ -2750,9 +3074,17 @@
    "status": "alias",
    "target": "glVertexAttrib3dv"
   },
+  "glVertexAttrib3f": {
+   "status": "backend-fallthrough",
+   "target": "glVertexAttrib3f"
+  },
   "glVertexAttrib3fARB": {
    "status": "backend-alias",
    "target": "glVertexAttrib3f"
+  },
+  "glVertexAttrib3fv": {
+   "status": "backend-fallthrough",
+   "target": "glVertexAttrib3fv"
   },
   "glVertexAttrib3fvARB": {
    "status": "backend-alias",
@@ -2854,9 +3186,17 @@
    "status": "alias",
    "target": "glVertexAttrib4dv"
   },
+  "glVertexAttrib4f": {
+   "status": "backend-fallthrough",
+   "target": "glVertexAttrib4f"
+  },
   "glVertexAttrib4fARB": {
    "status": "backend-alias",
    "target": "glVertexAttrib4f"
+  },
+  "glVertexAttrib4fv": {
+   "status": "backend-fallthrough",
+   "target": "glVertexAttrib4fv"
   },
   "glVertexAttrib4fvARB": {
    "status": "backend-alias",

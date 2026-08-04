@@ -331,6 +331,18 @@ void drawImmediateVertices(GLenum primitive, const GLfloat* vertices, size_t flo
         return;
     }
 
+    // glLineStipple rasterization (defects-plan.md 1.5): a completely
+    // separate, dedicated-shader path (see linestipple.cpp), not part of
+    // the FPE uber-shader below. Gated on primitive AND the enable so the
+    // normal path is untouched (not even an extra branch evaluated) for
+    // every draw that isn't a stippled line - which is effectively all of
+    // them, since line_stipple_enable defaults to false.
+    if (gs.fpe_state.fpe_bools.line_stipple_enable &&
+        (primitive == GL_LINES || primitive == GL_LINE_STRIP || primitive == GL_LINE_LOOP)) {
+        sfpewDrawStippledLines(primitive, vertices, floatCount, vertexCount, sizes);
+        return;
+    }
+
     // Compiled display-list replay reaches this without ever passing
     // through glBegin (which used to be the only init_fpe caller on the
     // immediate path): a fresh context calling glCallList first would

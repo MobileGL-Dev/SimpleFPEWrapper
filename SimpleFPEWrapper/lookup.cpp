@@ -884,6 +884,7 @@ SFPEW_APIENTRY __eglMustCastToProperFunctionPointerType eglGetProcAddress(const 
         return (__eglMustCastToProperFunctionPointerType)glActiveTexture;
     }
     GETPROC(glAlphaFunc, name)
+    GETPROC(glLogicOp, name)
     GETPROC(glFogf, name)
     GETPROC(glFogi, name)
     GETPROC(glFogfv, name)

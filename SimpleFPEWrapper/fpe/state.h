@@ -21,6 +21,7 @@ extern "C"
     GLAPI GLAPIENTRY void glDisable(GLenum cap);
     GLAPI GLAPIENTRY void glClientActiveTexture(GLenum texture);
     GLAPI void GLAPIENTRY glAlphaFunc(GLenum func, GLclampf ref);
+    GLAPI void GLAPIENTRY glLogicOp(GLenum opcode);
     GLAPI void GLAPIENTRY glFogf(GLenum pname, GLfloat param);
     GLAPI void GLAPIENTRY glFogi(GLenum pname, GLint param);
     GLAPI void GLAPIENTRY glFogfv(GLenum pname, const GLfloat* params);

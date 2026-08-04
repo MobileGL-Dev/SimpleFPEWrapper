@@ -23,7 +23,20 @@ struct scratch_t {
     bool has_back_vertex_color = false;
     bool has_texcoord[MAX_TEX] = {false};
     bool has_fog_coord_input = false; // glFogCoord*/glFogCoordPointer fed
+    bool has_secondary_color_input = false; // glSecondaryColor3*/Pointer fed
 };
+
+// defects-plan.md 1.7: which sampler type (if any) a unit samples from.
+// GL 2.1 3.8.14's texture application priority when more than one target is
+// enabled on the same unit: cube map, then 3D, then 2D, then 1D (1D shares
+// the 2D enable - see GL_TEXTURE_1D in state.cpp's hijack_fpe_states).
+// Shared with glstate.cpp's program-hash cache/hash building, which must
+// agree with the shader generator about which units are "textured" for
+// GL_COMBINE-parameter staleness purposes - see active_texture_target's
+// definition in fpe_shadergen.cpp for the texgen composition boundary this
+// deliberately does not cover.
+enum class texture_target_kind_t { none, tex2d, tex3d, cube };
+texture_target_kind_t active_texture_target(const struct fixed_function_state_t& state, int unit);
 
 class fpe_shader_generator {
 public:

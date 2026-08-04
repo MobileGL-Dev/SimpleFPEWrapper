@@ -207,11 +207,20 @@ struct fixed_function_bool_t {      // glEnable/glDisable
     bool rescale_normal_enable = false;
     bool light_enable[MAX_LIGHTS] = {false};
     bool texture_2d_enable[MAX_TEX] = {false};
+    // GL_TEXTURE_3D / GL_TEXTURE_CUBE_MAP per unit (defects-plan.md 1.7).
+    // GL 2.1 3.8.14 texture application priority when more than one target
+    // is enabled on the same unit: cube map, then 3D, then 2D, then 1D -
+    // see active_texture_target() in fpe_shadergen.cpp, the single place
+    // that priority is resolved. Each array defaults to false, so a unit
+    // that never touches these behaves exactly as it always did.
+    bool texture_3d_enable[MAX_TEX] = {false};
+    bool texture_cube_enable[MAX_TEX] = {false};
     // Stored for the plans/08 shader consumption; participates in the
     // program hash via the aggregate but is not read by the generator yet.
     bool clip_plane_enable[6] = {false};
     bool polygon_stipple_enable = false;
     bool line_stipple_enable = false;
+    bool color_sum_enable = false; // GL_COLOR_SUM (GL 1.4 / EXT_secondary_color)
     // glEnable(GL_TEXTURE_GEN_S/T/R/Q) per unit; [unit][coord], coord order
     // S,T,R,Q. Shader consumption is the second half of plans/05 5.2.
     bool texture_gen_enable[MAX_TEX][4] = {};
@@ -404,6 +413,12 @@ struct fixed_function_state_t {
     GLenum client_active_texture = GL_TEXTURE0;      // glClientActiveTexture, specifies active texcood
     GLenum alpha_func = GL_ALWAYS;                   // glAlphaFunc
     color_buffer_state_t color_buffer;                // blend / masks (for attrib stack)
+    // glLogicOp: stored so GL_LOGIC_OP_MODE reads back exactly what was set,
+    // but GL_COLOR_LOGIC_OP/GL_INDEX_LOGIC_OP never actually enable per
+    // spec's meaning of those caps - see getter.cpp and state.cpp for why
+    // (ES 3.0 core has no fixed-function logic op, no extension-free way to
+    // read the destination color in a fragment shader on that floor either).
+    GLenum logic_op_mode = GL_COPY;
 
     // Last value handed to the backend for the plain per-fragment state
     // entries. They are pure state: nothing else in the wrapper writes them,

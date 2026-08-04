@@ -9,6 +9,7 @@
 #include <cmath>
 #include "types.h"
 #include "transformation.h"
+#include "fpe_shadergen.h"
 #include "../init.h"
 #include <cstring>
 #include <format>
@@ -178,7 +179,10 @@ void glstate_t::send_uniforms(program_t& program) {
     }
 
     for (int i = 0; i < MAX_TEX; ++i) {
-        if (!fpe_state.fpe_bools.texture_2d_enable[i]) continue;
+        // defects-plan.md 1.7: a unit sampling a 3D or cube texture still
+        // needs its sampler uniform bound to the right unit index, not just
+        // 2D units.
+        if (active_texture_target(fpe_state, i) == texture_target_kind_t::none) continue;
 
         if (first_upload && locations.sampler[i] >= 0) g_glFuncs.glUniform1i(locations.sampler[i], i);
 
@@ -380,7 +384,9 @@ program_key_t glstate_t::program_hash() {
                 matches = false;
                 break;
             }
-            if (!bools.texture_2d_enable[i]) continue;
+            // defects-plan.md 1.7: a 3D or cube unit can also run GL_COMBINE,
+            // so it must not skip the staleness check below.
+            if (active_texture_target(fpe_state, i) == texture_target_kind_t::none) continue;
             // COMBINE and texgen bake parameters into the generated source.
             // Both are mirrored here, so a multi-stage setup keeps the fast
             // path as long as those parameters hold still.
@@ -463,7 +469,8 @@ program_key_t glstate_t::program_hash() {
     hash.add(&fpe_state.texture_gen_mode, sizeof(fpe_state.texture_gen_mode));
 
     for (int i = 0; i < MAX_TEX; ++i) {
-        if (!fpe_state.fpe_bools.texture_2d_enable[i] || fpe_state.texture_env_mode[i] != GL_COMBINE)
+        if (active_texture_target(fpe_state, i) == texture_target_kind_t::none ||
+            fpe_state.texture_env_mode[i] != GL_COMBINE)
             continue;
         const auto& env = fpe_uniform.texture_env[i];
         hash.add(&env.combine_rgb, sizeof(env.combine_rgb));

@@ -1240,6 +1240,20 @@ int texture_unit_from_attribute(int attribute_index) {
 }
 
 
+// Declared in fpe_shadergen.h (shared with glstate.cpp). Deliberately NOT
+// consulted by unit_uses_texgen/texgen_needs_eye/texgen_needs_normal below -
+// texture coordinate generation composed with a 3D or cube target
+// (GL_REFLECTION_MAP/GL_NORMAL_MAP's natural use, ironically) is a known,
+// documented gap, not silently wrong: those three functions still gate on
+// texture_2d_enable only, so texgen never activates for a 3D/cube unit and
+// the plain vertex texcoord attribute is sampled instead.
+texture_target_kind_t active_texture_target(const fixed_function_state_t& state, int unit) {
+    if (state.fpe_bools.texture_cube_enable[unit]) return texture_target_kind_t::cube;
+    if (state.fpe_bools.texture_3d_enable[unit]) return texture_target_kind_t::tex3d;
+    if (state.fpe_bools.texture_2d_enable[unit]) return texture_target_kind_t::tex2d;
+    return texture_target_kind_t::none;
+}
+
 // Any texgen coordinate live on a textured unit?
 bool unit_uses_texgen(const fixed_function_state_t& state, int unit) {
     if (!state.fpe_bools.texture_2d_enable[unit]) return false;
@@ -1369,6 +1383,7 @@ void add_vs_inout(const fixed_function_state_t& state, scratch_t& scratch, std::
             }
             if (usage == GL_NORMAL_ARRAY) scratch.has_normal_input = true;
             if (usage == GL_FOG_COORD_ARRAY) scratch.has_fog_coord_input = true;
+            if (usage == GL_SECONDARY_COLOR_ARRAY) scratch.has_secondary_color_input = true;
         }
     }
 
@@ -1678,11 +1693,14 @@ void add_vs_body(const fixed_function_state_t& state, scratch_t& scratch, std::s
 void add_fs_uniforms(const fixed_function_state_t& state, [[maybe_unused]] scratch_t& scratch, std::string& fs) {
     if (state.fpe_bools.polygon_stipple_enable) fs += "uniform uint PolygonStipple[32];\n";
     for (int i = 0; i < MAX_TEX; ++i) {
-        if (state.fpe_bools.texture_2d_enable[i]) {
-            fs += std::format("uniform sampler2D Sampler{};\n", i);
-            if (state.texture_env_mode[i] == GL_BLEND || state.texture_env_mode[i] == GL_COMBINE) {
-                fs += std::format("uniform vec4 TexEnvColor{};\n", i);
-            }
+        const auto target = active_texture_target(state, i);
+        if (target == texture_target_kind_t::none) continue;
+        const char* sampler_type = target == texture_target_kind_t::cube    ? "samplerCube"
+                                   : target == texture_target_kind_t::tex3d ? "sampler3D"
+                                                                            : "sampler2D";
+        fs += std::format("uniform {} Sampler{};\n", sampler_type, i);
+        if (state.texture_env_mode[i] == GL_BLEND || state.texture_env_mode[i] == GL_COMBINE) {
+            fs += std::format("uniform vec4 TexEnvColor{};\n", i);
         }
     }
 
@@ -1718,8 +1736,9 @@ std::string combine_argument(const fixed_function_state_t& state, const texture_
         src = std::format("texcolor{}", unit);
     } else if (source >= GL_TEXTURE0 && source < GL_TEXTURE0 + MAX_TEX) {
         const int n = static_cast<int>(source - GL_TEXTURE0);
-        src = (n <= unit && state.fpe_bools.texture_2d_enable[n]) ? std::format("texcolor{}", n)
-                                                                  : std::string("vec4(0.0)");
+        src = (n <= unit && active_texture_target(state, n) != texture_target_kind_t::none)
+                  ? std::format("texcolor{}", n)
+                  : std::string("vec4(0.0)");
     } else if (source == GL_CONSTANT) {
         src = std::format("TexEnvColor{}", unit);
     } else if (source == GL_PRIMARY_COLOR) {
@@ -1806,7 +1825,8 @@ void add_fs_body(const fixed_function_state_t& state, scratch_t& scratch, std::s
         fs += "    vec4 color = vec4(1., 1., 1., 1.);\n";
 
     for (int i = 0; i < MAX_TEX; ++i) {
-        if (!state.fpe_bools.texture_2d_enable[i]) continue;
+        const auto target = active_texture_target(state, i);
+        if (target == texture_target_kind_t::none) continue;
 
         if (!scratch.primary_color_saved) {
             // COMBINE's GL_PRIMARY_COLOR must reference the pre-texturing
@@ -1814,8 +1834,17 @@ void add_fs_body(const fixed_function_state_t& state, scratch_t& scratch, std::s
             fs += "    vec4 primaryColor = color;\n";
             scratch.primary_color_saved = true;
         }
+        // 3D and cube samples both take a vec3 (a cube face is selected by
+        // direction, not a face index - the largest-magnitude component of
+        // the vec3 picks the face). texCoord{i} is always a vec4 attribute
+        // (glTexCoord3f/4f already feed it, glTexCoord2f leaves .z at its
+        // default 0), so no vertex-side change is needed for either arity.
+        const bool needs_3_component =
+            target == texture_target_kind_t::tex3d || target == texture_target_kind_t::cube;
         const std::string coord =
-            scratch.has_texcoord[i] ? std::format("texCoord{}.xy", i) : "vec2(0.0)";
+            scratch.has_texcoord[i]
+                ? std::format("texCoord{}.{}", i, needs_3_component ? "xyz" : "xy")
+                : (needs_3_component ? "vec3(0.0)" : "vec2(0.0)");
         fs += std::format("\n"
                           "    // Texturing #{0}\n"
                           "    vec4 texcolor{0} = texture(Sampler{0}, {1});\n",
@@ -1869,6 +1898,19 @@ void add_fs_body(const fixed_function_state_t& state, scratch_t& scratch, std::s
             fs += "    color.rgb += gl_FrontFacing ? vertexSpecular : vertexBackSpecular;\n";
         else
             fs += "    color.rgb += vertexSpecular;\n";
+    }
+
+    // GL_COLOR_SUM (GL 1.4 / EXT_secondary_color, spec 3.9.1): the secondary
+    // colour adds into RGB only, after texturing, before fog. Alpha is
+    // untouched - glSecondaryColor3* has no alpha component; the spec fixes
+    // it at 1.0 for exactly this reason. Guarded on has_secondary_color_input
+    // too: with COLOR_SUM enabled but no glSecondaryColor3*/Pointer call
+    // ever made, add_vs_inout never declares vertexSecColor at all (nothing
+    // fed attribute slot 6), and the GL default secondary colour is
+    // {0,0,0,1} anyway - adding it would be a no-op, so skip the reference
+    // rather than emit an undeclared identifier.
+    if (state.fpe_bools.color_sum_enable && scratch.has_secondary_color_input) {
+        fs += "    color.rgb += vertexSecColor.rgb;\n";
     }
 
     // Alpha test: uniform-selected comparison, GL_NEVER..GL_GEQUAL encoded

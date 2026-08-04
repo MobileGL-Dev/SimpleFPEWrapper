@@ -1618,14 +1618,19 @@ bool fixedFunctionState(GLenum pname, GLdouble* values, int* count, bool* colour
     case GL_TEXTURE_GEN_T: return capability(bools.texture_gen_enable[unit][1]);
     case GL_TEXTURE_GEN_R: return capability(bools.texture_gen_enable[unit][2]);
     case GL_TEXTURE_GEN_Q: return capability(bools.texture_gen_enable[unit][3]);
+    // defects-plan.md 1.7.
+    case GL_TEXTURE_3D: return capability(bools.texture_3d_enable[unit]);
+    case GL_TEXTURE_CUBE_MAP: return capability(bools.texture_cube_enable[unit]);
 
     // ---- enables for wrapper-side and unsupported pipeline stages ----
-    case GL_TEXTURE_3D:
-    case GL_TEXTURE_CUBE_MAP:
     case GL_POINT_SMOOTH:
     case GL_LINE_SMOOTH:
     case GL_POLYGON_SMOOTH:
     case GL_POINT_SPRITE:
+    // glLogicOp itself is real (state.cpp) and GL_LOGIC_OP_MODE reads it
+    // back exactly; these two enables stay false deliberately - ES 3.0 core
+    // has no fixed-function logic op and no extension-free way to emulate
+    // one, so there is no render effect to honestly report as present.
     case GL_COLOR_LOGIC_OP:
     case GL_INDEX_LOGIC_OP:
     case GL_POLYGON_OFFSET_LINE:
@@ -1641,10 +1646,7 @@ bool fixedFunctionState(GLenum pname, GLdouble* values, int* count, bool* colour
     case GL_SEPARABLE_2D: return capability(gs.convolutions[2].enabled);
     case GL_HISTOGRAM: return capability(gs.histogram.enabled);
     case GL_MINMAX: return capability(gs.minmax.enabled);
-    // Secondary colors are tracked and queryable, but the generated shader
-    // does not sum them yet. Reporting COLOR_SUM disabled keeps that boundary
-    // explicit instead of advertising a render effect that is not present.
-    case GL_COLOR_SUM: return capability(false);
+    case GL_COLOR_SUM: return capability(bools.color_sum_enable);
 
     // ---- current vertex attributes ----
     case GL_CURRENT_COLOR: return signal(glm::value_ptr(current.color), 4);
@@ -1704,7 +1706,7 @@ bool fixedFunctionState(GLenum pname, GLdouble* values, int* count, bool* colour
     case GL_POINT_DISTANCE_ATTENUATION:
         return vector(glm::value_ptr(uni.point_distance_attenuation), 3);
     case GL_POINT_SPRITE_COORD_ORIGIN: return scalar(ff.point_sprite_coord_origin);
-    case GL_LOGIC_OP_MODE: return scalar(GL_COPY);
+    case GL_LOGIC_OP_MODE: return scalar(ff.logic_op_mode);
     // GL 2.1 names the antialiased range GL_SMOOTH_*_RANGE and the plain one
     // GL_POINT_SIZE_RANGE / GL_LINE_WIDTH_RANGE - the same enum either way.
     // A GLES backend reports only its aliased range, which is the range that

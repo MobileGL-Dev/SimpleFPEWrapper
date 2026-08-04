@@ -1,6 +1,6 @@
 {
  "source": "lookup.cpp",
- "count": 675,
+ "count": 678,
  "entries": {
   "eglSwapBuffersWithDamageKHR": {
    "status": "alias",
@@ -1497,6 +1497,18 @@
   "glPassThrough": {
    "status": "resolvable",
    "target": "glPassThrough"
+  },
+  "glPixelMapfv": {
+   "status": "resolvable",
+   "target": "glPixelMapfv"
+  },
+  "glPixelMapuiv": {
+   "status": "resolvable",
+   "target": "glPixelMapuiv"
+  },
+  "glPixelMapusv": {
+   "status": "resolvable",
+   "target": "glPixelMapusv"
   },
   "glPixelStoref": {
    "status": "resolvable",

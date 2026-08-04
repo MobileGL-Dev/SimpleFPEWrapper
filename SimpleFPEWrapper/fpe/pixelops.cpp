@@ -364,43 +364,251 @@ void glClearAccum(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha) {
     accumState().clear_value = {red, green, blue, alpha};
 }
 
-// Pixel maps are not implemented: glPixelMap has no entry point here, so
-// every table is still the single-entry identity GL starts with, and that
-// is what a query returns. Answering is what matters - the alternative is
-// a null function pointer in the caller's hand.
 namespace {
 
-bool validPixelMap(GLenum map) {
-    return map >= GL_PIXEL_MAP_I_TO_I && map <= GL_PIXEL_MAP_A_TO_A;
+void drainFailedMapError();
+
+bool pixelMapIndex(GLenum map, size_t* index = nullptr) {
+    if (map < GL_PIXEL_MAP_I_TO_I || map > GL_PIXEL_MAP_A_TO_A) return false;
+    if (index != nullptr) *index = static_cast<size_t>(map - GL_PIXEL_MAP_I_TO_I);
+    return true;
+}
+
+bool pixelMapIsIndex(GLenum map) {
+    return map == GL_PIXEL_MAP_I_TO_I || map == GL_PIXEL_MAP_S_TO_S;
+}
+
+bool pixelMapSizeIsValid(GLenum map, GLsizei mapsize) {
+    if (mapsize < 1 || mapsize > SFPEW_MAX_PIXEL_MAP_TABLE) return false;
+    // The six maps indexed by a color/stencil index use masking to select an
+    // entry and therefore require a power-of-two size. Component-to-component
+    // maps do not have that restriction.
+    return map >= GL_PIXEL_MAP_R_TO_R || (mapsize & (mapsize - 1)) == 0;
+}
+
+template <typename T>
+bool copyPixelMapSource(GLsizei mapsize, const T* values, std::vector<T>* copied) {
+    try {
+        copied->resize(static_cast<size_t>(mapsize));
+    } catch (const std::bad_alloc&) {
+        g_glstate.set_error(GL_OUT_OF_MEMORY);
+        return false;
+    }
+
+    GLint unpack_buffer = 0;
+    if (!DisplayListManager::isCalling() && sfpewEnsureBackend() &&
+        g_glFuncs.glGetIntegerv != nullptr) {
+        g_glFuncs.glGetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, &unpack_buffer);
+    }
+    if (unpack_buffer == 0) {
+        if (values == nullptr) return false;
+        std::copy_n(values, mapsize, copied->data());
+        return true;
+    }
+
+    if (g_glFuncs.glGetBufferParameteriv == nullptr || g_glFuncs.glMapBufferRange == nullptr ||
+        g_glFuncs.glUnmapBuffer == nullptr) {
+        g_glstate.set_error(GL_INVALID_OPERATION);
+        return false;
+    }
+    const size_t offset = reinterpret_cast<uintptr_t>(values);
+    const size_t bytes = static_cast<size_t>(mapsize) * sizeof(T);
+    GLint buffer_size = 0, buffer_mapped = GL_FALSE;
+    g_glFuncs.glGetBufferParameteriv(GL_PIXEL_UNPACK_BUFFER, GL_BUFFER_SIZE, &buffer_size);
+    g_glFuncs.glGetBufferParameteriv(GL_PIXEL_UNPACK_BUFFER, GL_BUFFER_MAPPED, &buffer_mapped);
+    if (offset % sizeof(T) != 0 || buffer_mapped == GL_TRUE || buffer_size < 0 ||
+        offset > static_cast<size_t>(buffer_size) || bytes > static_cast<size_t>(buffer_size) - offset ||
+        offset > static_cast<size_t>(std::numeric_limits<GLintptr>::max()) ||
+        bytes > static_cast<size_t>(std::numeric_limits<GLsizeiptr>::max())) {
+        g_glstate.set_error(GL_INVALID_OPERATION);
+        return false;
+    }
+
+    const void* mapped = g_glFuncs.glMapBufferRange(
+        GL_PIXEL_UNPACK_BUFFER, static_cast<GLintptr>(offset), static_cast<GLsizeiptr>(bytes),
+        GL_MAP_READ_BIT);
+    if (mapped == nullptr) {
+        drainFailedMapError();
+        g_glstate.set_error(GL_INVALID_OPERATION);
+        return false;
+    }
+    std::memcpy(copied->data(), mapped, bytes);
+    if (g_glFuncs.glUnmapBuffer(GL_PIXEL_UNPACK_BUFFER) != GL_TRUE) {
+        g_glstate.set_error(GL_INVALID_OPERATION);
+        return false;
+    }
+    return true;
+}
+
+template <typename T>
+void storePixelMap(GLenum map, const std::vector<T>& values) {
+    size_t index = 0;
+    pixelMapIndex(map, &index);
+    const bool index_map = pixelMapIsIndex(map);
+    auto& destination = g_glstate.pixel_maps[index];
+    try {
+        destination.resize(values.size());
+    } catch (const std::bad_alloc&) {
+        g_glstate.set_error(GL_OUT_OF_MEMORY);
+        return;
+    }
+    for (size_t i = 0; i < values.size(); ++i) {
+        if (index_map) {
+            destination[i] = static_cast<GLfloat>(values[i]);
+        } else if constexpr (std::is_floating_point_v<T>) {
+            const GLfloat value = static_cast<GLfloat>(values[i]);
+            destination[i] = std::isnan(value) ? 0.0f : std::clamp(value, 0.0f, 1.0f);
+        } else {
+            destination[i] = static_cast<GLfloat>(values[i]) /
+                             static_cast<GLfloat>(std::numeric_limits<T>::max());
+        }
+    }
+}
+
+template <typename T>
+T pixelMapResult(GLenum map, GLfloat value) {
+    if constexpr (std::is_floating_point_v<T>) {
+        return value;
+    } else {
+        if (std::isnan(value) || value <= 0.0f) return 0;
+        const long double maximum = static_cast<long double>(std::numeric_limits<T>::max());
+        const long double converted = pixelMapIsIndex(map)
+                                          ? static_cast<long double>(value)
+                                          : static_cast<long double>(std::min(value, 1.0f)) * maximum;
+        if (converted >= maximum) return std::numeric_limits<T>::max();
+        return static_cast<T>(std::llround(converted));
+    }
+}
+
+template <typename T>
+bool writePixelMapDestination(const std::vector<T>& converted, T* values) {
+    GLint pack_buffer = 0;
+    if (sfpewEnsureBackend() && g_glFuncs.glGetIntegerv != nullptr)
+        g_glFuncs.glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING, &pack_buffer);
+    if (pack_buffer == 0) {
+        if (values == nullptr) return false;
+        std::copy(converted.begin(), converted.end(), values);
+        return true;
+    }
+
+    if (g_glFuncs.glGetBufferParameteriv == nullptr || g_glFuncs.glMapBufferRange == nullptr ||
+        g_glFuncs.glUnmapBuffer == nullptr) {
+        g_glstate.set_error(GL_INVALID_OPERATION);
+        return false;
+    }
+    const size_t offset = reinterpret_cast<uintptr_t>(values);
+    const size_t bytes = converted.size() * sizeof(T);
+    GLint buffer_size = 0, buffer_mapped = GL_FALSE;
+    g_glFuncs.glGetBufferParameteriv(GL_PIXEL_PACK_BUFFER, GL_BUFFER_SIZE, &buffer_size);
+    g_glFuncs.glGetBufferParameteriv(GL_PIXEL_PACK_BUFFER, GL_BUFFER_MAPPED, &buffer_mapped);
+    if (offset % sizeof(T) != 0 || buffer_mapped == GL_TRUE || buffer_size < 0 ||
+        offset > static_cast<size_t>(buffer_size) || bytes > static_cast<size_t>(buffer_size) - offset ||
+        offset > static_cast<size_t>(std::numeric_limits<GLintptr>::max()) ||
+        bytes > static_cast<size_t>(std::numeric_limits<GLsizeiptr>::max())) {
+        g_glstate.set_error(GL_INVALID_OPERATION);
+        return false;
+    }
+
+    void* mapped = g_glFuncs.glMapBufferRange(
+        GL_PIXEL_PACK_BUFFER, static_cast<GLintptr>(offset), static_cast<GLsizeiptr>(bytes),
+        GL_MAP_WRITE_BIT);
+    if (mapped == nullptr) {
+        drainFailedMapError();
+        g_glstate.set_error(GL_INVALID_OPERATION);
+        return false;
+    }
+    std::memcpy(mapped, converted.data(), bytes);
+    if (g_glFuncs.glUnmapBuffer(GL_PIXEL_PACK_BUFFER) != GL_TRUE) {
+        g_glstate.set_error(GL_INVALID_OPERATION);
+        return false;
+    }
+    return true;
+}
+
+template <typename T>
+void getPixelMap(GLenum map, T* values) {
+    sfpewEntryBarrier();
+    size_t index = 0;
+    if (!pixelMapIndex(map, &index)) {
+        g_glstate.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    const auto& source = g_glstate.pixel_maps[index];
+    std::vector<T> converted;
+    try {
+        converted.resize(source.size());
+    } catch (const std::bad_alloc&) {
+        g_glstate.set_error(GL_OUT_OF_MEMORY);
+        return;
+    }
+    for (size_t i = 0; i < source.size(); ++i)
+        converted[i] = pixelMapResult<T>(map, source[i]);
+    writePixelMapDestination(converted, values);
 }
 
 } // namespace
 
-void glGetPixelMapfv(GLenum map, GLfloat* values) {
-    if (values == nullptr) return;
-    if (!validPixelMap(map)) {
+void glPixelMapfv(GLenum map, GLsizei mapsize, const GLfloat* values) {
+    sfpewEntryBarrier();
+    if (!pixelMapIndex(map)) {
         g_glstate.set_error(GL_INVALID_ENUM);
         return;
     }
-    values[0] = 0.0f;
+    if (!pixelMapSizeIsValid(map, mapsize)) {
+        g_glstate.set_error(GL_INVALID_VALUE);
+        return;
+    }
+    std::vector<GLfloat> copied;
+    if (!copyPixelMapSource(mapsize, values, &copied)) return;
+    LIST_RECORD(glPixelMapfv, {{2, copied.size() * sizeof(GLfloat)}}, map, mapsize,
+                static_cast<const GLfloat*>(copied.data()))
+    storePixelMap(map, copied);
+}
+
+void glPixelMapuiv(GLenum map, GLsizei mapsize, const GLuint* values) {
+    sfpewEntryBarrier();
+    if (!pixelMapIndex(map)) {
+        g_glstate.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    if (!pixelMapSizeIsValid(map, mapsize)) {
+        g_glstate.set_error(GL_INVALID_VALUE);
+        return;
+    }
+    std::vector<GLuint> copied;
+    if (!copyPixelMapSource(mapsize, values, &copied)) return;
+    LIST_RECORD(glPixelMapuiv, {{2, copied.size() * sizeof(GLuint)}}, map, mapsize,
+                static_cast<const GLuint*>(copied.data()))
+    storePixelMap(map, copied);
+}
+
+void glPixelMapusv(GLenum map, GLsizei mapsize, const GLushort* values) {
+    sfpewEntryBarrier();
+    if (!pixelMapIndex(map)) {
+        g_glstate.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    if (!pixelMapSizeIsValid(map, mapsize)) {
+        g_glstate.set_error(GL_INVALID_VALUE);
+        return;
+    }
+    std::vector<GLushort> copied;
+    if (!copyPixelMapSource(mapsize, values, &copied)) return;
+    LIST_RECORD(glPixelMapusv, {{2, copied.size() * sizeof(GLushort)}}, map, mapsize,
+                static_cast<const GLushort*>(copied.data()))
+    storePixelMap(map, copied);
+}
+
+void glGetPixelMapfv(GLenum map, GLfloat* values) {
+    getPixelMap(map, values);
 }
 
 void glGetPixelMapuiv(GLenum map, GLuint* values) {
-    if (values == nullptr) return;
-    if (!validPixelMap(map)) {
-        g_glstate.set_error(GL_INVALID_ENUM);
-        return;
-    }
-    values[0] = 0;
+    getPixelMap(map, values);
 }
 
 void glGetPixelMapusv(GLenum map, GLushort* values) {
-    if (values == nullptr) return;
-    if (!validPixelMap(map)) {
-        g_glstate.set_error(GL_INVALID_ENUM);
-        return;
-    }
-    values[0] = 0;
+    getPixelMap(map, values);
 }
 
 // GL_ACCUM_CLEAR_VALUE, for the glGet family: the accumulation state is
@@ -962,8 +1170,17 @@ void glDrawPixels(GLsizei width, GLsizei height, GLenum format, GLenum type, con
                     continue;
                 }
                 for (int channel = 0; channel < 4; ++channel) {
-                    const float transferred =
+                    float transferred =
                         clampPixel(value[channel] * un.pixel_scale[channel] + un.pixel_bias[channel]);
+                    if (un.pixel_map_color) {
+                        const auto& map = g_glstate.pixel_maps[
+                            static_cast<size_t>(GL_PIXEL_MAP_R_TO_R - GL_PIXEL_MAP_I_TO_I) +
+                            static_cast<size_t>(channel)];
+                        const size_t map_index = std::min(
+                            static_cast<size_t>(std::floor(transferred * map.size())),
+                            map.size() - 1u);
+                        transferred = map[map_index];
+                    }
                     if (float_output)
                         float_pixels[pixel * 4u + static_cast<size_t>(channel)] = transferred;
                     else

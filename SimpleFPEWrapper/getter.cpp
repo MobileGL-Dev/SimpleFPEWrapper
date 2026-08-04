@@ -1712,7 +1712,7 @@ bool fixedFunctionState(GLenum pname, GLdouble* values, int* count, bool* colour
     case GL_MAX_LIST_NESTING: return scalar(64);
     case GL_MAX_NAME_STACK_DEPTH: return scalar(64);
     case GL_MAX_EVAL_ORDER: return scalar(32);
-    case GL_MAX_PIXEL_MAP_TABLE: return scalar(32);
+    case GL_MAX_PIXEL_MAP_TABLE: return scalar(SFPEW_MAX_PIXEL_MAP_TABLE);
 
     // ---- client vertex arrays ----
     case GL_CLIENT_ACTIVE_TEXTURE: return scalar(ff.client_active_texture);
@@ -1808,8 +1808,6 @@ bool fixedFunctionState(GLenum pname, GLdouble* values, int* count, bool* colour
     case GL_PACK_SKIP_IMAGES:
     case GL_INDEX_SHIFT:
     case GL_INDEX_OFFSET: return scalar(0);
-    // Pixel maps are not implemented; a size of 1 is the initial identity
-    // table, which is what "no mapping applied" reads back as.
     case GL_PIXEL_MAP_I_TO_I_SIZE:
     case GL_PIXEL_MAP_S_TO_S_SIZE:
     case GL_PIXEL_MAP_I_TO_R_SIZE:
@@ -1819,7 +1817,8 @@ bool fixedFunctionState(GLenum pname, GLdouble* values, int* count, bool* colour
     case GL_PIXEL_MAP_R_TO_R_SIZE:
     case GL_PIXEL_MAP_G_TO_G_SIZE:
     case GL_PIXEL_MAP_B_TO_B_SIZE:
-    case GL_PIXEL_MAP_A_TO_A_SIZE: return scalar(1);
+    case GL_PIXEL_MAP_A_TO_A_SIZE:
+        return scalar(gs.pixel_maps[pname - GL_PIXEL_MAP_I_TO_I_SIZE].size());
     // The imaging subset is absent, so its scales and biases stay at the
     // identity rather than reporting an error.
     case GL_POST_CONVOLUTION_RED_SCALE:

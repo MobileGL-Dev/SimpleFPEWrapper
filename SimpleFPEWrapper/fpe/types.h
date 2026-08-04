@@ -82,6 +82,9 @@ using sfpew_vertex_buffer_t = std::vector<GLfloat, sfpew_no_init_allocator<GLflo
 
 GLsizei type_size(GLenum type);
 
+constexpr GLsizei SFPEW_MAX_PIXEL_MAP_TABLE = 32;
+constexpr size_t SFPEW_PIXEL_MAP_COUNT = 10;
+
 struct transformation_t {
     glm::mat4 matrices[4] = {
         glm::mat4(1.0f),
@@ -809,6 +812,15 @@ struct glstate_t {
     bool pixel_store_unpack_lsb_first = false;
     bool pixel_store_pack_swap_bytes = false;
     bool pixel_store_pack_lsb_first = false;
+
+    // glPixelMap* tables, ordered from GL_PIXEL_MAP_I_TO_I through
+    // GL_PIXEL_MAP_A_TO_A. All ten start as the specified size-one zero map;
+    // color-component maps store normalized floats while the two index maps
+    // retain their numeric index values in the same storage.
+    std::vector<GLfloat> pixel_maps[SFPEW_PIXEL_MAP_COUNT] = {
+        {0.0f}, {0.0f}, {0.0f}, {0.0f}, {0.0f},
+        {0.0f}, {0.0f}, {0.0f}, {0.0f}, {0.0f},
+    };
 
     // GL 2.1 texture residency is advisory and unavailable on either
     // backend floor. Keep the priority per texture name so the legacy

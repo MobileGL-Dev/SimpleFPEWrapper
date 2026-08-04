@@ -220,6 +220,12 @@ SFPEW_APIENTRY void glGetTexEnviv(GLenum target, GLenum pname, GLint* params);
 SFPEW_APIENTRY void glGetTexGenfv(GLenum coord, GLenum pname, GLfloat* params);
 SFPEW_APIENTRY void glGetTexGeniv(GLenum coord, GLenum pname, GLint* params);
 SFPEW_APIENTRY void glGetTexGendv(GLenum coord, GLenum pname, GLdouble* params);
+SFPEW_APIENTRY void glPixelMapfv(GLenum map, GLsizei mapsize, const GLfloat* values);
+SFPEW_APIENTRY void glPixelMapuiv(GLenum map, GLsizei mapsize, const GLuint* values);
+SFPEW_APIENTRY void glPixelMapusv(GLenum map, GLsizei mapsize, const GLushort* values);
+SFPEW_APIENTRY void glGetPixelMapfv(GLenum map, GLfloat* values);
+SFPEW_APIENTRY void glGetPixelMapuiv(GLenum map, GLuint* values);
+SFPEW_APIENTRY void glGetPixelMapusv(GLenum map, GLushort* values);
 SFPEW_APIENTRY void glTexImage1D(GLenum target, GLint level, GLint internalformat, GLsizei width, GLint border,
                                  GLenum format, GLenum type, const GLvoid* pixels);
 SFPEW_APIENTRY void glTexSubImage1D(GLenum target, GLint level, GLint xoffset, GLsizei width, GLenum format,

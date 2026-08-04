@@ -1302,6 +1302,23 @@ bool texgen_needs_normal(const fixed_function_state_t& state) {
     return false;
 }
 
+// defects-plan-2.md 2.2/2.3/2.4: whether the fragment shader needs to know
+// at runtime if the current draw is actually GL_POINTS. The uber-shader is
+// not primitive-keyed (no separate program variant per primitive type), so
+// point sprite coord replacement, point smoothing, and point size fade are
+// all gated on this uniform rather than a compile-time branch - a program
+// built while GL_POINTS happened to be current must behave identically for
+// a later GL_TRIANGLES draw with the same enables.
+bool needs_is_point_primitive(const fixed_function_state_t& state) {
+    return state.point_attenuation_active || state.fpe_bools.point_sprite_enable ||
+           state.fpe_bools.point_smooth_enable;
+}
+
+bool unit_has_point_sprite_replace(const fixed_function_state_t& state, int unit) {
+    return state.fpe_bools.point_sprite_enable && state.fpe_bools.point_sprite_coord_replace[unit] &&
+           active_texture_target(state, unit) == texture_target_kind_t::tex2d;
+}
+
 void add_vs_inout(const fixed_function_state_t& state, scratch_t& scratch, std::string& vs) {
     auto& vpa = state.normalized_vpa;
     // LOG_D("[shadergen] enabled_ptr: 0x%x", vpa.enabled_pointers)
@@ -1427,6 +1444,15 @@ void add_vs_inout(const fixed_function_state_t& state, scratch_t& scratch, std::
         vs += std::format("out float vClipDistance{};\n", i);
         scratch.last_stage_linkage += std::format("in float vClipDistance{};\n", i);
     }
+    // defects-plan-2.md 2.3: GL_POINT_FADE_THRESHOLD_SIZE only has a
+    // rendering effect alongside distance attenuation (spec 3.3 - the fade
+    // ratio is computed from the same pre-clamp derived size attenuation
+    // produces), so this rides point_attenuation_active rather than its own
+    // enable.
+    if (state.point_attenuation_active) {
+        vs += "out float vPointFadeAlpha;\n";
+        scratch.last_stage_linkage += "in float vPointFadeAlpha;\n";
+    }
 }
 
 void add_vs_uniforms(const fixed_function_state_t& state, scratch_t& scratch, std::string& vs) {
@@ -1436,7 +1462,8 @@ void add_vs_uniforms(const fixed_function_state_t& state, scratch_t& scratch, st
     if (state.point_attenuation_active) {
         vs += "uniform float PointSizeMin;\n"
               "uniform float PointSizeMax;\n"
-              "uniform vec3 PointDistanceAttenuation;\n";
+              "uniform vec3 PointDistanceAttenuation;\n"
+              "uniform float PointFadeThreshold;\n";
     }
     if (state.fpe_bools.fog_enable || state.fpe_bools.lighting_enable || texgen_needs_eye(state) ||
         any_clip_plane(state) || state.point_attenuation_active) {
@@ -1588,7 +1615,12 @@ void add_vs_body(const fixed_function_state_t& state, scratch_t& scratch, std::s
               "        PointDistanceAttenuation.y * pointDistance +\n"
               "        PointDistanceAttenuation.z * pointDistance * pointDistance;\n"
               "    float derivedPointSize = PointSize * inversesqrt(max(pointAttenuation, 1e-6));\n"
-              "    gl_PointSize = clamp(derivedPointSize, PointSizeMin, PointSizeMax);\n";
+              "    gl_PointSize = clamp(derivedPointSize, PointSizeMin, PointSizeMax);\n"
+              // GL 2.1 spec 3.3: alpha scales by (derivedSize/threshold)^2
+              // only while the pre-clamp derived size is below the
+              // threshold; at or above it the point is unfaded.
+              "    float pointFadeRatio = derivedPointSize / max(PointFadeThreshold, 1e-6);\n"
+              "    vPointFadeAlpha = pointFadeRatio < 1.0 ? clamp(pointFadeRatio * pointFadeRatio, 0.0, 1.0) : 1.0;\n";
     } else {
         vs += "    gl_PointSize = PointSize;\n";
     }
@@ -1692,6 +1724,8 @@ void add_vs_body(const fixed_function_state_t& state, scratch_t& scratch, std::s
 
 void add_fs_uniforms(const fixed_function_state_t& state, [[maybe_unused]] scratch_t& scratch, std::string& fs) {
     if (state.fpe_bools.polygon_stipple_enable) fs += "uniform uint PolygonStipple[32];\n";
+    if (needs_is_point_primitive(state)) fs += "uniform bool IsPointPrimitive;\n";
+    if (state.fpe_bools.point_sprite_enable) fs += "uniform bool PointSpriteLowerLeftOrigin;\n";
     for (int i = 0; i < MAX_TEX; ++i) {
         const auto target = active_texture_target(state, i);
         if (target == texture_target_kind_t::none) continue;
@@ -1841,10 +1875,25 @@ void add_fs_body(const fixed_function_state_t& state, scratch_t& scratch, std::s
         // default 0), so no vertex-side change is needed for either arity.
         const bool needs_3_component =
             target == texture_target_kind_t::tex3d || target == texture_target_kind_t::cube;
-        const std::string coord =
+        std::string coord =
             scratch.has_texcoord[i]
                 ? std::format("texCoord{}.{}", i, needs_3_component ? "xyz" : "xy")
                 : (needs_3_component ? "vec3(0.0)" : "vec2(0.0)");
+        // defects-plan-2.md 2.2: GL_POINT_SPRITE + GL_COORD_REPLACE (GL 1.4
+        // spec 3.9.1) substitutes gl_PointCoord for this unit's texcoord -
+        // only while the current draw is actually GL_POINTS, which the
+        // uber-shader can't know at compile time (see
+        // needs_is_point_primitive above), so this is a runtime select, not
+        // a different coord string outright. 2D units only: GL_COORD_REPLACE
+        // is defined in terms of an (s,t) pair, and a 3D/cube unit's third
+        // sample component has no point-sprite equivalent to replace it
+        // with (unit_has_point_sprite_replace already excludes them).
+        if (unit_has_point_sprite_replace(state, i)) {
+            coord = std::format(
+                "(IsPointPrimitive ? vec2(gl_PointCoord.x, PointSpriteLowerLeftOrigin ? "
+                "1.0 - gl_PointCoord.y : gl_PointCoord.y) : {})",
+                coord);
+        }
         fs += std::format("\n"
                           "    // Texturing #{0}\n"
                           "    vec4 texcolor{0} = texture(Sampler{0}, {1});\n",
@@ -1911,6 +1960,22 @@ void add_fs_body(const fixed_function_state_t& state, scratch_t& scratch, std::s
     // rather than emit an undeclared identifier.
     if (state.fpe_bools.color_sum_enable && scratch.has_secondary_color_input) {
         fs += "    color.rgb += vertexSecColor.rgb;\n";
+    }
+
+    // defects-plan-2.md 2.4: GL_POINT_SMOOTH as a radial soft-edge alpha
+    // falloff - the classic point-AA approximation, and a real one (unlike
+    // GL_LINE_SMOOTH/GL_POLYGON_SMOOTH, which would need per-primitive
+    // geometry processing this wrapper's native-rasterizer draw path
+    // doesn't have, so those stay honest state with no forwarded effect).
+    if (state.fpe_bools.point_smooth_enable) {
+        fs += "    if (IsPointPrimitive) {\n"
+              "        float pointEdgeDist = length(gl_PointCoord - vec2(0.5)) * 2.0;\n"
+              "        color.a *= 1.0 - smoothstep(0.8, 1.0, pointEdgeDist);\n"
+              "    }\n";
+    }
+    // defects-plan-2.md 2.3.
+    if (state.point_attenuation_active) {
+        fs += "    if (IsPointPrimitive) color.a *= vPointFadeAlpha;\n";
     }
 
     // Alpha test: uniform-selected comparison, GL_NEVER..GL_GEQUAL encoded

@@ -230,6 +230,68 @@ void glDrawBuffer(GLenum buf) {
     g_glFuncs.glDrawBuffers(1, &mapped);
 }
 
+// defects-plan-2.md 2.1: glReadBuffer was entirely unwrapped - not in
+// lookup.cpp's GETPROC table and absent from this file, so
+// eglGetProcAddress("glReadBuffer") fell through to the backend's own
+// address (both floors have it natively as ES 3.0/GL 3.2 core), bypassing
+// LIST_RECORD and every other wrapper-side barrier. Mirrors glDrawBuffer
+// above almost exactly, checking the read-framebuffer binding instead of
+// the draw one. One real difference from glDrawBuffer: GL_FRONT_AND_BACK
+// is legal to draw into but illegal to read from ("not a single buffer",
+// GL 2.1 spec 4.3.1) - isLegacyDrawBuffer alone isn't enough, so that one
+// value gets an explicit carve-out.
+void glReadBuffer(GLenum src) {
+    auto& gs = g_glstate;
+    LIST_RECORD(glReadBuffer, {}, src)
+    if (rejectDuringBeginEnd(gs)) return;
+
+    // GL_FRONT_AND_BACK is a recognized legacy selector - just not a legal
+    // one to read from - so it must set GL_INVALID_OPERATION, not fall into
+    // the "not a selector GL knows at all" GL_INVALID_ENUM bucket below.
+    if (src == GL_FRONT_AND_BACK) {
+        gs.set_error(GL_INVALID_OPERATION);
+        return;
+    }
+    const bool legacy = isLegacyDrawBuffer(src);
+    const bool auxiliary = isAuxDrawBuffer(src);
+    const bool attachment = isColorAttachment(src);
+    if (src != GL_NONE && !legacy && !auxiliary && !attachment) {
+        gs.set_error(GL_INVALID_ENUM);
+        return;
+    }
+
+    sfpewEntryBarrier();
+    if (!sfpewEnsureBackend() || g_glFuncs.glReadBuffer == nullptr ||
+        g_glFuncs.glGetIntegerv == nullptr) {
+        return;
+    }
+
+    GLint framebuffer = 0;
+    g_glFuncs.glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &framebuffer);
+    GLenum mapped = src;
+    if (framebuffer == 0) {
+        if (attachment || auxiliary) {
+            gs.set_error(GL_INVALID_OPERATION);
+            return;
+        }
+        if (legacy) mapped = GL_BACK;
+    } else {
+        if (legacy || auxiliary) {
+            gs.set_error(GL_INVALID_OPERATION);
+            return;
+        }
+        if (attachment) {
+            GLint maximum = 0;
+            g_glFuncs.glGetIntegerv(GL_MAX_COLOR_ATTACHMENTS, &maximum);
+            if (maximum <= 0 || static_cast<GLint>(src - GL_COLOR_ATTACHMENT0) >= maximum) {
+                gs.set_error(GL_INVALID_OPERATION);
+                return;
+            }
+        }
+    }
+    g_glFuncs.glReadBuffer(mapped);
+}
+
 // ES 3.0 has only the unsigned spelling. Prefer the exact EXT function when
 // available; otherwise read the common unsigned form and saturate rather than
 // wrapping a large occlusion result into a negative GLint.

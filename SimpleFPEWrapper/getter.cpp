@@ -1048,11 +1048,16 @@ void glGetMaterialiv(GLenum face, GLenum pname, GLint* params) {
 void glGetTexEnvfv(GLenum target, GLenum pname, GLfloat* params) {
     if (!params) return;
     auto& gs = g_glstate;
+    const int unit = std::clamp(static_cast<int>(sfpewLogicalActiveTexture() - GL_TEXTURE0), 0, MAX_TEX - 1);
+    // defects-plan-2.md 2.2.
+    if (target == GL_POINT_SPRITE && pname == GL_COORD_REPLACE) {
+        params[0] = gs.fpe_state.fpe_bools.point_sprite_coord_replace[unit] ? 1.0f : 0.0f;
+        return;
+    }
     if (target != GL_TEXTURE_ENV) {
         gs.set_error(GL_INVALID_ENUM);
         return;
     }
-    const int unit = std::clamp(static_cast<int>(sfpewLogicalActiveTexture() - GL_TEXTURE0), 0, MAX_TEX - 1);
     const auto& env = gs.fpe_uniform.texture_env[unit];
     switch (pname) {
     case GL_TEXTURE_ENV_MODE:
@@ -1621,20 +1626,33 @@ bool fixedFunctionState(GLenum pname, GLdouble* values, int* count, bool* colour
     // defects-plan.md 1.7.
     case GL_TEXTURE_3D: return capability(bools.texture_3d_enable[unit]);
     case GL_TEXTURE_CUBE_MAP: return capability(bools.texture_cube_enable[unit]);
+    // defects-plan-2.md 2.2/2.4: both have a real rendering effect now (see
+    // fpe_shadergen.cpp), unlike GL_LINE_SMOOTH/GL_POLYGON_SMOOTH below.
+    case GL_POINT_SPRITE: return capability(bools.point_sprite_enable);
+    case GL_POINT_SMOOTH: return capability(bools.point_smooth_enable);
 
     // ---- enables for wrapper-side and unsupported pipeline stages ----
-    case GL_POINT_SMOOTH:
+    // defects-plan-2.md's scope decisions: GL_LINE_SMOOTH/GL_POLYGON_SMOOTH
+    // would need per-primitive geometry processing (line thickening,
+    // polygon edge distance) this wrapper's native-rasterizer draw path
+    // doesn't have - unlike GL_POINT_SMOOTH above, a real per-point radial
+    // falloff needs nothing more than gl_PointCoord. GL_POLYGON_OFFSET_LINE/
+    // GL_POLYGON_OFFSET_POINT would need the offset triangle's own depth
+    // slope re-applied while the wireframe-expansion path
+    // (sfpewDrawMixedPolygonMode) emits its line/point geometry, which it
+    // doesn't currently carry through. Same honest-state-no-fake-effect
+    // treatment as GL_COLOR_LOGIC_OP/GL_INDEX_LOGIC_OP below, not an
+    // oversight.
     case GL_LINE_SMOOTH:
     case GL_POLYGON_SMOOTH:
-    case GL_POINT_SPRITE:
+    case GL_POLYGON_OFFSET_LINE:
+    case GL_POLYGON_OFFSET_POINT:
     // glLogicOp itself is real (state.cpp) and GL_LOGIC_OP_MODE reads it
     // back exactly; these two enables stay false deliberately - ES 3.0 core
     // has no fixed-function logic op and no extension-free way to emulate
     // one, so there is no render effect to honestly report as present.
     case GL_COLOR_LOGIC_OP:
     case GL_INDEX_LOGIC_OP:
-    case GL_POLYGON_OFFSET_LINE:
-    case GL_POLYGON_OFFSET_POINT:
     case GL_VERTEX_PROGRAM_POINT_SIZE:
     case GL_VERTEX_PROGRAM_TWO_SIDE:
         return capability(false);
@@ -1735,6 +1753,15 @@ bool fixedFunctionState(GLenum pname, GLdouble* values, int* count, bool* colour
         GLint buffer = GL_BACK;
         if (sfpewEnsureBackend() && g_glFuncs.glGetIntegerv != nullptr)
             g_glFuncs.glGetIntegerv(GL_DRAW_BUFFER0, &buffer);
+        return scalar(buffer);
+    }
+    // defects-plan-2.md 2.1: real backend state (glReadBuffer sets it
+    // directly, GL_READ_BUFFER is a real ES3/GL3.2 pname), no wrapper-side
+    // shadow needed - same reasoning as GL_DRAW_BUFFER above.
+    case GL_READ_BUFFER: {
+        GLint buffer = GL_BACK;
+        if (sfpewEnsureBackend() && g_glFuncs.glGetIntegerv != nullptr)
+            g_glFuncs.glGetIntegerv(GL_READ_BUFFER, &buffer);
         return scalar(buffer);
     }
 

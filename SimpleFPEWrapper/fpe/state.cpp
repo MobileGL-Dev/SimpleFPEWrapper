@@ -77,6 +77,13 @@ void tex_env_set_int(glstate_t& gs, GLenum target, GLenum pname, GLint param) {
         current_texture_env(gs).lod_bias = (GLfloat)param;
         return;
     }
+    // defects-plan-2.md 2.2: glTexEnv(GL_POINT_SPRITE, GL_COORD_REPLACE, ...)
+    // targets the currently active unit, same indexing as every other
+    // per-unit texture-env parameter.
+    if (target == GL_POINT_SPRITE && pname == GL_COORD_REPLACE) {
+        gs.fpe_state.fpe_bools.point_sprite_coord_replace[active_texture_index()] = param != 0;
+        return;
+    }
     if (target != GL_TEXTURE_ENV) return;
 
     auto& env = current_texture_env(gs);
@@ -318,6 +325,13 @@ bool hijack_fpe_states(GLenum cap, bool enable, fixed_function_bool_t* bools) {
         return true;
     case GL_COLOR_SUM:
         bools->color_sum_enable = enable;
+        return true;
+    // defects-plan-2.md 2.2/2.4.
+    case GL_POINT_SPRITE:
+        bools->point_sprite_enable = enable;
+        return true;
+    case GL_POINT_SMOOTH:
+        bools->point_smooth_enable = enable;
         return true;
     default:
         break;
@@ -1036,6 +1050,10 @@ void glTexEnvf(GLenum target, GLenum pname, GLfloat param) {
         env.lod_bias = param;
         return;
     }
+    if (target == GL_POINT_SPRITE) {
+        tex_env_set_int(gs, target, pname, (GLint)param);
+        return;
+    }
     if (target != GL_TEXTURE_ENV) return;
 
     switch (pname) {
@@ -1072,6 +1090,10 @@ void glTexEnvfv(GLenum target, GLenum pname, const GLfloat* params) {
     auto& env = current_texture_env(gs);
     if (target == GL_TEXTURE_FILTER_CONTROL && pname == GL_TEXTURE_LOD_BIAS) {
         env.lod_bias = param;
+        return;
+    }
+    if (target == GL_POINT_SPRITE) {
+        tex_env_set_int(gs, target, pname, (GLint)param);
         return;
     }
     if (target != GL_TEXTURE_ENV) return;
@@ -1759,8 +1781,8 @@ void glPointParameterfv(GLenum pname, const GLfloat* params) {
             gs.set_error(GL_INVALID_VALUE);
             return;
         }
-        // The threshold is tracked exactly, but alpha fading remains outside
-        // this group's minimum rendering scope; distance sizing is real below.
+        // defects-plan-2.md 2.3: alpha fading below this threshold is real,
+        // see vPointFadeAlpha in fpe_shadergen.cpp.
         uniform.point_fade_threshold_size = params[0];
         break;
     case GL_POINT_DISTANCE_ATTENUATION:

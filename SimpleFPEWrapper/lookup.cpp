@@ -97,6 +97,7 @@ SFPEW_APIENTRY __eglMustCastToProperFunctionPointerType eglGetProcAddress(const 
     GETPROC(glClearDepth, name)
     GETPROC(glClearDepthf, name)
     GETPROC(glDrawBuffer, name)
+    GETPROC(glReadBuffer, name)
     GETPROC(glGetQueryObjectiv, name)
     GETPROC_WRAPPER_ALIAS(glGetQueryObjectivARB, glGetQueryObjectiv)
     GETPROC_WRAPPER_ALIAS(glGetQueryObjectivEXT, glGetQueryObjectiv)

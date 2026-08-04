@@ -224,6 +224,16 @@ struct fixed_function_bool_t {      // glEnable/glDisable
     // glEnable(GL_TEXTURE_GEN_S/T/R/Q) per unit; [unit][coord], coord order
     // S,T,R,Q. Shader consumption is the second half of plans/05 5.2.
     bool texture_gen_enable[MAX_TEX][4] = {};
+    // defects-plan-2.md 2.2/2.4: GL_POINT_SPRITE itself, GL_COORD_REPLACE
+    // per unit (a glTexEnv(GL_POINT_SPRITE, ...) parameter targeting the
+    // currently active unit, same indexing as texture_env_mode), and
+    // GL_POINT_SMOOTH. All three only affect fragments the shader can
+    // identify as belonging to a GL_POINTS draw at runtime (see
+    // IsPointPrimitive in fpe_shadergen.cpp) - the uber-shader is not
+    // primitive-keyed, so none of this can be a compile-time branch.
+    bool point_sprite_enable = false;
+    bool point_sprite_coord_replace[MAX_TEX] = {false};
+    bool point_smooth_enable = false;
 };
 
 struct light_t {
@@ -697,6 +707,9 @@ struct program_uniform_locations_t {
     GLint point_size_min = -1;
     GLint point_size_max = -1;
     GLint point_distance_attenuation = -1;
+    GLint point_fade_threshold = -1;
+    GLint is_point_primitive = -1;
+    GLint point_sprite_lower_left_origin = -1;
     bool initialized = false;
 
     void initialize(GLuint program);
@@ -736,6 +749,13 @@ struct program_uniform_values_t {
     GLfloat point_size_min = 0.0f;
     GLfloat point_size_max = 1.0f;
     glm::vec3 point_distance_attenuation = {1.0f, 0.0f, 0.0f};
+    GLfloat point_fade_threshold = 1.0f;
+    // Not floats/bools cached bitwise-identically to a shadow default; see
+    // the "-1 means never uploaded" sentinel these two use in send_uniforms
+    // (an ordinary bool default of false would look identical to "already
+    // uploaded false" on the very first draw of a program).
+    GLint is_point_primitive = -1;
+    GLint point_sprite_lower_left_origin = -1;
     bool initialized = false;
 };
 

@@ -49,6 +49,9 @@ void program_uniform_locations_t::initialize(GLuint program) {
     point_size_min = location("PointSizeMin");
     point_size_max = location("PointSizeMax");
     point_distance_attenuation = location("PointDistanceAttenuation");
+    point_fade_threshold = location("PointFadeThreshold");
+    is_point_primitive = location("IsPointPrimitive");
+    point_sprite_lower_left_origin = location("PointSpriteLowerLeftOrigin");
     for (int i = 0; i < 6; ++i) clip_planes[i] = location(std::format("ClipPlane{}", i));
     polygon_stipple_rows = location("PolygonStipple");
 
@@ -294,6 +297,30 @@ void glstate_t::send_uniforms(program_t& program) {
                                        glm::value_ptr(fpe_uniform.point_distance_attenuation));
             }
             values.point_distance_attenuation = fpe_uniform.point_distance_attenuation;
+        }
+        if ((first_upload || fpe_uniform.point_fade_threshold_size != values.point_fade_threshold) &&
+            locations.point_fade_threshold >= 0) {
+            g_glFuncs.glUniform1f(locations.point_fade_threshold, fpe_uniform.point_fade_threshold_size);
+            values.point_fade_threshold = fpe_uniform.point_fade_threshold_size;
+        }
+    }
+
+    // defects-plan-2.md 2.2/2.3/2.4: recomputed every draw, not just on
+    // state change - the same cached program can serve a GL_POINTS draw
+    // immediately followed by a GL_TRIANGLES one with everything else held
+    // constant, and IsPointPrimitive has to track that per draw call.
+    if (locations.is_point_primitive >= 0) {
+        const GLint is_point = fpe_state.fpe_draw.primitive == GL_POINTS ? 1 : 0;
+        if (first_upload || is_point != values.is_point_primitive) {
+            g_glFuncs.glUniform1i(locations.is_point_primitive, is_point);
+            values.is_point_primitive = is_point;
+        }
+    }
+    if (locations.point_sprite_lower_left_origin >= 0) {
+        const GLint lower_left = fpe_state.point_sprite_coord_origin == GL_LOWER_LEFT ? 1 : 0;
+        if (first_upload || lower_left != values.point_sprite_lower_left_origin) {
+            g_glFuncs.glUniform1i(locations.point_sprite_lower_left_origin, lower_left);
+            values.point_sprite_lower_left_origin = lower_left;
         }
     }
 

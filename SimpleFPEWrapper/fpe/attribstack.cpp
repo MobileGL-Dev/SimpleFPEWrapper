@@ -9,9 +9,10 @@
 // glPushAttrib/glPopAttrib over the state the wrapper tracks (plans/06,
 // 6.3). GL_COLOR_BUFFER_BIT state that lives in the backend (blend enable,
 // funcs, equations, blend color, color mask) is shadowed in
-// color_buffer_state_t and replayed on pop. Depth/stencil/scissor
-// pass-through state still has no shadow and is NOT captured; the manifest
-// documents that deviation.
+// color_buffer_state_t and replayed on pop. GL_DEPTH_BUFFER_BIT,
+// GL_STENCIL_BUFFER_BIT and GL_SCISSOR_BIT similarly replay through
+// fixed_function_state_t::backend_state (backend_state_shadow_t), the same
+// shadow every SHADOWED_STATE-gated draw call already keeps current.
 
 #include "fpe.hpp"
 #include "list.h"
@@ -43,6 +44,8 @@ struct attrib_snapshot_t {
     GLenum alpha_func;
     GLclampf alpha_ref;
     color_buffer_state_t color_buffer;
+    // depth / stencil / scissor
+    fixed_function_state_t::backend_state_shadow_t depth_stencil_scissor;
     // texture
     GLenum texture_env_mode[MAX_TEX];
     texture_env_t texture_env[MAX_TEX];
@@ -164,6 +167,11 @@ void glPushAttrib(GLbitfield mask) {
     // Both COLOR_BUFFER (blend function, masks) and ENABLE (the GL_BLEND and
     // GL_DITHER flags) restore out of this one.
     if (mask & (GL_COLOR_BUFFER_BIT | GL_ENABLE_BIT)) snap.color_buffer = st.color_buffer;
+    // DEPTH_BUFFER (func, mask), STENCIL_BUFFER (func/ref/masks/ops) and
+    // SCISSOR (the box) each restore their own fields out of this one
+    // capture; ENABLE additionally restores the three enable flags in it.
+    if (mask & (GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT | GL_SCISSOR_BIT | GL_ENABLE_BIT))
+        snap.depth_stencil_scissor = st.backend_state;
     if (mask & GL_TEXTURE_BIT) {
         copy_array(snap.texture_env_mode, st.texture_env_mode);
         copy_array(snap.texture_env, un.texture_env);
@@ -285,6 +293,39 @@ void glPopAttrib() {
         un.alpha_ref = snap.alpha_ref;
         restore_color_buffer(st.color_buffer, snap.color_buffer);
         st.color_buffer = snap.color_buffer;
+    }
+    if (mask & (GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT | GL_SCISSOR_BIT | GL_ENABLE_BIT)) {
+        using shadow_t = fixed_function_state_t::backend_state_shadow_t;
+        const auto& wanted = snap.depth_stencil_scissor;
+        restore_depth_stencil_scissor(st.backend_state, wanted, mask);
+        // Selective field copy, not a blanket struct assignment: each field
+        // updates the shadow only under the same bit that restored it on the
+        // backend above, so a pop that named only e.g. GL_SCISSOR_BIT does
+        // not also silently overwrite the shadow's depth/stencil belief with
+        // whatever those happened to read as back at push time.
+        if (mask & GL_DEPTH_BUFFER_BIT) {
+            st.backend_state.depth_func = wanted.depth_func;
+            st.backend_state.depth_mask = wanted.depth_mask;
+        }
+        if (mask & GL_STENCIL_BUFFER_BIT) {
+            st.backend_state.stencil_func = wanted.stencil_func;
+            st.backend_state.stencil_ref = wanted.stencil_ref;
+            st.backend_state.stencil_value_mask = wanted.stencil_value_mask;
+            st.backend_state.stencil_mask = wanted.stencil_mask;
+            st.backend_state.stencil_fail = wanted.stencil_fail;
+            st.backend_state.stencil_zfail = wanted.stencil_zfail;
+            st.backend_state.stencil_zpass = wanted.stencil_zpass;
+        }
+        if (mask & GL_SCISSOR_BIT) copy_array(st.backend_state.scissor, wanted.scissor);
+        if (mask & GL_ENABLE_BIT) {
+            const int slots[3] = {shadow_t::kEnableDepthTest, shadow_t::kEnableStencilTest,
+                                  shadow_t::kEnableScissorTest};
+            for (int slot : slots) {
+                if (!wanted.enable_known[slot]) continue;
+                st.backend_state.enable_known[slot] = true;
+                st.backend_state.enable_value[slot] = wanted.enable_value[slot];
+            }
+        }
     }
     if (mask & GL_ENABLE_BIT) {
         // GL_ENABLE_BIT covers every enable flag, including the ones the

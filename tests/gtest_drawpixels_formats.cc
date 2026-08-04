@@ -268,23 +268,22 @@ TEST_F(DrawPixelsTest, DepthPixelsWriteDepthWithoutChangingColorOrColorMask) {
     // whether IT wins or loses against the depth glDrawPixels wrote, at two
     // window depths straddling the written value.
     //
-    // KNOWN FAILING as of 2026-08-04: this indirect check currently shows
-    // the depth write from glDrawPixels(GL_DEPTH_COMPONENT) does not reach
-    // the depth buffer at all - the probe quad behaves as though the buffer
-    // were untouched, even though the write completes with GL_NO_ERROR,
-    // depth testing/writemask/GL_ALWAYS are all confirmed correct at draw
-    // time via direct backend queries, the uploaded texel value is confirmed
-    // 0.25, and the fragment shader's gl_FragDepth write was made
-    // unconditional (see kQuadFS in pixelops.cpp) to rule out driver-side
-    // "conditionally written" ambiguity. None of that changed the outcome.
-    // The CopyPixelsDepthTest sibling in gtest_copypixels_depth.cc uses the
-    // same indirect-probe technique for glCopyPixels' blit-based depth path
-    // and passes, so the bug is specific to drawQuad's shader-based
-    // gl_FragDepth write, not to the verification method or to depth
-    // testing/buffers in general (both proven to work by that sibling test
-    // and by this file's own colour-mode drawQuad draws). Root cause not
-    // found; left failing rather than muted so it stays visible instead of
-    // silently regressing further.
+    // This test's own probe quad was, ironically, the thing hiding the real
+    // bug: depth testing/writemask/GL_ALWAYS all read back correct at draw
+    // time via direct backend queries, yet the probe consistently behaved as
+    // though the depth buffer were untouched. Root cause turned out to be in
+    // SHADOWED_STATE (ordered_passthrough.cpp), not in drawQuad at all: on
+    // the very FIRST call to a SHADOWED_STATE-gated entry point in a
+    // process, `shadow.known && (shadow_test)` short-circuited past
+    // shadow_test's side effect (the line that actually records the new
+    // value), so the backend received the right value but the shadow kept
+    // its compile-time default. This test's own depth_func_(GL_ALWAYS_) was
+    // that first call, so when the probe quad below then asked for
+    // GL_LESS, the shadow's stale belief made that call look redundant and
+    // it never reached the backend - the probe silently kept testing with
+    // GL_ALWAYS against whatever was ACTUALLY there, which is exactly "wins
+    // no matter what the depth buffer holds". Fixed by making shadow_test
+    // always evaluate, gating only the redundant-call skip on shadow.known.
     clear_color_(0.8f, 0.1f, 0.6f, 1.0f);
     clear_depth_(1.0f);
     clear_(GL_COLOR_BUFFER_BIT_ | GL_DEPTH_BUFFER_BIT_);

@@ -185,6 +185,61 @@ void restore_color_buffer(const color_buffer_state_t& current,
     }
 }
 
+void restore_depth_stencil_scissor(const fixed_function_state_t::backend_state_shadow_t& current,
+                                   const fixed_function_state_t::backend_state_shadow_t& wanted,
+                                   GLbitfield mask) {
+    using shadow_t = fixed_function_state_t::backend_state_shadow_t;
+    if (mask & GL_DEPTH_BUFFER_BIT) {
+        if (wanted.depth_func != current.depth_func && g_glFuncs.glDepthFunc != nullptr)
+            g_glFuncs.glDepthFunc(wanted.depth_func);
+        if (wanted.depth_mask != current.depth_mask && g_glFuncs.glDepthMask != nullptr)
+            g_glFuncs.glDepthMask(wanted.depth_mask);
+    }
+    if (mask & GL_STENCIL_BUFFER_BIT) {
+        if ((wanted.stencil_func != current.stencil_func || wanted.stencil_ref != current.stencil_ref ||
+             wanted.stencil_value_mask != current.stencil_value_mask) &&
+            g_glFuncs.glStencilFunc != nullptr) {
+            g_glFuncs.glStencilFunc(wanted.stencil_func, wanted.stencil_ref, wanted.stencil_value_mask);
+        }
+        if (wanted.stencil_mask != current.stencil_mask && g_glFuncs.glStencilMask != nullptr)
+            g_glFuncs.glStencilMask(wanted.stencil_mask);
+        if ((wanted.stencil_fail != current.stencil_fail ||
+             wanted.stencil_zfail != current.stencil_zfail ||
+             wanted.stencil_zpass != current.stencil_zpass) &&
+            g_glFuncs.glStencilOp != nullptr) {
+            g_glFuncs.glStencilOp(wanted.stencil_fail, wanted.stencil_zfail, wanted.stencil_zpass);
+        }
+    }
+    if (mask & GL_SCISSOR_BIT) {
+        if (std::memcmp(wanted.scissor, current.scissor, sizeof(wanted.scissor)) != 0 &&
+            g_glFuncs.glScissor != nullptr) {
+            g_glFuncs.glScissor(wanted.scissor[0], wanted.scissor[1], wanted.scissor[2],
+                                wanted.scissor[3]);
+        }
+    }
+    // GL_ENABLE_BIT covers every enable flag, including these three; a push
+    // that named GL_DEPTH_BUFFER_BIT etc. without GL_ENABLE_BIT restores the
+    // function/mask/op values above but leaves the enable itself alone, per
+    // spec - GL_DEPTH_TEST's enable bit belongs to GL_ENABLE_BIT, not
+    // GL_DEPTH_BUFFER_BIT (GL 2.1 table 6.23).
+    if (mask & GL_ENABLE_BIT) {
+        const int slots[3] = {shadow_t::kEnableDepthTest, shadow_t::kEnableStencilTest,
+                              shadow_t::kEnableScissorTest};
+        const GLenum caps[3] = {GL_DEPTH_TEST, GL_STENCIL_TEST, GL_SCISSOR_TEST};
+        for (int i = 0; i < 3; ++i) {
+            const int slot = slots[i];
+            if (!wanted.enable_known[slot]) continue;
+            if (current.enable_known[slot] && current.enable_value[slot] == wanted.enable_value[slot])
+                continue;
+            if (wanted.enable_value[slot]) {
+                if (g_glFuncs.glEnable != nullptr) g_glFuncs.glEnable(caps[i]);
+            } else {
+                if (g_glFuncs.glDisable != nullptr) g_glFuncs.glDisable(caps[i]);
+            }
+        }
+    }
+}
+
 // Caps the backend owns but the attrib stack must be able to restore.
 // Unlike hijack_fpe_states this only records: the call still goes through.
 void shadow_backend_enable(GLenum cap, bool enable) {
@@ -1183,10 +1238,9 @@ DEFINE_COLOR4_VECTOR(us, GLushort)
 #undef DEFINE_COLOR3_SCALAR
 
 // glEdgeFlag* (GL 1.0 spec 2.6.3): legal inside Begin/End, part of the
-// current-vertex-state family like color/normal. Tracked for spec
-// completeness and display-list replay; per-edge wireframe suppression in
-// GL_LINE polygon mode is a separate, already-documented gap (plans/08) that
-// does not consume this value yet.
+// current-vertex-state family like color/normal. Per-edge suppression in
+// GL_LINE polygon mode is consumed downstream by sfpewBuildWireframeIndices
+// (fpe.cpp), fed from the collected values here; see gtest_edgeflag.cc.
 void glEdgeFlag(GLboolean flag) {
     LIST_RECORD(glEdgeFlag, {}, flag)
     g_glstate.fpe_state.fpe_draw.current_data.edge_flag = flag;

@@ -329,7 +329,8 @@ if(NOT ANDROID)
                                        texture_1d_copy drawpixels_formats copypixels_depth
                                        feedback_payloads selection_vbo pixel_maps
                                        imaging_color_table imaging_convolution
-                                       imaging_histogram_minmax imaging_pipeline)
+                                       imaging_histogram_minmax imaging_pipeline
+                                       pushattrib_depth_stencil_scissor)
                                 sfpew_add_gtest(sfpew_${suite}_test SOURCES tests/gtest_${suite}.cc
                                                 LIBRARIES ${SFPEW_TEST_EGL})
                         endforeach()

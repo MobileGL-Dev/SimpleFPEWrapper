@@ -412,14 +412,25 @@ void glColorMask(GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha
 // told. Nothing else in the wrapper writes this state, so a repeated value
 // is unobservable - and re-asserting a whole pass's worth of state around
 // every draw is exactly what legacy renderers do.
+// `shadow_test` is a ternary whose false branch has the side effect of
+// writing the new value(s) into `shadow` - it must always be evaluated, not
+// only once the shadow is already known, or the very first call to a given
+// SHADOWED_STATE entry point forwards to the backend correctly but leaves
+// the shadow's value fields at their compile-time defaults. That desync is
+// invisible until something else reads the shadow expecting it to match
+// reality - glPushAttrib/glPopAttrib's depth/stencil/scissor restore does
+// exactly that. `shadow.known` only gates whether the redundant-call skip
+// is trusted, not whether the shadow gets updated.
 #define SHADOWED_STATE(name, declaration, arguments, shadow_test)                                  \
     void name declaration {                                                                        \
         if (!sfpewEnsureBackend()) return;                                                         \
         sfpewClientStateBarrier();                                                                 \
         LIST_RECORD(name, {}, OP_ARGS arguments)                                                   \
         auto& shadow = g_glstate.fpe_state.backend_state;                                                    \
-        if (shadow.known && (shadow_test)) return;                                                 \
+        const bool redundant = (shadow_test);                                                      \
+        const bool was_known = shadow.known;                                                       \
         shadow.known = true;                                                                       \
+        if (was_known && redundant) return;                                                        \
         if (g_glFuncs.name != nullptr) g_glFuncs.name arguments;                                   \
     }
 

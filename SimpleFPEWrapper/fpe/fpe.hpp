@@ -42,6 +42,18 @@ void sfpewFeedUserProgramUniforms(GLuint program);
 // the backend (glPopAttrib). Only the differing calls are issued.
 void restore_color_buffer(const color_buffer_state_t& current, const color_buffer_state_t& wanted);
 
+// Replays a GL_DEPTH_BUFFER_BIT / GL_STENCIL_BUFFER_BIT / GL_SCISSOR_BIT /
+// GL_ENABLE_BIT depth-stencil-scissor snapshot onto the backend
+// (glPopAttrib). `mask` gates which of the four groups actually restores -
+// the caller passes the ORIGINAL push mask, not a merged one, since a pop
+// must only touch what its own push captured. Only the differing calls are
+// issued; the caller is responsible for writing `wanted` back into its own
+// `backend_state` shadow afterward (these calls go straight to the backend
+// and do not update it themselves).
+void restore_depth_stencil_scissor(const fixed_function_state_t::backend_state_shadow_t& current,
+                                   const fixed_function_state_t::backend_state_shadow_t& wanted,
+                                   GLbitfield mask);
+
 // plans/09 S9 mixed pipeline: a bound USER program still consumes the
 // fixed-function vertex arrays / immediate-mode vertices in GL 2.1. These
 // resolve the program's fpe_* attribute locations (slot-indexed like

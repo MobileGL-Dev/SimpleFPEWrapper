@@ -396,7 +396,16 @@ void drawImmediateVertices(GLenum primitive, const GLfloat* vertices, size_t flo
     // them. Immediate vertices are already float-interleaved and position is
     // the first field, so retain one homogeneous copy for either shader path.
     const bool mixed_polygon_mode = sfpewMixedPolygonMode(primitive);
-    thread_local std::vector<glm::vec4> mixed_positions;
+    // A raw pointer behind a lazy heap allocation, not a thread_local
+    // std::vector directly: this library is always reached via dlopen (the
+    // test harness here, and the MobileGlues plugin path on Android), and a
+    // dlopen'd module's static TLS block is a small, fixed-size reservation.
+    // Each additional thread_local std::vector costs a 24-byte control block
+    // there; a raw pointer costs 8, and the vector itself still lives on the
+    // heap either way.
+    thread_local std::vector<glm::vec4>* mixed_positions_ptr = nullptr;
+    if (mixed_positions_ptr == nullptr) mixed_positions_ptr = new std::vector<glm::vec4>();
+    std::vector<glm::vec4>& mixed_positions = *mixed_positions_ptr;
     if (mixed_polygon_mode) {
         const size_t stride_floats = floatCount / vertexCount;
         if (stride_floats < static_cast<size_t>(sizes.vertex_size) || sizes.vertex_size < 2 ||

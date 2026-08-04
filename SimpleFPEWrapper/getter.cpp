@@ -277,9 +277,18 @@ struct texture_metadata_cache_t {
     std::unordered_map<GLuint, texture_size_t> sizes;
     std::unordered_map<GLuint, std::unordered_map<GLint, texture_level_t>> levels;
 };
-thread_local texture_metadata_cache_t textureMetadataCache;
+// A raw pointer behind a lazy heap allocation, not a thread_local
+// texture_metadata_cache_t directly: the struct carries two
+// std::unordered_maps, and this library is always reached via dlopen (the
+// test harness here, and the MobileGlues plugin path on Android), where a
+// dlopen'd module's static TLS block is a small, fixed-size reservation that
+// a pair of unordered_map control blocks eats into for no benefit - the maps
+// themselves live on the heap either way.
+thread_local texture_metadata_cache_t* textureMetadataCachePtr = nullptr;
 
 texture_metadata_cache_t& textureMetadata() {
+    if (textureMetadataCachePtr == nullptr) textureMetadataCachePtr = new texture_metadata_cache_t();
+    auto& textureMetadataCache = *textureMetadataCachePtr;
     const EGLContext context = (EGLContext)glstate_t::cached_context();
     if (textureMetadataCache.context != context) {
         textureMetadataCache = {};

@@ -48,6 +48,17 @@ constexpr char kQuadFS[] = "#version 300 es\n"
                            "in vec2 vUV;\n"
                            "out vec4 FragColor;\n"
                            "void main() {\n"
+                           // gl_FragDepth is written on every path, not only
+                           // inside the uMode==2 branch below: some drivers
+                           // treat a conditionally-written gl_FragDepth as
+                           // though it were never written for that draw call
+                           // at all (silently keeping the rasterizer's own
+                           // interpolated depth instead), even though uMode
+                           // is a uniform and every fragment of a given draw
+                           // takes the same branch. Defaulting it here first
+                           // to the ordinary interpolated depth keeps the
+                           // color/bitmap paths exactly as before.
+                           "    gl_FragDepth = gl_FragCoord.z;\n"
                            "    vec4 texel = texture(uTex, vUV);\n"
                            "    if (uMode == 1) {\n"
                            "        if (texel.r < 0.5) discard;\n"
@@ -216,11 +227,33 @@ void drawQuad(const void* pixels, GLsizei tex_w, GLsizei tex_h, GLenum tex_forma
     g_glFuncs.glUniform1i(d.loc_tex, 0);
 
     const auto& caller_mask = g_glstate_c.fpe_state.color_buffer.color_mask;
-    if (mode == quad_mode_t::depth && g_glFuncs.glColorMask != nullptr)
-        g_glFuncs.glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+    // A fragment's gl_FragDepth write only reaches the depth buffer while
+    // depth testing is enabled - with GL_DEPTH_TEST off (the GL default),
+    // the write is silently dropped and this quad draws nothing observable.
+    // GL_ALWAYS makes every fragment pass regardless of what was already in
+    // the buffer, so this is purely a depth WRITE, not a depth-tested draw;
+    // the caller's own test state is restored immediately after.
+    GLboolean caller_depth_test = GL_FALSE;
+    GLint caller_depth_func = GL_LESS;
+    if (mode == quad_mode_t::depth) {
+        if (g_glFuncs.glIsEnabled != nullptr)
+            caller_depth_test = g_glFuncs.glIsEnabled(GL_DEPTH_TEST);
+        if (g_glFuncs.glGetIntegerv != nullptr)
+            g_glFuncs.glGetIntegerv(GL_DEPTH_FUNC, &caller_depth_func);
+        if (g_glFuncs.glEnable != nullptr) g_glFuncs.glEnable(GL_DEPTH_TEST);
+        if (g_glFuncs.glDepthFunc != nullptr) g_glFuncs.glDepthFunc(GL_ALWAYS);
+        if (g_glFuncs.glColorMask != nullptr)
+            g_glFuncs.glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+    }
     g_glFuncs.glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-    if (mode == quad_mode_t::depth && g_glFuncs.glColorMask != nullptr)
-        g_glFuncs.glColorMask(caller_mask[0], caller_mask[1], caller_mask[2], caller_mask[3]);
+    if (mode == quad_mode_t::depth) {
+        if (g_glFuncs.glColorMask != nullptr)
+            g_glFuncs.glColorMask(caller_mask[0], caller_mask[1], caller_mask[2], caller_mask[3]);
+        if (g_glFuncs.glDepthFunc != nullptr)
+            g_glFuncs.glDepthFunc(static_cast<GLenum>(caller_depth_func));
+        if (caller_depth_test == GL_FALSE && g_glFuncs.glDisable != nullptr)
+            g_glFuncs.glDisable(GL_DEPTH_TEST);
+    }
 
     // Restore unit-0 binding and the caller's active unit.
     g_glFuncs.glBindTexture(GL_TEXTURE_2D, unit_zero_binding);
@@ -940,7 +973,7 @@ glm::vec4 expandPixel(GLenum format, const float values[4]) {
     case GL_DEPTH_COMPONENT:
     case GL_STENCIL_INDEX:
         return {values[0], 0.0f, 0.0f, 1.0f};
-    default: return {0.0f};
+    default: return {0.0f, 0.0f, 0.0f, 0.0f};
     }
 }
 
@@ -1276,11 +1309,20 @@ struct copy_pixels_scratch_t {
     GLenum internal_format = GL_NONE;
 };
 
+struct copy_pixels_scratch_cache_t {
+    EGLContext context = EGL_NO_CONTEXT;
+    copy_pixels_scratch_t scratch{};
+};
+
 copy_pixels_scratch_t& copyPixelsScratch() {
-    static thread_local struct {
-        EGLContext context = EGL_NO_CONTEXT;
-        copy_pixels_scratch_t scratch{};
-    } cache;
+    // A raw pointer behind a lazy heap allocation, not the cache struct
+    // directly: this library is always reached via dlopen (the test harness
+    // here, and the MobileGlues plugin path on Android), where a dlopen'd
+    // module's static TLS block is a small, fixed-size reservation that this
+    // struct's bytes would otherwise sit in for no benefit.
+    static thread_local copy_pixels_scratch_cache_t* instance = nullptr;
+    if (instance == nullptr) instance = new copy_pixels_scratch_cache_t();
+    auto& cache = *instance;
     const EGLContext current = sfpewCurrentContext();
     if (cache.context != current) {
         cache.context = current;

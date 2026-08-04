@@ -62,6 +62,8 @@ constexpr GLenum GL_UNPACK_SKIP_PIXELS_ = 0x0CF4;
 constexpr GLenum GL_RED_SCALE_ = 0x0D14;
 constexpr GLenum GL_RED_BIAS_ = 0x0D15;
 constexpr GLenum GL_COLOR_WRITEMASK_ = 0x0C23;
+constexpr GLenum GL_QUADS_ = 0x0007;
+constexpr GLenum GL_LESS_ = 0x0201;
 
 class DrawPixelsLibraryTest : public LibraryTest {};
 
@@ -115,6 +117,10 @@ protected:
         depth_mask_ = Get<void (*)(GLboolean)>("glDepthMask");
         clear_depth_ = Get<void (*)(GLfloat)>("glClearDepthf");
         get_boolean_ = Get<void (*)(GLenum, GLboolean*)>("glGetBooleanv");
+        begin_ = Get<void (*)(GLenum)>("glBegin");
+        end_ = Get<void (*)()>("glEnd");
+        color4f_ = Get<void (*)(GLfloat, GLfloat, GLfloat, GLfloat)>("glColor4f");
+        vertex3f_ = Get<void (*)(GLfloat, GLfloat, GLfloat)>("glVertex3f");
 
         viewport_(0, 0, size(), size());
         pixel_zoom_(8.0f, 8.0f);
@@ -152,6 +158,10 @@ protected:
     void (*depth_mask_)(GLboolean) = nullptr;
     void (*clear_depth_)(GLfloat) = nullptr;
     void (*get_boolean_)(GLenum, GLboolean*) = nullptr;
+    void (*begin_)(GLenum) = nullptr;
+    void (*end_)() = nullptr;
+    void (*color4f_)(GLfloat, GLfloat, GLfloat, GLfloat) = nullptr;
+    void (*vertex3f_)(GLfloat, GLfloat, GLfloat) = nullptr;
 };
 
 TEST_F(DrawPixelsTest, ScalarAndPackedFormatsExpandAndTransferCorrectly) {
@@ -249,6 +259,32 @@ TEST_F(DrawPixelsTest, PboOffsetsAndUnpackLayoutAreAppliedAndRestored) {
 }
 
 TEST_F(DrawPixelsTest, DepthPixelsWriteDepthWithoutChangingColorOrColorMask) {
+    // glReadPixels(GL_DEPTH_COMPONENT) comes back GL_INVALID_OPERATION on
+    // this driver on every framebuffer - default or a texture+renderbuffer
+    // FBO alike (verified independently: the write itself completes with no
+    // error, only the readback rejects the format) - so depth is checked the
+    // way an application actually observes it: render a second, distinctly-
+    // coloured quad through the ordinary depth-tested pipeline and see
+    // whether IT wins or loses against the depth glDrawPixels wrote, at two
+    // window depths straddling the written value.
+    //
+    // KNOWN FAILING as of 2026-08-04: this indirect check currently shows
+    // the depth write from glDrawPixels(GL_DEPTH_COMPONENT) does not reach
+    // the depth buffer at all - the probe quad behaves as though the buffer
+    // were untouched, even though the write completes with GL_NO_ERROR,
+    // depth testing/writemask/GL_ALWAYS are all confirmed correct at draw
+    // time via direct backend queries, the uploaded texel value is confirmed
+    // 0.25, and the fragment shader's gl_FragDepth write was made
+    // unconditional (see kQuadFS in pixelops.cpp) to rule out driver-side
+    // "conditionally written" ambiguity. None of that changed the outcome.
+    // The CopyPixelsDepthTest sibling in gtest_copypixels_depth.cc uses the
+    // same indirect-probe technique for glCopyPixels' blit-based depth path
+    // and passes, so the bug is specific to drawQuad's shader-based
+    // gl_FragDepth write, not to the verification method or to depth
+    // testing/buffers in general (both proven to work by that sibling test
+    // and by this file's own colour-mode drawQuad draws). Root cause not
+    // found; left failing rather than muted so it stays visible instead of
+    // silently regressing further.
     clear_color_(0.8f, 0.1f, 0.6f, 1.0f);
     clear_depth_(1.0f);
     clear_(GL_COLOR_BUFFER_BIT_ | GL_DEPTH_BUFFER_BIT_);
@@ -260,11 +296,7 @@ TEST_F(DrawPixelsTest, DepthPixelsWriteDepthWithoutChangingColorOrColorMask) {
     window_pos_(8, 8);
     pixel_zoom_(16.0f, 16.0f);
     draw_pixels_(1, 1, GL_DEPTH_COMPONENT_, GL_FLOAT_, &depth);
-
-    GLfloat actual_depth = 1.0f;
-    read_pixels_(16, 16, 1, 1, GL_DEPTH_COMPONENT_, GL_FLOAT_, &actual_depth);
-    EXPECT_NEAR(actual_depth, depth, 0.02f);
-    ExpectColor(16, 16, 204, 26, 153, 10);
+    ExpectColor(16, 16, 204, 26, 153, 10); // the depth write must not touch color
 
     std::array<GLboolean, 4> mask{};
     get_boolean_(GL_COLOR_WRITEMASK_, mask.data());
@@ -272,6 +304,31 @@ TEST_F(DrawPixelsTest, DepthPixelsWriteDepthWithoutChangingColorOrColorMask) {
     EXPECT_EQ(mask[1], sfpew_test::GL_TRUE_);
     EXPECT_EQ(mask[2], sfpew_test::GL_TRUE_);
     EXPECT_EQ(mask[3], sfpew_test::GL_TRUE_);
+
+    // With the default depth range [0,1] and identity matrices, window depth
+    // is (ndc.z + 1) / 2 - the same convention glDrawPixels' depth quad uses
+    // internally. A full-viewport quad at ndc.z=0.0 lands at window depth
+    // 0.5, deeper than the 0.25 just written; one at ndc.z=-0.8 lands at 0.1,
+    // in front of it.
+    depth_func_(GL_LESS_);
+    color4f_(0.0f, 1.0f, 0.0f, 1.0f);
+    begin_(GL_QUADS_);
+    vertex3f_(-1.0f, -1.0f, 0.0f);
+    vertex3f_(1.0f, -1.0f, 0.0f);
+    vertex3f_(1.0f, 1.0f, 0.0f);
+    vertex3f_(-1.0f, 1.0f, 0.0f);
+    end_();
+    ExpectColor(16, 16, 204, 26, 153, 10); // deeper quad lost: background survives
+
+    color4f_(1.0f, 1.0f, 0.0f, 1.0f);
+    begin_(GL_QUADS_);
+    vertex3f_(-1.0f, -1.0f, -0.8f);
+    vertex3f_(1.0f, -1.0f, -0.8f);
+    vertex3f_(1.0f, 1.0f, -0.8f);
+    vertex3f_(-1.0f, 1.0f, -0.8f);
+    end_();
+    ExpectColor(16, 16, 255, 255, 0, 10); // nearer quad won: its color shows
+
     EXPECT_EQ(get_error_(), GL_NO_ERROR_);
     disable_(GL_DEPTH_TEST_);
 }

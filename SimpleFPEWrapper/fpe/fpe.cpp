@@ -294,10 +294,40 @@ bool copyAttributeElements(const vertexattribute_t& attribute, GLuint array_buff
 
 } // namespace
 
+namespace {
+// CPU-side scratch for the mixed-polygon-mode and vertex-readback helpers
+// below. One field per call site (the prefix names which); grouped into one
+// struct behind a single thread_local pointer instead of one thread_local
+// std::vector per site so the library's static TLS block - fixed-size and
+// shared by every dlopen of this .so - stays small. A thread_local
+// std::vector costs a 24-byte control block each; this wrapper is always
+// reached via dlopen (the test harness here, and the MobileGlues plugin path
+// on Android), where that block competes against glibc's small default
+// static-TLS surplus for dlopen'd modules.
+struct fpe_scratch_t {
+    std::vector<uint8_t> rvp_packed;         // sfpewReadVertexPositions
+    std::vector<uint8_t> ref_packed;         // sfpewReadEdgeFlags
+    std::vector<glm::dvec2> dmpm_projected;  // sfpewDrawMixedPolygonMode
+    std::vector<uint8_t> dmpm_projectable;
+    std::vector<uint32_t> dmpm_fill_indices;
+    std::vector<uint32_t> dmpm_line_indices;
+    std::vector<uint32_t> dmpm_point_indices;
+    std::vector<uint32_t> dmpm_polygon;
+    std::vector<glm::vec4> upfda_mixed_positions;  // sfpewUserProgramFixedFunctionDrawArrays
+    std::vector<uint8_t> upfda_mixed_edge_flags;
+};
+
+fpe_scratch_t& fpeScratch() {
+    thread_local fpe_scratch_t* instance = nullptr;
+    if (instance == nullptr) instance = new fpe_scratch_t();
+    return *instance;
+}
+} // namespace
+
 bool sfpewReadVertexPositions(const vertexattribute_t& attribute, GLuint array_buffer,
                               GLint first, GLsizei count, std::vector<glm::vec4>& out) {
     if (attribute.size < 2 || attribute.size > 4) return false;
-    thread_local std::vector<uint8_t> packed;
+    auto& packed = fpeScratch().rvp_packed;
     if (!copyAttributeElements(attribute, array_buffer, first, count, attribute.size, packed))
         return false;
     const size_t component_size = static_cast<size_t>(type_size(attribute.type));
@@ -316,7 +346,7 @@ bool sfpewReadVertexPositions(const vertexattribute_t& attribute, GLuint array_b
 
 bool sfpewReadEdgeFlags(const vertexattribute_t& attribute, GLuint array_buffer,
                         GLint first, GLsizei count, std::vector<uint8_t>& out) {
-    thread_local std::vector<uint8_t> packed;
+    auto& packed = fpeScratch().ref_packed;
     if (!copyAttributeElements(attribute, array_buffer, first, count, 1, packed)) return false;
     const size_t component_size = static_cast<size_t>(type_size(attribute.type));
     out.resize(static_cast<size_t>(count));
@@ -360,8 +390,8 @@ bool sfpewDrawMixedPolygonMode(GLenum primitive, const glm::vec4* positions,
         if (value == GL_CW || value == GL_CCW) front_face = static_cast<GLenum>(value);
     }
 
-    thread_local std::vector<glm::dvec2> projected;
-    thread_local std::vector<uint8_t> projectable;
+    auto& projected = fpeScratch().dmpm_projected;
+    auto& projectable = fpeScratch().dmpm_projectable;
     projected.resize(position_count);
     projectable.assign(position_count, 0u);
     const glm::mat4 mvp = uniform.transformation.matrices[matrix_idx(GL_PROJECTION)] *
@@ -377,9 +407,9 @@ bool sfpewDrawMixedPolygonMode(GLenum primitive, const glm::vec4* positions,
         projectable[i] = 1u;
     }
 
-    thread_local std::vector<uint32_t> fill_indices;
-    thread_local std::vector<uint32_t> line_indices;
-    thread_local std::vector<uint32_t> point_indices;
+    auto& fill_indices = fpeScratch().dmpm_fill_indices;
+    auto& line_indices = fpeScratch().dmpm_line_indices;
+    auto& point_indices = fpeScratch().dmpm_point_indices;
     fill_indices.clear();
     line_indices.clear();
     point_indices.clear();
@@ -490,7 +520,7 @@ bool sfpewDrawMixedPolygonMode(GLenum primitive, const glm::vec4* positions,
         }
         break;
     case GL_POLYGON: {
-        thread_local std::vector<uint32_t> polygon;
+        auto& polygon = fpeScratch().dmpm_polygon;
         polygon.resize(index_count);
         for (size_t i = 0; i < index_count; ++i) polygon[i] = sourceIndex(i);
         emitPolygon(polygon.data(), polygon.size());
@@ -1086,8 +1116,8 @@ bool sfpewUserProgramFixedFunctionDrawArrays(GLuint program, GLenum mode, GLint 
 
     const auto& raw_vpa = st.vertexpointer_array;
     const bool mixed_polygon_mode = sfpewMixedPolygonMode(mode);
-    thread_local std::vector<glm::vec4> mixed_positions;
-    thread_local std::vector<uint8_t> mixed_edge_flags;
+    auto& mixed_positions = fpeScratch().upfda_mixed_positions;
+    auto& mixed_edge_flags = fpeScratch().upfda_mixed_edge_flags;
     if (mixed_polygon_mode) {
         const int position_slot = vp2idx(GL_VERTEX_ARRAY);
         if (!sfpewReadVertexPositions(raw_vpa.attributes[position_slot],

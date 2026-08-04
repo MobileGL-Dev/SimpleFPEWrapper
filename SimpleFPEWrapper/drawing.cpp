@@ -30,6 +30,38 @@ namespace {
 void drawArraysNow(GLenum mode, GLint first, GLsizei count, bool forceFixedFunction,
                    GLint arrayBufferOverride = -1);
 
+// CPU-side scratch for the selection and mixed-polygon-mode paths below.
+// Each field belongs to exactly one call site (the prefix names which); they
+// are grouped into one struct behind a single thread_local pointer instead
+// of one thread_local std::vector per site so the library's static TLS
+// block - fixed-size and shared by every dlopen of this .so - stays small.
+// A separate thread_local std::vector per site costs a 24-byte control
+// block each; a dozen of them is enough to exceed glibc's default static-TLS
+// surplus for a library loaded via dlopen (the normal way this wrapper is
+// loaded, both here and as a MobileGlues plugin), which fails the whole
+// dlopen rather than just this feature.
+struct drawing_scratch_t {
+    std::vector<glm::vec4> da_selection_positions;      // drawArraysNow: selection/feedback
+    std::vector<glm::vec4> da_mixed_positions;          // drawArraysNow: mixed polygon mode
+    std::vector<uint8_t> da_mixed_edge_flags;
+    std::vector<glm::vec4> upde_mixed_positions;        // userProgramDrawElements: mixed mode
+    std::vector<uint8_t> upde_mixed_edge_flags;
+    std::vector<uint32_t> upde_mixed_indices;
+    std::vector<uint8_t> de_selection_index_bytes;      // drawElementsNow: selection/feedback
+    std::vector<uint32_t> de_selection_indices;
+    std::vector<glm::vec4> de_selection_source_positions;
+    std::vector<glm::vec4> de_selection_positions;
+    std::vector<glm::vec4> de_mixed_positions;          // drawElementsNow: mixed polygon mode
+    std::vector<uint8_t> de_mixed_edge_flags;
+    std::vector<uint32_t> de_mixed_indices;
+};
+
+drawing_scratch_t& drawingScratch() {
+    thread_local drawing_scratch_t* instance = nullptr;
+    if (instance == nullptr) instance = new drawing_scratch_t();
+    return *instance;
+}
+
 size_t componentSize(GLenum type) {
     switch (type) {
     case GL_BYTE:
@@ -1173,7 +1205,7 @@ void drawArraysNow(GLenum mode, GLint first, GLsizei count, bool forceFixedFunct
         const GLuint position_buffer = arrayBufferOverride >= 0
                                            ? static_cast<GLuint>(arrayBufferOverride)
                                            : getClientArrayBufferBinding(position_slot);
-        thread_local std::vector<glm::vec4> selection_positions;
+        auto& selection_positions = drawingScratch().da_selection_positions;
         if (!sfpewReadVertexPositions(vertex_array.attributes[position_slot], position_buffer,
                                       first, count, selection_positions)) {
             g_glstate_c.set_error(GL_INVALID_OPERATION);
@@ -1223,8 +1255,8 @@ void drawArraysNow(GLenum mode, GLint first, GLsizei count, bool forceFixedFunct
     }
     const GLenum polygon_primitive = mode;
     const GLsizei polygon_count = count;
-    thread_local std::vector<glm::vec4> mixed_positions;
-    thread_local std::vector<uint8_t> mixed_edge_flags;
+    auto& mixed_positions = drawingScratch().da_mixed_positions;
+    auto& mixed_edge_flags = drawingScratch().da_mixed_edge_flags;
     if (mixed_polygon_mode) {
         const int position_slot = vp2idx(GL_VERTEX_ARRAY);
         const GLuint position_buffer = arrayBufferOverride >= 0
@@ -1405,9 +1437,9 @@ bool userProgramDrawElements(GLuint program, GLenum mode, GLsizei count, GLenum 
     };
 
     const bool mixed_polygon_mode = sfpewMixedPolygonMode(mode);
-    thread_local std::vector<glm::vec4> mixed_positions;
-    thread_local std::vector<uint8_t> mixed_edge_flags;
-    thread_local std::vector<uint32_t> mixed_indices;
+    auto& mixed_positions = drawingScratch().upde_mixed_positions;
+    auto& mixed_edge_flags = drawingScratch().upde_mixed_edge_flags;
+    auto& mixed_indices = drawingScratch().upde_mixed_indices;
     if (mixed_polygon_mode) {
         const GLsizei mixed_vertex_count = vertexCount();
         if (max_index >= static_cast<uint32_t>(std::numeric_limits<GLsizei>::max())) {
@@ -1635,7 +1667,7 @@ void drawElementsNow(GLenum mode, GLsizei count, GLenum type, const GLvoid* indi
             return;
         }
 
-        thread_local std::vector<uint8_t> selection_index_bytes;
+        auto& selection_index_bytes = drawingScratch().de_selection_index_bytes;
         const uint8_t* cpu_indices = nullptr;
         void* mapped_indices = nullptr;
         if (element_buffer == 0) {
@@ -1666,7 +1698,7 @@ void drawElementsNow(GLenum mode, GLsizei count, GLenum type, const GLvoid* indi
             cpu_indices = selection_index_bytes.data();
         }
 
-        thread_local std::vector<uint32_t> selection_indices;
+        auto& selection_indices = drawingScratch().de_selection_indices;
         copyIndicesToUint32(cpu_indices, static_cast<size_t>(count), type, selection_indices);
         const uint32_t max_index =
             *std::max_element(selection_indices.begin(), selection_indices.end());
@@ -1677,7 +1709,7 @@ void drawElementsNow(GLenum mode, GLsizei count, GLenum type, const GLvoid* indi
 
         array_buffer_binding_guard_t array_buffer_guard;
         const int position_slot = vp2idx(GL_VERTEX_ARRAY);
-        thread_local std::vector<glm::vec4> selection_source_positions;
+        auto& selection_source_positions = drawingScratch().de_selection_source_positions;
         if (!sfpewReadVertexPositions(
                 vertex_array.attributes[position_slot],
                 getClientArrayBufferBinding(position_slot), 0,
@@ -1687,7 +1719,7 @@ void drawElementsNow(GLenum mode, GLsizei count, GLenum type, const GLvoid* indi
             return;
         }
 
-        thread_local std::vector<glm::vec4> selection_positions;
+        auto& selection_positions = drawingScratch().de_selection_positions;
         selection_positions.resize(static_cast<size_t>(count));
         for (size_t i = 0; i < selection_indices.size(); ++i)
             selection_positions[i] = selection_source_positions[selection_indices[i]];
@@ -1794,9 +1826,9 @@ void drawElementsNow(GLenum mode, GLsizei count, GLenum type, const GLvoid* indi
     const GLint logical_array_buffer = static_cast<GLint>(sfpewLogicalArrayBufferBinding());
     fpe_backend_draw_state_guard_t backend_state(current_program, logical_array_buffer);
 
-    thread_local std::vector<glm::vec4> mixed_positions;
-    thread_local std::vector<uint8_t> mixed_edge_flags;
-    thread_local std::vector<uint32_t> mixed_indices;
+    auto& mixed_positions = drawingScratch().de_mixed_positions;
+    auto& mixed_edge_flags = drawingScratch().de_mixed_edge_flags;
+    auto& mixed_indices = drawingScratch().de_mixed_indices;
     if (mixed_polygon_mode) {
         if (max_index >= static_cast<uint32_t>(std::numeric_limits<GLsizei>::max())) {
             g_glstate_c.set_error(GL_INVALID_VALUE);

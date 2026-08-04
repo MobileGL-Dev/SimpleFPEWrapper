@@ -19,7 +19,11 @@
 #include "../log.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
+#include <limits>
+#include <new>
+#include <type_traits>
 #include <vector>
 
 namespace {
@@ -39,7 +43,7 @@ constexpr char kQuadFS[] = "#version 300 es\n"
                            "precision highp float;\n"
                            "uniform sampler2D uTex;\n"
                            "uniform vec4 uColor; // bitmap ink\n"
-                           "uniform int uMode;   // 0 = pixels, 1 = bitmap\n"
+                           "uniform int uMode;   // 0 = color, 1 = bitmap, 2 = depth\n"
                            "in vec2 vUV;\n"
                            "out vec4 FragColor;\n"
                            "void main() {\n"
@@ -47,10 +51,15 @@ constexpr char kQuadFS[] = "#version 300 es\n"
                            "    if (uMode == 1) {\n"
                            "        if (texel.r < 0.5) discard;\n"
                            "        FragColor = uColor;\n"
+                           "    } else if (uMode == 2) {\n"
+                           "        gl_FragDepth = clamp(texel.r, 0.0, 1.0);\n"
+                           "        FragColor = vec4(0.0);\n"
                            "    } else {\n"
                            "        FragColor = texel * uColor;\n"
                            "    }\n"
                            "}\n";
+
+enum class quad_mode_t : GLint { color = 0, bitmap = 1, depth = 2 };
 
 struct quad_drawer_t {
     GLuint program = 0;
@@ -139,9 +148,9 @@ bool ensureDrawer(quad_drawer_t& d) {
 // Draws `pixels` (tightly packed) as a screen-aligned quad anchored at
 // window coords (x0,y0) spanning (wpx,hpx) window pixels; bitmap mode
 // discards zero texels and paints with `color`.
-void drawQuad(const void* pixels, GLsizei tex_w, GLsizei tex_h, GLenum tex_format, GLfloat x0,
-              GLfloat y0, GLfloat wpx, GLfloat hpx, GLfloat depth, bool bitmap_mode,
-              const glm::vec4& color) {
+void drawQuad(const void* pixels, GLsizei tex_w, GLsizei tex_h, GLenum tex_format,
+              GLenum tex_type, GLfloat x0, GLfloat y0, GLfloat wpx, GLfloat hpx,
+              GLfloat depth, quad_mode_t mode, const glm::vec4& color) {
     auto& d = drawer();
     if (!ensureDrawer(d)) return;
 
@@ -154,15 +163,44 @@ void drawQuad(const void* pixels, GLsizei tex_w, GLsizei tex_h, GLenum tex_forma
     // Preserve unit-0 texture binding through the wrapper entry points so
     // the logical shadows stay coherent.
     const GLenum caller_active = sfpewLogicalActiveTexture();
-    const GLuint caller_binding = sfpewLogicalTextureBinding(GL_TEXTURE_2D);
     glActiveTexture(GL_TEXTURE0);
+    const GLuint unit_zero_binding = sfpewLogicalTextureBinding(GL_TEXTURE_2D);
     g_glFuncs.glBindTexture(GL_TEXTURE_2D, d.texture);
+
+    // Every pixel path hands this helper a tightly packed CPU buffer. Keep a
+    // caller's PBO and desktop unpack layout from reinterpreting that pointer.
+    GLint unpack_alignment = 4, unpack_row_length = 0, unpack_skip_rows = 0;
+    GLint unpack_skip_pixels = 0, unpack_image_height = 0, unpack_skip_images = 0;
+    GLint unpack_pbo = 0;
+    g_glFuncs.glGetIntegerv(GL_UNPACK_ALIGNMENT, &unpack_alignment);
+    g_glFuncs.glGetIntegerv(GL_UNPACK_ROW_LENGTH, &unpack_row_length);
+    g_glFuncs.glGetIntegerv(GL_UNPACK_SKIP_ROWS, &unpack_skip_rows);
+    g_glFuncs.glGetIntegerv(GL_UNPACK_SKIP_PIXELS, &unpack_skip_pixels);
+    g_glFuncs.glGetIntegerv(GL_UNPACK_IMAGE_HEIGHT, &unpack_image_height);
+    g_glFuncs.glGetIntegerv(GL_UNPACK_SKIP_IMAGES, &unpack_skip_images);
+    g_glFuncs.glGetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, &unpack_pbo);
+    if (unpack_pbo != 0) g_glFuncs.glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
     g_glFuncs.glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-    g_glFuncs.glTexImage2D(GL_TEXTURE_2D, 0, tex_format == GL_RED ? GL_R8 : GL_RGBA8, tex_w, tex_h, 0,
-                           tex_format, GL_UNSIGNED_BYTE, pixels);
+    g_glFuncs.glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+    g_glFuncs.glPixelStorei(GL_UNPACK_SKIP_ROWS, 0);
+    g_glFuncs.glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
+    g_glFuncs.glPixelStorei(GL_UNPACK_IMAGE_HEIGHT, 0);
+    g_glFuncs.glPixelStorei(GL_UNPACK_SKIP_IMAGES, 0);
+    const GLint internal_format = tex_format == GL_RED
+                                      ? (tex_type == GL_FLOAT ? GL_R32F : GL_R8)
+                                      : (tex_type == GL_FLOAT ? GL_RGBA32F : GL_RGBA8);
+    g_glFuncs.glTexImage2D(GL_TEXTURE_2D, 0, internal_format, tex_w, tex_h, 0, tex_format,
+                           tex_type, pixels);
     g_glFuncs.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     g_glFuncs.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    g_glFuncs.glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    g_glFuncs.glPixelStorei(GL_UNPACK_ALIGNMENT, unpack_alignment);
+    g_glFuncs.glPixelStorei(GL_UNPACK_ROW_LENGTH, unpack_row_length);
+    g_glFuncs.glPixelStorei(GL_UNPACK_SKIP_ROWS, unpack_skip_rows);
+    g_glFuncs.glPixelStorei(GL_UNPACK_SKIP_PIXELS, unpack_skip_pixels);
+    g_glFuncs.glPixelStorei(GL_UNPACK_IMAGE_HEIGHT, unpack_image_height);
+    g_glFuncs.glPixelStorei(GL_UNPACK_SKIP_IMAGES, unpack_skip_images);
+    if (unpack_pbo != 0)
+        g_glFuncs.glBindBuffer(GL_PIXEL_UNPACK_BUFFER, static_cast<GLuint>(unpack_pbo));
 
     const auto to_ndc_x = [&](GLfloat wx) { return (wx - viewport[0]) / viewport[2] * 2.0f - 1.0f; };
     const auto to_ndc_y = [&](GLfloat wy) { return (wy - viewport[1]) / viewport[3] * 2.0f - 1.0f; };
@@ -173,12 +211,18 @@ void drawQuad(const void* pixels, GLsizei tex_w, GLsizei tex_h, GLenum tex_forma
     g_glFuncs.glUniform4f(d.loc_rect, to_ndc_x(x0), to_ndc_y(y0), to_ndc_x(x0 + wpx), to_ndc_y(y0 + hpx));
     g_glFuncs.glUniform1f(d.loc_depth, depth * 2.0f - 1.0f);
     g_glFuncs.glUniform4f(d.loc_color, color.r, color.g, color.b, color.a);
-    g_glFuncs.glUniform1i(d.loc_mode, bitmap_mode ? 1 : 0);
+    g_glFuncs.glUniform1i(d.loc_mode, static_cast<GLint>(mode));
     g_glFuncs.glUniform1i(d.loc_tex, 0);
+
+    const auto& caller_mask = g_glstate_c.fpe_state.color_buffer.color_mask;
+    if (mode == quad_mode_t::depth && g_glFuncs.glColorMask != nullptr)
+        g_glFuncs.glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
     g_glFuncs.glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    if (mode == quad_mode_t::depth && g_glFuncs.glColorMask != nullptr)
+        g_glFuncs.glColorMask(caller_mask[0], caller_mask[1], caller_mask[2], caller_mask[3]);
 
     // Restore unit-0 binding and the caller's active unit.
-    g_glFuncs.glBindTexture(GL_TEXTURE_2D, caller_binding);
+    g_glFuncs.glBindTexture(GL_TEXTURE_2D, unit_zero_binding);
     glActiveTexture(caller_active);
 }
 
@@ -446,8 +490,9 @@ void glBitmap(GLsizei width, GLsizei height, GLfloat xorig, GLfloat yorig, GLflo
                 texels[(size_t)yy * width + xx] = ((byte >> bit) & 1u) ? 0xFF : 0x00;
             }
         }
-        drawQuad(texels.data(), width, height, GL_RED, raster.x - xorig, raster.y - yorig,
-                 (GLfloat)width, (GLfloat)height, raster.z, true, g_glstate.fpe_uniform.raster_color);
+        drawQuad(texels.data(), width, height, GL_RED, GL_UNSIGNED_BYTE, raster.x - xorig,
+                 raster.y - yorig, (GLfloat)width, (GLfloat)height, raster.z,
+                 quad_mode_t::bitmap, g_glstate.fpe_uniform.raster_color);
     }
 
     // The raster position always advances, even for w/h 0 or null bitmaps.
@@ -455,90 +500,488 @@ void glBitmap(GLsizei width, GLsizei height, GLfloat xorig, GLfloat yorig, GLflo
     raster.y += ymove;
 }
 
+namespace {
+
+struct pixel_format_info_t {
+    int components = 0;
+    bool depth = false;
+    bool stencil = false;
+};
+
+bool describePixelFormat(GLenum format, pixel_format_info_t* out) {
+    switch (format) {
+    case GL_RED:
+    case GL_GREEN:
+    case GL_BLUE:
+    case GL_ALPHA:
+    case GL_LUMINANCE:
+        out->components = 1;
+        return true;
+    case GL_LUMINANCE_ALPHA:
+        out->components = 2;
+        return true;
+    case GL_RGB:
+    case GL_BGR:
+        out->components = 3;
+        return true;
+    case GL_RGBA:
+    case GL_BGRA:
+        out->components = 4;
+        return true;
+    case GL_DEPTH_COMPONENT:
+        out->components = 1;
+        out->depth = true;
+        return true;
+    case GL_STENCIL_INDEX:
+        out->components = 1;
+        out->stencil = true;
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool scalarPixelType(GLenum type, size_t* bytes) {
+    switch (type) {
+    case GL_BYTE:
+    case GL_UNSIGNED_BYTE:
+        *bytes = 1;
+        return true;
+    case GL_SHORT:
+    case GL_UNSIGNED_SHORT:
+    case GL_HALF_FLOAT:
+        *bytes = 2;
+        return true;
+    case GL_INT:
+    case GL_UNSIGNED_INT:
+    case GL_FLOAT:
+        *bytes = 4;
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool packedPixelType(GLenum type, int widths[4], int* components, size_t* bytes,
+                     bool* reversed) {
+    *reversed = false;
+    switch (type) {
+    case GL_UNSIGNED_BYTE_3_3_2:
+        widths[0] = 3; widths[1] = 3; widths[2] = 2;
+        *components = 3; *bytes = 1;
+        return true;
+    case GL_UNSIGNED_BYTE_2_3_3_REV:
+        widths[0] = 3; widths[1] = 3; widths[2] = 2;
+        *components = 3; *bytes = 1; *reversed = true;
+        return true;
+    case GL_UNSIGNED_SHORT_5_6_5:
+        widths[0] = 5; widths[1] = 6; widths[2] = 5;
+        *components = 3; *bytes = 2;
+        return true;
+    case GL_UNSIGNED_SHORT_5_6_5_REV:
+        widths[0] = 5; widths[1] = 6; widths[2] = 5;
+        *components = 3; *bytes = 2; *reversed = true;
+        return true;
+    case GL_UNSIGNED_SHORT_4_4_4_4:
+        widths[0] = 4; widths[1] = 4; widths[2] = 4; widths[3] = 4;
+        *components = 4; *bytes = 2;
+        return true;
+    case GL_UNSIGNED_SHORT_4_4_4_4_REV:
+        widths[0] = 4; widths[1] = 4; widths[2] = 4; widths[3] = 4;
+        *components = 4; *bytes = 2; *reversed = true;
+        return true;
+    case GL_UNSIGNED_SHORT_5_5_5_1:
+        widths[0] = 5; widths[1] = 5; widths[2] = 5; widths[3] = 1;
+        *components = 4; *bytes = 2;
+        return true;
+    case GL_UNSIGNED_SHORT_1_5_5_5_REV:
+        widths[0] = 5; widths[1] = 5; widths[2] = 5; widths[3] = 1;
+        *components = 4; *bytes = 2; *reversed = true;
+        return true;
+    case GL_UNSIGNED_INT_8_8_8_8:
+        widths[0] = 8; widths[1] = 8; widths[2] = 8; widths[3] = 8;
+        *components = 4; *bytes = 4;
+        return true;
+    case GL_UNSIGNED_INT_8_8_8_8_REV:
+        widths[0] = 8; widths[1] = 8; widths[2] = 8; widths[3] = 8;
+        *components = 4; *bytes = 4; *reversed = true;
+        return true;
+    case GL_UNSIGNED_INT_10_10_10_2:
+        widths[0] = 10; widths[1] = 10; widths[2] = 10; widths[3] = 2;
+        *components = 4; *bytes = 4;
+        return true;
+    case GL_UNSIGNED_INT_2_10_10_10_REV:
+        widths[0] = 10; widths[1] = 10; widths[2] = 10; widths[3] = 2;
+        *components = 4; *bytes = 4; *reversed = true;
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool describePixelType(GLenum format, const pixel_format_info_t& format_info, GLenum type,
+                       size_t* pixel_bytes) {
+    size_t scalar_bytes = 0;
+    if (scalarPixelType(type, &scalar_bytes)) {
+        *pixel_bytes = scalar_bytes * static_cast<size_t>(format_info.components);
+        return true;
+    }
+
+    int widths[4] = {};
+    int packed_components = 0;
+    bool reversed = false;
+    if (!packedPixelType(type, widths, &packed_components, pixel_bytes, &reversed)) return false;
+    (void)widths;
+    (void)reversed;
+    if ((packed_components == 3 && format != GL_RGB && format != GL_BGR) ||
+        (packed_components == 4 && format != GL_RGBA && format != GL_BGRA)) {
+        g_glstate.set_error(GL_INVALID_OPERATION);
+        return false;
+    }
+    return true;
+}
+
+template <typename T>
+T loadPixelScalar(const uint8_t* source, bool swap_bytes) {
+    T value{};
+    if (swap_bytes && sizeof(T) > 1) {
+        uint8_t bytes[sizeof(T)];
+        std::memcpy(bytes, source, sizeof(T));
+        std::reverse(bytes, bytes + sizeof(T));
+        std::memcpy(&value, bytes, sizeof(T));
+    } else {
+        std::memcpy(&value, source, sizeof(T));
+    }
+    return value;
+}
+
+float halfToFloat(uint16_t bits) {
+    const bool negative = (bits & 0x8000u) != 0;
+    const uint16_t exponent = (bits >> 10u) & 0x1Fu;
+    const uint16_t mantissa = bits & 0x03FFu;
+    float value = 0.0f;
+    if (exponent == 0) {
+        value = std::ldexp(static_cast<float>(mantissa), -24);
+    } else if (exponent == 0x1Fu) {
+        value = mantissa == 0 ? std::numeric_limits<float>::infinity()
+                              : std::numeric_limits<float>::quiet_NaN();
+    } else {
+        value = std::ldexp(1.0f + static_cast<float>(mantissa) / 1024.0f,
+                           static_cast<int>(exponent) - 15);
+    }
+    return negative ? -value : value;
+}
+
+float readPixelComponent(const uint8_t* source, GLenum type, bool swap_bytes) {
+    switch (type) {
+    case GL_BYTE: return sfpewNormalizeColorComponent(loadPixelScalar<GLbyte>(source, false));
+    case GL_UNSIGNED_BYTE:
+        return sfpewNormalizeColorComponent(loadPixelScalar<GLubyte>(source, false));
+    case GL_SHORT: return sfpewNormalizeColorComponent(loadPixelScalar<GLshort>(source, swap_bytes));
+    case GL_UNSIGNED_SHORT:
+        return sfpewNormalizeColorComponent(loadPixelScalar<GLushort>(source, swap_bytes));
+    case GL_INT: return sfpewNormalizeColorComponent(loadPixelScalar<GLint>(source, swap_bytes));
+    case GL_UNSIGNED_INT:
+        return sfpewNormalizeColorComponent(loadPixelScalar<GLuint>(source, swap_bytes));
+    case GL_FLOAT: return loadPixelScalar<GLfloat>(source, swap_bytes);
+    case GL_HALF_FLOAT:
+        return halfToFloat(loadPixelScalar<uint16_t>(source, swap_bytes));
+    default: return 0.0f;
+    }
+}
+
+void decodePackedPixel(const uint8_t* source, GLenum type, bool swap_bytes, float values[4],
+                       int* components) {
+    int widths[4] = {};
+    size_t bytes = 0;
+    bool reversed = false;
+    packedPixelType(type, widths, components, &bytes, &reversed);
+    uint32_t word = 0;
+    if (bytes == 1)
+        word = loadPixelScalar<uint8_t>(source, false);
+    else if (bytes == 2)
+        word = loadPixelScalar<uint16_t>(source, swap_bytes);
+    else
+        word = loadPixelScalar<uint32_t>(source, swap_bytes);
+
+    int shift = reversed ? 0 : static_cast<int>(bytes * 8u);
+    for (int component = 0; component < *components; ++component) {
+        if (reversed)
+            shift += component == 0 ? 0 : widths[component - 1];
+        else
+            shift -= widths[component];
+        const uint32_t mask = (1u << widths[component]) - 1u;
+        values[component] = static_cast<float>((word >> shift) & mask) /
+                            static_cast<float>(mask);
+    }
+}
+
+glm::vec4 expandPixel(GLenum format, const float values[4]) {
+    switch (format) {
+    case GL_RED: return {values[0], 0.0f, 0.0f, 1.0f};
+    case GL_GREEN: return {0.0f, values[0], 0.0f, 1.0f};
+    case GL_BLUE: return {0.0f, 0.0f, values[0], 1.0f};
+    case GL_ALPHA: return {0.0f, 0.0f, 0.0f, values[0]};
+    case GL_RGB: return {values[0], values[1], values[2], 1.0f};
+    case GL_BGR: return {values[2], values[1], values[0], 1.0f};
+    case GL_RGBA: return {values[0], values[1], values[2], values[3]};
+    case GL_BGRA: return {values[2], values[1], values[0], values[3]};
+    case GL_LUMINANCE: return {values[0], values[0], values[0], 1.0f};
+    case GL_LUMINANCE_ALPHA: return {values[0], values[0], values[0], values[1]};
+    case GL_DEPTH_COMPONENT:
+    case GL_STENCIL_INDEX:
+        return {values[0], 0.0f, 0.0f, 1.0f};
+    default: return {0.0f};
+    }
+}
+
+glm::vec4 decodePixel(const uint8_t* source, GLenum format, GLenum type,
+                      const pixel_format_info_t& format_info, bool swap_bytes) {
+    float values[4] = {};
+    size_t scalar_bytes = 0;
+    if (scalarPixelType(type, &scalar_bytes)) {
+        for (int component = 0; component < format_info.components; ++component) {
+            values[component] =
+                readPixelComponent(source + static_cast<size_t>(component) * scalar_bytes, type,
+                                   swap_bytes);
+        }
+    } else {
+        int ignored_components = 0;
+        decodePackedPixel(source, type, swap_bytes, values, &ignored_components);
+    }
+    return expandPixel(format, values);
+}
+
+bool checkedPixelAdd(size_t left, size_t right, size_t* out) {
+    if (right > std::numeric_limits<size_t>::max() - left) return false;
+    *out = left + right;
+    return true;
+}
+
+bool checkedPixelMultiply(size_t left, size_t right, size_t* out) {
+    if (left != 0 && right > std::numeric_limits<size_t>::max() / left) return false;
+    *out = left * right;
+    return true;
+}
+
+struct pixel_unpack_view_t {
+    const uint8_t* pixels = nullptr;
+    size_t row_stride = 0;
+    GLenum mapped_target = GL_NONE;
+    GLuint scratch = 0;
+    GLint previous_copy_write = 0;
+
+    ~pixel_unpack_view_t() {
+        if (mapped_target != GL_NONE && g_glFuncs.glUnmapBuffer != nullptr)
+            g_glFuncs.glUnmapBuffer(mapped_target);
+        if (scratch != 0) {
+            g_glFuncs.glBindBuffer(GL_COPY_WRITE_BUFFER, static_cast<GLuint>(previous_copy_write));
+            g_glFuncs.glDeleteBuffers(1, &scratch);
+        }
+    }
+};
+
+void drainFailedMapError() {
+    if (g_glFuncs.glGetError == nullptr) return;
+    while (g_glFuncs.glGetError() != GL_NO_ERROR) {}
+}
+
+bool preparePixelUnpackView(GLsizei width, GLsizei height, size_t pixel_bytes,
+                            const GLvoid* pixels, pixel_unpack_view_t* out) {
+    if (g_glFuncs.glGetIntegerv == nullptr) return false;
+
+    GLint alignment = 4, row_length = 0, skip_rows = 0, skip_pixels = 0, pbo = 0;
+    g_glFuncs.glGetIntegerv(GL_UNPACK_ALIGNMENT, &alignment);
+    g_glFuncs.glGetIntegerv(GL_UNPACK_ROW_LENGTH, &row_length);
+    g_glFuncs.glGetIntegerv(GL_UNPACK_SKIP_ROWS, &skip_rows);
+    g_glFuncs.glGetIntegerv(GL_UNPACK_SKIP_PIXELS, &skip_pixels);
+    g_glFuncs.glGetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, &pbo);
+    if ((alignment != 1 && alignment != 2 && alignment != 4 && alignment != 8) ||
+        row_length < 0 || skip_rows < 0 || skip_pixels < 0) {
+        g_glstate.set_error(GL_INVALID_OPERATION);
+        return false;
+    }
+
+    const size_t row_pixels = row_length > 0 ? static_cast<size_t>(row_length)
+                                             : static_cast<size_t>(width);
+    size_t row_bytes = 0, padded_row_bytes = 0;
+    if (!checkedPixelMultiply(row_pixels, pixel_bytes, &row_bytes) ||
+        !checkedPixelAdd(row_bytes, static_cast<size_t>(alignment - 1), &padded_row_bytes)) {
+        g_glstate.set_error(GL_OUT_OF_MEMORY);
+        return false;
+    }
+    out->row_stride = padded_row_bytes & ~static_cast<size_t>(alignment - 1);
+
+    size_t start = 0, last_row = 0, final_row_bytes = 0, needed = 0;
+    if (!checkedPixelMultiply(static_cast<size_t>(skip_rows), out->row_stride, &start) ||
+        !checkedPixelMultiply(static_cast<size_t>(skip_pixels), pixel_bytes, &final_row_bytes) ||
+        !checkedPixelAdd(start, final_row_bytes, &start) ||
+        !checkedPixelMultiply(static_cast<size_t>(height - 1), out->row_stride, &last_row) ||
+        !checkedPixelMultiply(static_cast<size_t>(width), pixel_bytes, &final_row_bytes) ||
+        !checkedPixelAdd(start, last_row, &needed) ||
+        !checkedPixelAdd(needed, final_row_bytes, &needed)) {
+        g_glstate.set_error(GL_OUT_OF_MEMORY);
+        return false;
+    }
+
+    if (pbo == 0) {
+        if (pixels == nullptr) return false;
+        out->pixels = static_cast<const uint8_t*>(pixels) + start;
+        return true;
+    }
+    if (g_glFuncs.glGetBufferParameteriv == nullptr || g_glFuncs.glMapBufferRange == nullptr ||
+        g_glFuncs.glUnmapBuffer == nullptr) {
+        g_glstate.set_error(GL_INVALID_OPERATION);
+        return false;
+    }
+
+    GLint buffer_size = 0, buffer_mapped = GL_FALSE;
+    g_glFuncs.glGetBufferParameteriv(GL_PIXEL_UNPACK_BUFFER, GL_BUFFER_SIZE, &buffer_size);
+    g_glFuncs.glGetBufferParameteriv(GL_PIXEL_UNPACK_BUFFER, GL_BUFFER_MAPPED, &buffer_mapped);
+    const size_t offset = reinterpret_cast<uintptr_t>(pixels);
+    if (buffer_mapped == GL_TRUE || buffer_size < 0 || offset > static_cast<size_t>(buffer_size) ||
+        needed > static_cast<size_t>(buffer_size) - offset ||
+        needed > static_cast<size_t>(std::numeric_limits<GLsizeiptr>::max()) ||
+        offset > static_cast<size_t>(std::numeric_limits<GLintptr>::max())) {
+        g_glstate.set_error(GL_INVALID_OPERATION);
+        return false;
+    }
+
+    const auto* mapped = static_cast<const uint8_t*>(g_glFuncs.glMapBufferRange(
+        GL_PIXEL_UNPACK_BUFFER, static_cast<GLintptr>(offset), static_cast<GLsizeiptr>(needed),
+        GL_MAP_READ_BIT));
+    if (mapped != nullptr) {
+        out->mapped_target = GL_PIXEL_UNPACK_BUFFER;
+        out->pixels = mapped + start;
+        return true;
+    }
+
+    // Upload-oriented mobile buffers are often not directly READ-mappable.
+    // Copy the exact source range into a STREAM_READ buffer before giving up.
+    drainFailedMapError();
+    if (g_glFuncs.glCopyBufferSubData == nullptr || g_glFuncs.glGenBuffers == nullptr ||
+        g_glFuncs.glDeleteBuffers == nullptr || g_glFuncs.glBindBuffer == nullptr ||
+        g_glFuncs.glBufferData == nullptr) {
+        g_glstate.set_error(GL_INVALID_OPERATION);
+        return false;
+    }
+    g_glFuncs.glGetIntegerv(GL_COPY_WRITE_BUFFER_BINDING, &out->previous_copy_write);
+    g_glFuncs.glGenBuffers(1, &out->scratch);
+    g_glFuncs.glBindBuffer(GL_COPY_WRITE_BUFFER, out->scratch);
+    g_glFuncs.glBufferData(GL_COPY_WRITE_BUFFER, static_cast<GLsizeiptr>(needed), nullptr,
+                           GL_STREAM_READ);
+    g_glFuncs.glCopyBufferSubData(GL_PIXEL_UNPACK_BUFFER, GL_COPY_WRITE_BUFFER,
+                                  static_cast<GLintptr>(offset), 0,
+                                  static_cast<GLsizeiptr>(needed));
+    mapped = static_cast<const uint8_t*>(g_glFuncs.glMapBufferRange(
+        GL_COPY_WRITE_BUFFER, 0, static_cast<GLsizeiptr>(needed), GL_MAP_READ_BIT));
+    if (mapped == nullptr) {
+        drainFailedMapError();
+        g_glFuncs.glBindBuffer(GL_COPY_WRITE_BUFFER,
+                               static_cast<GLuint>(out->previous_copy_write));
+        g_glFuncs.glDeleteBuffers(1, &out->scratch);
+        out->scratch = 0;
+        g_glstate.set_error(GL_INVALID_OPERATION);
+        return false;
+    }
+    out->mapped_target = GL_COPY_WRITE_BUFFER;
+    out->pixels = mapped + start;
+    return true;
+}
+
+float clampPixel(float value) {
+    if (std::isnan(value)) return 0.0f;
+    return std::clamp(value, 0.0f, 1.0f);
+}
+
+} // namespace
+
 void glDrawPixels(GLsizei width, GLsizei height, GLenum format, GLenum type, const GLvoid* pixels) {
     sfpewEntryBarrier();
     if (width < 0 || height < 0) {
         g_glstate.set_error(GL_INVALID_VALUE);
         return;
     }
-    if (type != GL_UNSIGNED_BYTE) {
-        SFPEW_LOGW("glDrawPixels: type 0x%x not implemented (UNSIGNED_BYTE only)", type);
+    pixel_format_info_t format_info;
+    if (!describePixelFormat(format, &format_info)) {
         g_glstate.set_error(GL_INVALID_ENUM);
         return;
     }
-    int components;
-    switch (format) {
-    case GL_RGBA:
-    case GL_BGRA:
-        components = 4;
-        break;
-    case GL_RGB:
-        components = 3;
-        break;
-    case GL_LUMINANCE:
-    case GL_ALPHA:
-        components = 1;
-        break;
-    default:
-        SFPEW_LOGW("glDrawPixels: format 0x%x not implemented", format);
-        g_glstate.set_error(GL_INVALID_ENUM);
+    size_t pixel_bytes = 0;
+    if (!describePixelType(format, format_info, type, &pixel_bytes)) {
+        if (g_glstate.first_error == GL_NO_ERROR)
+            g_glstate.set_error(GL_INVALID_ENUM);
         return;
     }
-    if (!g_glstate.fpe_uniform.raster_position_valid || width == 0 || height == 0 ||
-        pixels == nullptr || !sfpewEnsureBackend() || g_glFuncs.glTexImage2D == nullptr) {
+    if (format_info.stencil) {
+        // ES 3.0 cannot upload stencil values through a fragment shader, and
+        // no portable framebuffer path exposes per-fragment stencil replace
+        // values. Refuse the operation explicitly instead of drawing color.
+        g_glstate.set_error(GL_INVALID_OPERATION);
         return;
     }
-    if (sfpewUnpackPboBound()) {
-        SFPEW_LOGW("glDrawPixels from a pixel unpack buffer is not implemented; call skipped");
+    if (!g_glstate.fpe_uniform.raster_position_valid || width == 0 || height == 0) return;
+    if (!sfpewEnsureBackend() || g_glFuncs.glTexImage2D == nullptr) return;
+
+    size_t pixel_count = 0, rgba_count = 0;
+    if (!checkedPixelMultiply(static_cast<size_t>(width), static_cast<size_t>(height),
+                              &pixel_count) ||
+        (!format_info.depth && !checkedPixelMultiply(pixel_count, 4u, &rgba_count))) {
+        g_glstate.set_error(GL_OUT_OF_MEMORY);
         return;
     }
 
-    // Convert to RGBA8 applying the transfer scale/bias (identity skips the
-    // per-channel math). Tightly packed rows assumed, as elsewhere.
     const auto& un = g_glstate.fpe_uniform;
-    const bool transfer = un.pixel_scale[0] != 1.0f || un.pixel_scale[1] != 1.0f ||
-                          un.pixel_scale[2] != 1.0f || un.pixel_scale[3] != 1.0f ||
-                          un.pixel_bias[0] != 0.0f || un.pixel_bias[1] != 0.0f ||
-                          un.pixel_bias[2] != 0.0f || un.pixel_bias[3] != 0.0f;
-    const auto* src = static_cast<const uint8_t*>(pixels);
-    std::vector<uint8_t> rgba((size_t)width * height * 4u);
-    for (size_t px = 0; px < (size_t)width * height; ++px) {
-        uint8_t r, g, b, a;
-        const uint8_t* in = src + px * components;
-        switch (format) {
-        case GL_RGBA:
-            r = in[0]; g = in[1]; b = in[2]; a = in[3];
-            break;
-        case GL_BGRA:
-            r = in[2]; g = in[1]; b = in[0]; a = in[3];
-            break;
-        case GL_RGB:
-            r = in[0]; g = in[1]; b = in[2]; a = 255;
-            break;
-        case GL_LUMINANCE:
-            r = g = b = in[0]; a = 255;
-            break;
-        default: // GL_ALPHA
-            r = g = b = 0; a = in[0];
-            break;
+    const bool float_output = format_info.depth || type == GL_FLOAT || type == GL_HALF_FLOAT;
+    std::vector<GLfloat> float_pixels;
+    std::vector<GLubyte> byte_pixels;
+    try {
+        if (float_output)
+            float_pixels.resize(format_info.depth ? pixel_count : rgba_count);
+        else
+            byte_pixels.resize(rgba_count);
+    } catch (const std::bad_alloc&) {
+        g_glstate.set_error(GL_OUT_OF_MEMORY);
+        return;
+    }
+
+    {
+        pixel_unpack_view_t source;
+        if (!preparePixelUnpackView(width, height, pixel_bytes, pixels, &source)) return;
+        const bool swap_bytes = g_glstate.pixel_store_unpack_swap_bytes;
+        for (GLsizei row = 0; row < height; ++row) {
+            const uint8_t* line = source.pixels + static_cast<size_t>(row) * source.row_stride;
+            for (GLsizei column = 0; column < width; ++column) {
+                const size_t pixel = static_cast<size_t>(row) * static_cast<size_t>(width) +
+                                     static_cast<size_t>(column);
+                glm::vec4 value = decodePixel(line + static_cast<size_t>(column) * pixel_bytes,
+                                              format, type, format_info, swap_bytes);
+                if (format_info.depth) {
+                    float_pixels[pixel] =
+                        clampPixel(value.r * un.pixel_scale[4] + un.pixel_bias[4]);
+                    continue;
+                }
+                for (int channel = 0; channel < 4; ++channel) {
+                    const float transferred =
+                        clampPixel(value[channel] * un.pixel_scale[channel] + un.pixel_bias[channel]);
+                    if (float_output)
+                        float_pixels[pixel * 4u + static_cast<size_t>(channel)] = transferred;
+                    else
+                        byte_pixels[pixel * 4u + static_cast<size_t>(channel)] =
+                            static_cast<GLubyte>(transferred * 255.0f + 0.5f);
+                }
+            }
         }
-        if (transfer) {
-            const auto apply = [&](uint8_t v, int ch) {
-                const float scaled = (float)v / 255.0f * un.pixel_scale[ch] + un.pixel_bias[ch];
-                return (uint8_t)(std::clamp(scaled, 0.0f, 1.0f) * 255.0f + 0.5f);
-            };
-            r = apply(r, 0); g = apply(g, 1); b = apply(b, 2); a = apply(a, 3);
-        }
-        rgba[px * 4 + 0] = r;
-        rgba[px * 4 + 1] = g;
-        rgba[px * 4 + 2] = b;
-        rgba[px * 4 + 3] = a;
     }
 
     const auto& raster = un.raster_position;
-    // Negative zoom mirrors by emitting a rect with negative span.
-    drawQuad(rgba.data(), width, height, GL_RGBA, raster.x, raster.y, width * un.pixel_zoom_x,
-             height * un.pixel_zoom_y, raster.z, false, glm::vec4(1.0f));
+    const void* upload = float_output ? static_cast<const void*>(float_pixels.data())
+                                      : static_cast<const void*>(byte_pixels.data());
+    const GLenum upload_format = format_info.depth ? GL_RED : GL_RGBA;
+    const GLenum upload_type = float_output ? GL_FLOAT : GL_UNSIGNED_BYTE;
+    drawQuad(upload, width, height, upload_format, upload_type, raster.x, raster.y,
+             width * un.pixel_zoom_x, height * un.pixel_zoom_y, raster.z,
+             format_info.depth ? quad_mode_t::depth : quad_mode_t::color, glm::vec4(1.0f));
 }
 
 void glCopyPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum type) {

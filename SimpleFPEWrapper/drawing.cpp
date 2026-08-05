@@ -8,6 +8,7 @@
 
 #include "init.h"
 #include "log.h"
+#include "version.h" // SFPEW_GIT_COMMIT, for the LISTLOG accounting header below
 
 #include "fpe/fpe.hpp"
 #include "fpe/list.h"

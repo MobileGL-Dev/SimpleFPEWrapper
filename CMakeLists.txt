@@ -161,22 +161,29 @@ endif()
 # The git commit this build came from, reported alongside the version in
 # GL_VERSION and logged once at initialization, so a device report always
 # identifies the code it was produced by - a version cannot distinguish two
-# builds made the same day. Configure time is good enough: the hash marks the
-# checkout. The bare hash is the whole stamp; a working-tree state marker
-# does not belong in a string users read and quote. Falls back to "unknown"
-# outside a git checkout (tarball builds).
-find_package(Git QUIET)
-set(SFPEW_GIT_COMMIT "unknown")
-if(GIT_FOUND)
-        execute_process(COMMAND ${GIT_EXECUTABLE} -C ${CMAKE_SOURCE_DIR} rev-parse --short=12 HEAD
-                        OUTPUT_VARIABLE SFPEW_GIT_COMMIT_RAW
-                        OUTPUT_STRIP_TRAILING_WHITESPACE
-                        ERROR_QUIET RESULT_VARIABLE SFPEW_GIT_RC)
-        if(SFPEW_GIT_RC EQUAL 0)
-                set(SFPEW_GIT_COMMIT "${SFPEW_GIT_COMMIT_RAW}")
-        endif()
-endif()
-target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE SFPEW_GIT_COMMIT="${SFPEW_GIT_COMMIT}")
+# builds made the same day. The bare hash is the whole stamp; a working-tree
+# state marker does not belong in a string users read and quote.
+#
+# A plain execute_process() here only runs when CMake itself is
+# reconfigured, not on an ordinary `ninja`/`make` rebuild - a commit made
+# between configures would report stale. Instead this regenerates a small
+# header via an `ALL` custom target, which (having no OUTPUT-based
+# dependency tracking of its own) reruns its COMMAND on every build
+# invocation unconditionally; the script only touches the header's mtime
+# when the commit actually changed, so this cannot force a full rebuild.
+# version.h picks the header up via __has_include with its own existing
+# "unknown" fallback (outside a git checkout, e.g. a tarball build); drawing.cpp,
+# the other direct consumer, now includes version.h for the same reason.
+set(SFPEW_GIT_COMMIT_HEADER "${CMAKE_BINARY_DIR}/generated/sfpew_git_commit.h")
+add_custom_target(sfpew_git_commit ALL
+        COMMAND ${CMAKE_COMMAND} -D SRC_DIR=${CMAKE_SOURCE_DIR}
+                                 -D OUT_FILE=${SFPEW_GIT_COMMIT_HEADER}
+                                 -P ${CMAKE_SOURCE_DIR}/tools/generate_git_commit.cmake
+        BYPRODUCTS ${SFPEW_GIT_COMMIT_HEADER}
+        COMMENT "Refreshing git commit hash"
+)
+add_dependencies(${CMAKE_PROJECT_NAME} sfpew_git_commit)
+target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE ${CMAKE_BINARY_DIR}/generated)
 
 # A shared library may legally carry undefined symbols, so a link that
 # quietly dropped a static-library member (a bitcode archive the archiver

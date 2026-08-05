@@ -22,8 +22,18 @@
 // the version tells a user which release they are on, the commit tells a
 // maintainer which code that was.
 
+// Generated at build time (tools/generate_git_commit.cmake), not baked in
+// only at cmake-configure time, so an ordinary rebuild picks up a commit
+// made since the last configure. __has_include rather than a hard #include:
+// this header still needs to compile standalone outside CMake's generated
+// include path (a tarball build, an IDE indexer that never ran the custom
+// target).
+#if __has_include("sfpew_git_commit.h")
+#include "sfpew_git_commit.h"
+#endif
 #ifndef SFPEW_GIT_COMMIT
-// Defined by CMake from the checkout; only a build outside git lands here.
+// Only a build outside git (or before the generating custom target has run
+// once) lands here.
 #define SFPEW_GIT_COMMIT "unknown"
 #endif
 

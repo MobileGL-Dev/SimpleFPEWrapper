@@ -342,7 +342,8 @@ if(NOT ANDROID)
                                        color_sum logicop line_stipple texture_3d_cube
                                        read_buffer point_sprite texgen_cube
                                        drawpixels_stencil pixel_transfer_readback lod_bias
-                                       depth_texture_mode texture_shadow)
+                                       depth_texture_mode texture_shadow
+                                       texture_anisotropic)
                                 sfpew_add_gtest(sfpew_${suite}_test SOURCES tests/gtest_${suite}.cc
                                                 LIBRARIES ${SFPEW_TEST_EGL})
                         endforeach()

@@ -2517,6 +2517,16 @@ void glGetFloatv(GLenum pname, GLfloat* params) {
 void glActiveTexture(GLenum texture) {
     if (!sfpewEnsureBackend() || g_glFuncs.glActiveTexture == nullptr) return;
     (void)g_glstate; // entry strict resolve; the binding shadow reads the snapshot
+    // Validate before anything else: an invalid enum must leave the active
+    // unit (and the shadow that mirrors it) untouched, matching
+    // DEFINE_MULTITEXCOORD's own bounds check on the same MAX_TEX range -
+    // without this, the shadow below would adopt an out-of-range unit that
+    // every per-unit reader (active_texture_index() et al.) then clamps
+    // differently than the rejected backend call did.
+    if (texture < GL_TEXTURE0 || texture - GL_TEXTURE0 >= MAX_TEX) {
+        g_glstate.set_error(GL_INVALID_ENUM);
+        return;
+    }
     // Record BEFORE the redundancy shortcut: a list must contain the command
     // even when it matches the current state (GL spec; audit finding).
     LIST_RECORD(glActiveTexture, {}, texture)

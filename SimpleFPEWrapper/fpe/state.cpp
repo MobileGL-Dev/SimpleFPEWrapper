@@ -443,6 +443,15 @@ void glClientActiveTexture(GLenum texture) {
 
     // Todo: this function can be added to displayList when GL 1.3+ is disabled
 
+    // Unvalidated, client_active_texture would reach vp2idx() unclamped and
+    // index straight past attributes[VERTEX_POINTER_COUNT] on an out-of-range
+    // enum - matching the bounds check DEFINE_MULTITEXCOORD below already
+    // applies to its own unit argument.
+    if (texture < GL_TEXTURE0 || texture - GL_TEXTURE0 >= MAX_TEX) {
+        g_glstate.set_error(GL_INVALID_ENUM);
+        return;
+    }
+
     auto& gs = g_glstate;
     gs.fpe_state.client_active_texture = texture;
 }

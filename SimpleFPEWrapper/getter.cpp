@@ -912,6 +912,7 @@ const char* const kDesktopExtensions[] = {
     "GL_ARB_texture_cube_map",
     "GL_ARB_texture_non_power_of_two",
     "GL_ARB_texture_mirrored_repeat",
+    "GL_ARB_texture_compression",
     "GL_ARB_depth_texture",
     "GL_ARB_shadow",
     "GL_ARB_vertex_buffer_object",
@@ -950,6 +951,7 @@ const char* const kDesktopExtensions[] = {
     "GL_EXT_texture3D",
     "GL_EXT_packed_pixels",
     "GL_EXT_texture_edge_clamp",
+    "GL_EXT_texture_compression_s3tc",
     "GL_EXT_texture_env_combine",
     "GL_SGI_color_table",
     "GL_SGI_color_matrix",
@@ -1463,6 +1465,70 @@ void glGetCompressedTexImage(GLenum target, GLint level, GLvoid* pixels) {
         return;
     }
     gs.set_error(GL_INVALID_OPERATION);
+}
+
+void glCompressedTexImage2D(GLenum target, GLint level, GLenum internalformat, GLsizei width,
+                            GLsizei height, GLint border, GLsizei imageSize, const GLvoid* data) {
+    auto& gs = g_glstate;
+    const bool is_cube_face =
+        target >= GL_TEXTURE_CUBE_MAP_POSITIVE_X && target <= GL_TEXTURE_CUBE_MAP_NEGATIVE_Z;
+    if (target != GL_TEXTURE_2D && target != GL_PROXY_TEXTURE_2D && !is_cube_face) {
+        gs.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    if (border != 0 || imageSize < 0 || level < 0 || width < 0 || height < 0) {
+        gs.set_error(GL_INVALID_VALUE);
+        return;
+    }
+    if (isGenericCompressedFormat(internalformat)) {
+        gs.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    LIST_RECORD(glCompressedTexImage2D,
+                {{7, static_cast<size_t>(imageSize > 0 ? imageSize : 0)}}, target, level,
+                internalformat, width, height, border, imageSize, data)
+    sfpewEntryBarrier();
+    // Unlike GL_PROXY_TEXTURE_1D (an emulated target with no backend storage
+    // to test at all), GL_PROXY_TEXTURE_2D is real on desktop but absent from
+    // GLES entirely - forwarding it would ask an ES backend to validate a
+    // target it does not define. Matching the 1D wrapper's own proxy
+    // handling, validate the arguments above and stop rather than either
+    // guessing an answer or forwarding to a backend that may not have it.
+    if (target == GL_PROXY_TEXTURE_2D) return;
+    if (!sfpewEnsureBackend() || g_glFuncs.glCompressedTexImage2D == nullptr) return;
+    g_glFuncs.glCompressedTexImage2D(target, level, internalformat, width, height, border,
+                                     imageSize, data);
+    rememberTextureLevel(sfpewLogicalTextureBinding(textureMetadataTarget(target)), target, level,
+                         width, height, static_cast<GLint>(internalformat), border, true, imageSize);
+    sfpewMaybeGenerateMipmap(target);
+}
+
+void glCompressedTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset,
+                               GLsizei width, GLsizei height, GLenum format, GLsizei imageSize,
+                               const GLvoid* data) {
+    auto& gs = g_glstate;
+    const bool is_cube_face =
+        target >= GL_TEXTURE_CUBE_MAP_POSITIVE_X && target <= GL_TEXTURE_CUBE_MAP_NEGATIVE_Z;
+    if (target != GL_TEXTURE_2D && !is_cube_face) {
+        gs.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    if (imageSize < 0 || level < 0 || xoffset < 0 || yoffset < 0 || width < 0 || height < 0) {
+        gs.set_error(GL_INVALID_VALUE);
+        return;
+    }
+    if (isGenericCompressedFormat(format)) {
+        gs.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    LIST_RECORD(glCompressedTexSubImage2D,
+                {{8, static_cast<size_t>(imageSize > 0 ? imageSize : 0)}}, target, level,
+                xoffset, yoffset, width, height, format, imageSize, data)
+    sfpewEntryBarrier();
+    if (!sfpewEnsureBackend() || g_glFuncs.glCompressedTexSubImage2D == nullptr) return;
+    g_glFuncs.glCompressedTexSubImage2D(target, level, xoffset, yoffset, width, height, format,
+                                        imageSize, data);
+    sfpewMaybeGenerateMipmap(target);
 }
 
 void glGetTexGenfv(GLenum coord, GLenum pname, GLfloat* params) {

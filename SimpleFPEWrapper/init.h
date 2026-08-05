@@ -107,6 +107,15 @@ int sfpewLegacyHintSlot(GLenum target);
 // The two differ in which legacy queries they still accept, so anything
 // that has to pick a spelling asks here.
 bool sfpewDesktopGLVersion(int* major, int* minor);
+// GL_ARB_texture_border_clamp (GL_CLAMP_TO_BORDER, GL_TEXTURE_BORDER_COLOR):
+// true on every desktop backend (core since GL 1.3, below this wrapper's 3.2
+// floor) and on any GLES backend that is 3.2+ or advertises
+// GL_EXT_texture_border_clamp/GL_OES_texture_border_clamp - false on a GLES
+// 3.0/3.1 backend with neither, which is a real device this wrapper may run
+// on. Both glTexParameter's own validation and the advertised extension
+// string go through this rather than assume the wrapper's guaranteed floor
+// covers it, the way every other name in kDesktopExtensions can.
+bool sfpewTextureBorderClampSupported();
 
 GLuint sfpewLogicalTextureBinding(GLenum target);
 // Same question for a unit that need not be the currently active one (GL
@@ -302,6 +311,12 @@ SFPEW_APIENTRY void glCompressedTexSubImage1D(GLenum target, GLint level, GLint 
                                              GLsizei width, GLenum format, GLsizei imageSize,
                                              const GLvoid* data);
 SFPEW_APIENTRY void glGetCompressedTexImage(GLenum target, GLint level, GLvoid* pixels);
+SFPEW_APIENTRY void glCompressedTexImage2D(GLenum target, GLint level, GLenum internalformat,
+                                          GLsizei width, GLsizei height, GLint border,
+                                          GLsizei imageSize, const GLvoid* data);
+SFPEW_APIENTRY void glCompressedTexSubImage2D(GLenum target, GLint level, GLint xoffset,
+                                             GLint yoffset, GLsizei width, GLsizei height,
+                                             GLenum format, GLsizei imageSize, const GLvoid* data);
 SFPEW_APIENTRY void glTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width,
                                     GLsizei height, GLenum format, GLenum type, const GLvoid* pixels);
 SFPEW_APIENTRY const GLubyte* glGetString(GLenum name);

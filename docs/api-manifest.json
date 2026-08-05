@@ -1,6 +1,6 @@
 {
  "source": "lookup.cpp",
- "count": 833,
+ "count": 835,
  "entries": {
   "eglSwapBuffersWithDamageKHR": {
    "status": "alias",
@@ -391,7 +391,11 @@
    "target": "glCompressedTexImage1D"
   },
   "glCompressedTexImage2D": {
-   "status": "backend-fallthrough",
+   "status": "resolvable",
+   "target": "glCompressedTexImage2D"
+  },
+  "glCompressedTexImage2DARB": {
+   "status": "alias",
    "target": "glCompressedTexImage2D"
   },
   "glCompressedTexImage3D": {
@@ -407,7 +411,11 @@
    "target": "glCompressedTexSubImage1D"
   },
   "glCompressedTexSubImage2D": {
-   "status": "backend-fallthrough",
+   "status": "resolvable",
+   "target": "glCompressedTexSubImage2D"
+  },
+  "glCompressedTexSubImage2DARB": {
+   "status": "alias",
    "target": "glCompressedTexSubImage2D"
   },
   "glCompressedTexSubImage3D": {

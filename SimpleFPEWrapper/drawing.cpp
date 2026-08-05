@@ -603,14 +603,28 @@ struct wrapper_client_state_guard_t {
     vertex_pointer_array_t vertexPointerArray = g_glstate_c.fpe_state.vertexpointer_array;
     vertex_pointer_array_t normalizedVertexPointerArray = g_glstate_c.fpe_state.normalized_vpa;
     GLenum clientActiveTexture = g_glstate_c.fpe_state.client_active_texture;
+    // Captured-draw replay overwrites vertexpointer_array's pointers with
+    // arena/VBO byte offsets without going through gl*Pointer, so it must
+    // also stand in for rememberClientArrayBufferBinding and update this
+    // shadow itself (below) - otherwise commit_fpe_state_on_draw's
+    // classifyClientArrays (plans/13) reads whatever the APP's own last
+    // gl*Pointer binding happened to be, unrelated to what this replay is
+    // actually drawing from. Saved/restored here so the app's own next draw
+    // sees its own bindings again, not the replay's.
+    GLuint clientArrayBufferBindings[VERTEX_POINTER_COUNT];
 
-    wrapper_client_state_guard_t() = default;
+    wrapper_client_state_guard_t() {
+        std::memcpy(clientArrayBufferBindings, g_glstate_c.fpe_state.client_array_buffer_bindings,
+                    sizeof(clientArrayBufferBindings));
+    }
 
     ~wrapper_client_state_guard_t() {
         g_glstate_c.fpe_state.vertexpointer_array = vertexPointerArray;
         g_glstate_c.fpe_state.normalized_vpa = normalizedVertexPointerArray;
         g_glstate_c.fpe_normalized_valid = false;
         g_glstate_c.fpe_state.client_active_texture = clientActiveTexture;
+        std::memcpy(g_glstate_c.fpe_state.client_array_buffer_bindings, clientArrayBufferBindings,
+                    sizeof(clientArrayBufferBindings));
     }
 
     wrapper_client_state_guard_t(const wrapper_client_state_guard_t&) = delete;
@@ -759,6 +773,11 @@ public:
             replayState.attributes[i].pointer = useStaticBuffer
                                                     ? reinterpret_cast<const void*>(packedOffsets[i])
                                                     : vertexData.data() + packedOffsets[i];
+            // Ground truth for classifyClientArrays (plans/13): this bypasses
+            // gl*Pointer, so nothing else records which source this replay's
+            // pointer values are relative to.
+            g_glstate_c.fpe_state.client_array_buffer_bindings[i] =
+                useStaticBuffer ? staticVertexBuffer : 0u;
         }
 
         g_glstate_c.fpe_state.vertexpointer_array = replayState;
@@ -1408,21 +1427,22 @@ bool userProgramDrawElements(GLuint program, GLenum mode, GLsizei count, GLenum 
 
     const auto& raw_vpa = g_glstate.fpe_state.vertexpointer_array;
 
-    // The largest referenced index has exactly two consumers: the vertex count
-    // that sizes gather_client_arrays' copy, and the client-memory upload size.
-    // A single VBO-backed enabled array makes the gather bail on that alone
-    // (gather_client_arrays, fpe/fpe.cpp) and makes the draw source straight
-    // from the app's buffer, so neither runs and the scan over every index of
-    // every draw is dead work: 1.16-Optifine/1-frame19661.rdc walks 108630
-    // indices a frame for a value nothing reads. Compute it on demand.
-    bool any_vbo_backed = false;
-    for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
-        if (!((raw_vpa.enabled_pointers >> i) & 1u)) continue;
-        if (getClientArrayBufferBinding(i) != 0) {
-            any_vbo_backed = true;
-            break;
-        }
-    }
+    // Ground-truth classification (plans/13): mirrors
+    // sfpewUserProgramFixedFunctionDrawArrays / commit_fpe_state_on_draw -
+    // see either's comment for the rationale. Doubles as the old manual
+    // "any enabled array VBO-backed" scan this function used only to skip
+    // gather_client_arrays/the index scan below when nothing needs them
+    // (all_client_memory is exactly !any_vbo_backed): a single VBO-backed
+    // array made the gather bail on its own anyway (gather_client_arrays,
+    // fpe/fpe.cpp), so the two checks were already redundant, just phrased
+    // two different ways. The largest referenced index below still has
+    // exactly two consumers - the vertex count that sizes
+    // gather_client_arrays' copy, and the client-memory upload size - so
+    // the scan over every index of every draw stays dead work whenever the
+    // classification turns out not to need it: 1.16-Optifine/1-frame19661
+    // .rdc walks 108630 indices a frame for a value nothing reads.
+    GLuint single_buffer_id = 0;
+    const client_array_kind_t array_kind = classifyClientArrays(raw_vpa, &single_buffer_id);
     uint32_t max_index = 0;
     bool max_index_known = false;
     const auto vertexCount = [&]() -> GLsizei {
@@ -1464,32 +1484,61 @@ bool userProgramDrawElements(GLuint program, GLenum mode, GLsizei count, GLenum 
         copyIndicesToUint32(cpu_indices, static_cast<size_t>(count), type, mixed_indices);
     }
 
-    vertex_pointer_array_t vpa;
-    if (!any_vbo_backed && gather_client_arrays(raw_vpa, 0, vertexCount(), &vpa)) {
-        // gathered layout starts at vertex 0
-    } else {
-        vertex_pointer_array_t raw_copy = raw_vpa;
-        vpa = raw_copy.normalize();
-    }
-
     sfpewBackendBindVertexArray(st.fpe_user_vao);
-    const bool client_memory_draw =
-        reinterpret_cast<uintptr_t>(vpa.starting_pointer) > static_cast<uintptr_t>(vpa.stride);
-    const GLuint attribute_buffer = (logical_array_buffer == 0 || client_memory_draw)
-                                        ? st.fpe_vbo
-                                        : (GLuint)logical_array_buffer;
-    sfpewBackendBindAttributeBuffer(attribute_buffer, backend_state.holds_save);
-    if (client_memory_draw) {
-        const int64_t upload_size = (int64_t)vertexCount() * (int64_t)vpa.stride;
-        if (upload_size <= 0 || upload_size > (int64_t)std::numeric_limits<GLsizei>::max()) {
-            g_glstate.set_error(GL_INVALID_VALUE);
-            return true;
-        }
-        g_glFuncs.glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)upload_size, vpa.starting_pointer,
-                               GL_DYNAMIC_DRAW);
-    }
 
-    sfpewSendUserProgramAttributes(locations, vpa, 0);
+    if (array_kind == client_array_kind_t::single_buffer) {
+        // Same fix shape as sfpewUserProgramFixedFunctionDrawArrays: bind
+        // exactly the buffer the classifier found and hand raw_vpa's
+        // offsets to sfpewSendUserProgramAttributes untouched (plans/13
+        // crash 1, crash 4).
+        sfpewBackendBindAttributeBuffer(single_buffer_id, backend_state.holds_save);
+        sfpewSendUserProgramAttributes(locations, raw_vpa, 0);
+    } else {
+        vertex_pointer_array_t vpa;
+        if (array_kind == client_array_kind_t::mixed) {
+            // plans/13 13.4: same rationale as commit_fpe_state_on_draw's
+            // mixed branch - at least one enabled attribute is buffer-backed
+            // and at least one is not (or two disagree on which buffer), so
+            // every attribute is read to the CPU individually and
+            // interleaved. vertexCount(), not `count`: an index can
+            // reference any vertex up to the largest one actually used, not
+            // just the first `count` of them.
+            if (!gather_mixed_client_arrays(raw_vpa, 0, vertexCount(), &vpa)) {
+                g_glstate.set_error(GL_INVALID_OPERATION);
+                return true;
+            }
+            // gathered layout starts at vertex 0
+        } else if (array_kind == client_array_kind_t::all_client_memory &&
+                   gather_client_arrays(raw_vpa, 0, vertexCount(), &vpa)) {
+            // gathered layout starts at vertex 0
+        } else {
+            vertex_pointer_array_t raw_copy = raw_vpa;
+            vpa = raw_copy.normalize();
+        }
+
+        // all_client_memory and mixed are both certainties from the
+        // classifier now, not a pointer-magnitude guess - mixed only reaches
+        // here after gather_mixed_client_arrays above already succeeded (or
+        // the draw already returned).
+        const bool client_memory_draw =
+            array_kind == client_array_kind_t::all_client_memory ||
+            array_kind == client_array_kind_t::mixed;
+        const GLuint attribute_buffer = (logical_array_buffer == 0 || client_memory_draw)
+                                            ? st.fpe_vbo
+                                            : (GLuint)logical_array_buffer;
+        sfpewBackendBindAttributeBuffer(attribute_buffer, backend_state.holds_save);
+        if (client_memory_draw) {
+            const int64_t upload_size = (int64_t)vertexCount() * (int64_t)vpa.stride;
+            if (upload_size <= 0 || upload_size > (int64_t)std::numeric_limits<GLsizei>::max()) {
+                g_glstate.set_error(GL_INVALID_VALUE);
+                return true;
+            }
+            g_glFuncs.glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)upload_size, vpa.starting_pointer,
+                                   GL_DYNAMIC_DRAW);
+        }
+
+        sfpewSendUserProgramAttributes(locations, vpa, 0);
+    }
     sfpewFeedUserProgramUniforms(program);
 
     if (mixed_polygon_mode &&
@@ -1767,9 +1816,20 @@ void drawElementsNow(GLenum mode, GLsizei count, GLenum type, const GLvoid* indi
         draw_mode = GL_TRIANGLE_FAN;
 
     // Client-memory vertex arrays force an upload sized by the largest
-    // referenced index (same address-vs-offset heuristic as normalize()).
-    const void* vertex_pointer = vertex_array.attributes[vp2idx(GL_VERTEX_ARRAY)].pointer;
-    const bool client_vertices = reinterpret_cast<uintptr_t>(vertex_pointer) > (1u << 20);
+    // referenced index. Ground-truth classification (plans/13 13.5)
+    // replaces the old independent `pointer > 1MB` heuristic, which could -
+    // and, per the audit, did - disagree with commit_fpe_state_on_draw's own
+    // classifyClientArrays() call below on the very same vertex_array: a
+    // large VBO byte offset read as "client memory" here forced an
+    // unnecessary glMapBufferRange sync on the index buffer even though the
+    // vertex data was never going to be read as client memory downstream.
+    // mixed counts as client-memory too: at least one enabled attribute
+    // genuinely is, so the max-index scan/upload sizing below stays the
+    // conservative superset regardless of how commit_fpe_state_on_draw's own
+    // gather_mixed_client_arrays() (plans/13 13.4) resolves it - single_buffer
+    // is the only kind that provably needs neither.
+    const client_array_kind_t array_kind = classifyClientArrays(vertex_array, nullptr);
+    const bool client_vertices = array_kind != client_array_kind_t::single_buffer;
 
     // Pull the index data to the CPU when we must scan or rewrite it.
     thread_local std::vector<uint8_t> index_scratch;
@@ -2163,6 +2223,10 @@ bool tryExecuteCapturedDisplayLists(const GLuint* listIds, size_t listCount) {
         if (((replayState.enabled_pointers >> i) & 1u) == 0) continue;
         replayState.attributes[i].pointer =
             reinterpret_cast<const void*>(prototype->packedOffsets[i]);
+        // Ground truth for classifyClientArrays (plans/13): this bypasses
+        // gl*Pointer, so nothing else records that these offsets are
+        // relative to commonBuffer.
+        g_glstate_c.fpe_state.client_array_buffer_bindings[i] = commonBuffer;
     }
     g_glstate_c.fpe_state.vertexpointer_array = replayState;
     g_glstate_c.fpe_state.normalized_vpa.reset();

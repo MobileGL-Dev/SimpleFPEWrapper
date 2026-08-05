@@ -62,6 +62,28 @@ void restore_depth_stencil_scissor(const fixed_function_state_t::backend_state_s
 bool sfpewUserProgramAttribLocations(GLuint program, GLint out_locations[VERTEX_POINTER_COUNT]);
 bool gather_client_arrays(const vertex_pointer_array_t& raw, GLint first, GLsizei count,
                           vertex_pointer_array_t* out);
+
+// Ground-truth classification of a draw's enabled vertex attributes: whether
+// their `gl*Pointer` data source is real client memory, one shared VBO, or a
+// mix of the two/several VBOs - read from client_array_buffer_bindings[]
+// (types.h, populated by rememberClientArrayBufferBinding at every gl*Pointer
+// call) rather than guessed from the `pointer` value's magnitude, which
+// cannot tell a real address from a small buffer offset (plans/13).
+enum class client_array_kind_t { all_client_memory, single_buffer, mixed };
+client_array_kind_t classifyClientArrays(const vertex_pointer_array_t& raw, GLuint* out_buffer_id);
+
+// `mixed` counterpart to gather_client_arrays (plans/13 13.4): some enabled
+// attributes are real client memory, others are byte offsets into a bound
+// VBO (the same buffer for more than one, or several different ones) - no
+// single glVertexAttribPointer/glBindBuffer pair can express that, so every
+// attribute's bytes are read to the CPU individually (buffer-backed ones via
+// a synchronous glMapBufferRange readback) and interleaved into the same
+// gathered-buffer shape gather_client_arrays produces, so it flows through
+// the identical downstream ring-upload path. False on failure (draw should
+// be dropped, not fallen back on - the old pointer-magnitude heuristic this
+// replaces is gone).
+bool gather_mixed_client_arrays(const vertex_pointer_array_t& raw, GLint first, GLsizei count,
+                                vertex_pointer_array_t* out);
 void sfpewSendUserProgramAttributes(const GLint locations[VERTEX_POINTER_COUNT],
                                     const vertex_pointer_array_t& va, GLintptr binding_offset);
 // Full fixed-function-arrays draw through a user program. Returns true

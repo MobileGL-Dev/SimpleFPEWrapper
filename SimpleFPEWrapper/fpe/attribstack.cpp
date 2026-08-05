@@ -80,6 +80,12 @@ struct attrib_snapshot_t {
 struct client_attrib_snapshot_t {
     GLbitfield mask = 0;
     vertex_pointer_array_t vertexpointer_array{};
+    // classifyClientArrays (plans/13) trusts this shadow, not the pointer
+    // values themselves, to tell a client address from a VBO byte offset -
+    // it must travel with vertexpointer_array on this stack or a pop can
+    // restore an old offset while leaving the CURRENT (post-push) binding
+    // in place, pointing a stale offset at the wrong buffer.
+    GLuint client_array_buffer_bindings[VERTEX_POINTER_COUNT] = {};
     GLenum client_active_texture = GL_TEXTURE0;
     bool unpack_swap_bytes = false, unpack_lsb_first = false;
     bool pack_swap_bytes = false, pack_lsb_first = false;
@@ -409,6 +415,8 @@ void glPushClientAttrib(GLbitfield mask) {
     client_attrib_snapshot_t snap;
     snap.mask = mask;
     snap.vertexpointer_array = gs.fpe_state.vertexpointer_array;
+    std::memcpy(snap.client_array_buffer_bindings, gs.fpe_state.client_array_buffer_bindings,
+                sizeof(snap.client_array_buffer_bindings));
     snap.client_active_texture = gs.fpe_state.client_active_texture;
     snap.unpack_swap_bytes = gs.pixel_store_unpack_swap_bytes;
     snap.unpack_lsb_first = gs.pixel_store_unpack_lsb_first;
@@ -432,6 +440,8 @@ void glPopClientAttrib() {
     if (snap.mask & GL_CLIENT_VERTEX_ARRAY_BIT) {
         gs.fpe_state.vertexpointer_array = snap.vertexpointer_array;
         gs.fpe_state.vertexpointer_array.dirty = true;
+        std::memcpy(gs.fpe_state.client_array_buffer_bindings, snap.client_array_buffer_bindings,
+                    sizeof(gs.fpe_state.client_array_buffer_bindings));
         gs.fpe_state.client_active_texture = snap.client_active_texture;
     }
     if (snap.mask & GL_CLIENT_PIXEL_STORE_BIT) {

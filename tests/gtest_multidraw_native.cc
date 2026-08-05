@@ -296,6 +296,14 @@ TEST_F(MultiDrawNativeTest, ForwardsNativelyWhereValidAndLoopsWhereNot) {
     clear_color_(0.0f, 0.0f, 1.0f, 1.0f);
     clear_(GL_COLOR_BUFFER_BIT_);
     color4f_(0.0f, 1.0f, 0.0f, 1.0f);
+    // D left GL_ARRAY_BUFFER bound to vbo. Per GL 1.5/ARB_vertex_buffer_object,
+    // glVertexPointer's `pointer` is a byte offset into whatever is bound to
+    // GL_ARRAY_BUFFER at the call, not a client address, unless that binding
+    // is 0 - so GL_ARRAY_BUFFER must be unbound first, or ff_verts (a real
+    // stack address) would be read as an offset into vbo instead. This is
+    // exactly the ground truth plans/13's classifyClientArrays now enforces
+    // instead of guessing from ff_verts's numeric magnitude.
+    bind_buffer_(GL_ARRAY_BUFFER_, 0);
     enable_client_state_(GL_VERTEX_ARRAY_);
     vertex_pointer_(2, GL_FLOAT_, 0, ff_verts);
     multi_draw_arrays_(GL_TRIANGLES_, ff_firsts, ff_counts, 2);

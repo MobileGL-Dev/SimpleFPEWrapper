@@ -248,8 +248,15 @@ void sfpewSendUserProgramAttributes(const GLint locations[VERTEX_POINTER_COUNT],
             const auto& vp = va.attributes[i];
             const void* pointer = reinterpret_cast<const void*>(
                 reinterpret_cast<uintptr_t>(vp.pointer) + static_cast<uintptr_t>(binding_offset));
+            // Per-attribute vp.stride, not the struct-level va.stride: after
+            // normalize()/gather_client_arrays the two always agree (both
+            // force every enabled attribute to one shared value), but a
+            // single_buffer draw (plans/13 13.3) now passes raw_vpa straight
+            // through - only vp.stride, set directly by its own gl*Pointer
+            // call, is populated there. va.stride would silently be 0 for
+            // every such draw, sending every attribute as tightly packed.
             g_glFuncs.glVertexAttribPointer((GLuint)loc, vp.size, vp.type,
-                                            (GLboolean)(vp.normalized != 0), va.stride, pointer);
+                                            (GLboolean)(vp.normalized != 0), vp.stride, pointer);
             // Enable state is per-VAO and persists; fpe_user_vao is wrapper-
             // owned, so the mask is authoritative and a re-enable is a no-op.
             // The pointer above still has to be re-sent every draw: it bakes

@@ -125,6 +125,9 @@ bool sfpewPackPboBound();
 void sfpewSetGenerateMipmap(GLenum target, GLuint texture, bool enable);
 void sfpewMaybeGenerateMipmap(GLenum target);
 void sfpewRememberTextureSize(GLuint texture, GLsizei width, GLsizei height);
+// GL_ARB_depth_texture's GL_DEPTH_TEXTURE_MODE swizzle (getter.cpp); a
+// no-op unless `texture`'s current level-0 internalformat is a depth one.
+void sfpewApplyDepthTextureModeSwizzle(GLenum target, GLuint texture);
 SFPEW_APIENTRY void glGetTexImage(GLenum target, GLint level, GLenum format, GLenum type, GLvoid* pixels);
 SFPEW_APIENTRY void glReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, GLvoid* pixels);
 

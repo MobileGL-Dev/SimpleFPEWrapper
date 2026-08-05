@@ -611,6 +611,17 @@ void glTexParameterf(GLenum target, GLenum pname, GLfloat param) {
         gs.texture_priorities[sfpewLogicalTextureBinding(target)] = std::clamp(param, 0.0f, 1.0f);
         return;
     }
+    if (pname == GL_DEPTH_TEXTURE_MODE) {
+        if (target == GL_TEXTURE_1D) target = GL_TEXTURE_2D;
+        if (!validTextureParameterTarget(target)) {
+            gs.set_error(GL_INVALID_ENUM);
+            return;
+        }
+        const GLuint texture = sfpewLogicalTextureBinding(target);
+        gs.texture_depth_mode[texture] = static_cast<GLenum>(param);
+        sfpewApplyDepthTextureModeSwizzle(target, texture);
+        return;
+    }
     if (target == GL_TEXTURE_1D) target = GL_TEXTURE_2D;
     if (g_glFuncs.glTexParameterf == nullptr) return;
     if (isTextureWrapParameter(pname) && static_cast<GLint>(param) == GL_CLAMP)
@@ -632,6 +643,17 @@ void glTexParameterfv(GLenum target, GLenum pname, const GLfloat* params) {
             return;
         }
         gs.texture_priorities[sfpewLogicalTextureBinding(target)] = std::clamp(params[0], 0.0f, 1.0f);
+        return;
+    }
+    if (pname == GL_DEPTH_TEXTURE_MODE) {
+        if (target == GL_TEXTURE_1D) target = GL_TEXTURE_2D;
+        if (!validTextureParameterTarget(target)) {
+            gs.set_error(GL_INVALID_ENUM);
+            return;
+        }
+        const GLuint texture = sfpewLogicalTextureBinding(target);
+        gs.texture_depth_mode[texture] = static_cast<GLenum>(params[0]);
+        sfpewApplyDepthTextureModeSwizzle(target, texture);
         return;
     }
     if (target == GL_TEXTURE_1D) target = GL_TEXTURE_2D;
@@ -659,6 +681,17 @@ void glTexParameteri(GLenum target, GLenum pname, GLint param) {
             std::clamp(static_cast<GLfloat>(param), 0.0f, 1.0f);
         return;
     }
+    if (pname == GL_DEPTH_TEXTURE_MODE) {
+        if (target == GL_TEXTURE_1D) target = GL_TEXTURE_2D;
+        if (!validTextureParameterTarget(target)) {
+            gs.set_error(GL_INVALID_ENUM);
+            return;
+        }
+        const GLuint texture = sfpewLogicalTextureBinding(target);
+        gs.texture_depth_mode[texture] = static_cast<GLenum>(param);
+        sfpewApplyDepthTextureModeSwizzle(target, texture);
+        return;
+    }
     if (target == GL_TEXTURE_1D) target = GL_TEXTURE_2D;
     if (g_glFuncs.glTexParameteri != nullptr)
         g_glFuncs.glTexParameteri(target, pname, compatibleTextureParameter(pname, param));
@@ -679,6 +712,17 @@ void glTexParameteriv(GLenum target, GLenum pname, const GLint* params) {
         }
         gs.texture_priorities[sfpewLogicalTextureBinding(target)] =
             std::clamp(static_cast<GLfloat>(params[0]), 0.0f, 1.0f);
+        return;
+    }
+    if (pname == GL_DEPTH_TEXTURE_MODE) {
+        if (target == GL_TEXTURE_1D) target = GL_TEXTURE_2D;
+        if (!validTextureParameterTarget(target)) {
+            gs.set_error(GL_INVALID_ENUM);
+            return;
+        }
+        const GLuint texture = sfpewLogicalTextureBinding(target);
+        gs.texture_depth_mode[texture] = static_cast<GLenum>(params[0]);
+        sfpewApplyDepthTextureModeSwizzle(target, texture);
         return;
     }
     if (target == GL_TEXTURE_1D) target = GL_TEXTURE_2D;

@@ -783,12 +783,18 @@ GLclampf texturePriority(GLuint texture) {
     return it == priorities.end() ? 1.0f : it->second;
 }
 
+GLenum depthTextureMode(GLuint texture) {
+    const auto& modes = g_glstate_c.texture_depth_mode;
+    const auto it = modes.find(texture);
+    return it == modes.end() ? GL_LUMINANCE : it->second;
+}
+
 } // namespace
 
 void glGetTexParameterfv(GLenum target, GLenum pname, GLfloat* params) {
     auto& gs = g_glstate;
     if (params == nullptr) return;
-    if (pname == GL_TEXTURE_PRIORITY || pname == GL_TEXTURE_RESIDENT) {
+    if (pname == GL_TEXTURE_PRIORITY || pname == GL_TEXTURE_RESIDENT || pname == GL_DEPTH_TEXTURE_MODE) {
         if (!validTextureParameterTarget(target)) {
             gs.set_error(GL_INVALID_ENUM);
             return;
@@ -796,6 +802,8 @@ void glGetTexParameterfv(GLenum target, GLenum pname, GLfloat* params) {
         sfpewEntryBarrier();
         if (pname == GL_TEXTURE_PRIORITY)
             params[0] = texturePriority(sfpewLogicalTextureBinding(textureParameterTarget(target)));
+        else if (pname == GL_DEPTH_TEXTURE_MODE)
+            params[0] = static_cast<GLfloat>(depthTextureMode(sfpewLogicalTextureBinding(textureParameterTarget(target))));
         else
             params[0] = 1.0f; // all live and default textures are reported resident
         return;
@@ -808,7 +816,7 @@ void glGetTexParameterfv(GLenum target, GLenum pname, GLfloat* params) {
 void glGetTexParameteriv(GLenum target, GLenum pname, GLint* params) {
     auto& gs = g_glstate;
     if (params == nullptr) return;
-    if (pname == GL_TEXTURE_PRIORITY || pname == GL_TEXTURE_RESIDENT) {
+    if (pname == GL_TEXTURE_PRIORITY || pname == GL_TEXTURE_RESIDENT || pname == GL_DEPTH_TEXTURE_MODE) {
         if (!validTextureParameterTarget(target)) {
             gs.set_error(GL_INVALID_ENUM);
             return;
@@ -817,6 +825,8 @@ void glGetTexParameteriv(GLenum target, GLenum pname, GLint* params) {
         if (pname == GL_TEXTURE_PRIORITY) {
             const GLfloat value = texturePriority(sfpewLogicalTextureBinding(textureParameterTarget(target)));
             *params = static_cast<GLint>(std::lround(value));
+        } else if (pname == GL_DEPTH_TEXTURE_MODE) {
+            *params = static_cast<GLint>(depthTextureMode(sfpewLogicalTextureBinding(textureParameterTarget(target))));
         } else {
             *params = GL_TRUE;
         }
@@ -2406,6 +2416,7 @@ void glDeleteTextures(GLsizei n, const GLuint* textures) {
     auto& metadata = textureMetadata();
     for (GLsizei i = 0; i < n; ++i) {
         gs.texture_priorities.erase(textures[i]);
+        gs.texture_depth_mode.erase(textures[i]);
         metadata.sizes.erase(textures[i]);
         metadata.levels.erase(textures[i]);
     }
@@ -2522,10 +2533,62 @@ GLenum swizzleTargetFor(GLenum target) {
     return target;
 }
 
+// GL_ARB_depth_texture / GLES3+desktop-GL3 core natively accept these as
+// internalformat, so mapLegacyInternalFormat above has no case for them -
+// they need only the GL_DEPTH_TEXTURE_MODE swizzle below, not a storage
+// rewrite.
+bool isDepthTextureInternalFormat(GLint internalformat) {
+    switch (internalformat) {
+    case GL_DEPTH_COMPONENT:
+    case GL_DEPTH_COMPONENT16:
+    case GL_DEPTH_COMPONENT24:
+    case GL_DEPTH_COMPONENT32F:
+        return true;
+    default:
+        return false;
+    }
+}
+
+// GL_DEPTH_TEXTURE_MODE (GL_ARB_depth_texture) sampling semantics as a
+// GL_TEXTURE_SWIZZLE_RGBA array. GL_RED is the core GLES3/GL3 default
+// (introduced when the fixed mode was deprecated) - depth sampled straight
+// into .r with no replication.
+void depthTextureModeSwizzle(GLenum mode, GLint (&out)[4]) {
+    switch (mode) {
+    case GL_INTENSITY:
+        out[0] = out[1] = out[2] = out[3] = GL_RED;
+        return;
+    case GL_ALPHA:
+        out[0] = out[1] = out[2] = GL_ZERO;
+        out[3] = GL_RED;
+        return;
+    case GL_RED:
+        out[0] = GL_RED; out[1] = GL_GREEN; out[2] = GL_BLUE; out[3] = GL_ALPHA;
+        return;
+    case GL_LUMINANCE:
+    default:
+        out[0] = out[1] = out[2] = GL_RED;
+        out[3] = GL_ONE;
+        return;
+    }
+}
+
 // GL_BGRA uploads: GLES3 has no core BGRA path; swap on the CPU.
 // Tightly-packed rows are assumed (the common LWJGL/awt case); exotic
 // unpack state falls back to passthrough with a log line.
 } // namespace
+
+// Reusable trigger for both glTexImage2D (a depth texture just got uploaded)
+// and glTexParameter* (GL_DEPTH_TEXTURE_MODE changed on an already-uploaded
+// one).
+void sfpewApplyDepthTextureModeSwizzle(GLenum target, GLuint texture) {
+    if (texture == 0 || g_glFuncs.glTexParameteriv == nullptr) return;
+    const texture_level_t* level0 = findTextureLevel(texture, target, 0);
+    if (level0 == nullptr || !isDepthTextureInternalFormat(level0->internal_format)) return;
+    GLint swizzle[4];
+    depthTextureModeSwizzle(depthTextureMode(texture), swizzle);
+    g_glFuncs.glTexParameteriv(swizzleTargetFor(target), GL_TEXTURE_SWIZZLE_RGBA, swizzle);
+}
 
 // Reorder a GL_BGRA upload into tightly packed RGBA bytes, reading the source
 // the way the backend would have: through the bound pixel unpack buffer when
@@ -2776,6 +2839,11 @@ void glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei widt
             (target >= GL_TEXTURE_CUBE_MAP_POSITIVE_X && target <= GL_TEXTURE_CUBE_MAP_NEGATIVE_Z)) {
             rememberTextureLevel(sfpewLogicalTextureBinding(textureMetadataTarget(target)), target, level,
                                  width, height, internalformat, border, false, 0);
+            // GL_DEPTH_COMPONENT/16/24/32F pass straight through above (no
+            // legacy-format rewrite exists for them); they still need the
+            // GL_DEPTH_TEXTURE_MODE swizzle applied post-upload.
+            if (level == 0 && isDepthTextureInternalFormat(internalformat))
+                sfpewApplyDepthTextureModeSwizzle(target, sfpewLogicalTextureBinding(textureMetadataTarget(target)));
         }
         sfpewMaybeGenerateMipmap(target);
         return;

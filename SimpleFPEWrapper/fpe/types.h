@@ -919,6 +919,11 @@ struct glstate_t {
     // queries remain observable; absent entries use the specified default 1.
     unordered_map<GLuint, GLclampf> texture_priorities;
 
+    // GL_ARB_depth_texture's legacy GL_DEPTH_TEXTURE_MODE, kept per texture
+    // name the same way texture_priorities is; absent entries use the
+    // specified default GL_LUMINANCE.
+    unordered_map<GLuint, GLenum> texture_depth_mode;
+
     // Selection / feedback (plans/10 10.3). CPU transform results only;
     // nothing reaches the GPU while render_mode != GL_RENDER.
     GLenum render_mode = GL_RENDER;

@@ -1104,18 +1104,21 @@ const char* glEnumToString(GLenum e) {
 }
 
 // GLSL ES only predeclares a default fragment-shader precision for
-// sampler2D/samplerCube (lowp) - sampler3D (the third sampler type this
-// generator emits, texture_target_kind_t::tex3d) has none, and a shader
-// declaring one without an explicit precision statement is a compile
-// error, not a silently-assumed default. Some drivers (checked against
-// this project's own dev/CI split) tolerate the omission anyway; GLES
-// spec-conformant ones correctly refuse to compile.
+// sampler2D/samplerCube (lowp) - sampler3D (texture_target_kind_t::tex3d)
+// and sampler2DShadow (GL_ARB_shadow's texture_shadow_sample units) have
+// none, and a shader declaring one without an explicit precision statement
+// is a compile error, not a silently-assumed default. Some drivers
+// (checked against this project's own dev/CI split, both times: sampler3D
+// first, then sampler2DShadow the same way when GL_ARB_shadow added it)
+// tolerate the omission anyway; GLES spec-conformant ones correctly refuse
+// to compile with "No precision specified in this scope for type `...'".
 constexpr std::string_view mg_shader_header = "#version 300 es\n"
                                                "// MobileGlues FPE Shader\n"
                                                "#ifdef GL_ES\n"
                                                "precision highp float;\n"
                                                "precision highp int;\n"
                                                "precision highp sampler3D;\n"
+                                               "precision highp sampler2DShadow;\n"
                                                "#endif\n";
 constexpr std::string_view mg_vs_header = "// ** Vertex Shader **\n";
 constexpr std::string_view mg_fs_header = "// ** Fragment Shader **\n";

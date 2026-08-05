@@ -978,6 +978,7 @@ const char* const kDesktopExtensions[] = {
     "GL_ARB_point_parameters",
     "GL_ARB_point_sprite",
     "GL_ARB_window_pos",
+    "GL_ARB_occlusion_query2",
     "GL_ARB_imaging",
     "GL_ARB_framebuffer_object",
     "GL_ARB_texture_float",

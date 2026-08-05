@@ -303,19 +303,23 @@ void glReadBuffer(GLenum src) {
     g_glFuncs.glReadBuffer(mapped);
 }
 
-// ES 3.0 has only the unsigned spelling. Prefer the exact EXT function when
-// available; otherwise read the common unsigned form and saturate rather than
-// wrapping a large occlusion result into a negative GLint.
+// Neither backend's *EXT signed/64-bit accessor pointer can be trusted by
+// non-nullness alone: no GLES extension defines glGetQueryObject{i,i64,ui64}
+// vEXT at all (a GLES driver handing back a non-null pointer for one anyway
+// is a documented-legal driver quirk, not a capability signal - EGL/GLES
+// allow eglGetProcAddress to return non-null for unsupported names), and
+// desktop's own GL_EXT_occlusion_query glGetQueryObjectivEXT - which does
+// legitimately exist as a real entry point - measured on this machine's own
+// desktop driver to silently never mark GL_QUERY_RESULT_AVAILABLE either.
+// The core unsigned glGetQueryObjectuiv (ES 3.0 core, and desktop GL 1.5+
+// core) is the only accessor confirmed reliable on both backends, so always
+// read through it and convert/saturate for the signed/64-bit callers.
 void glGetQueryObjectiv(GLuint id, GLenum pname, GLint* params) {
     if (params == nullptr) return;
     auto& gs = g_glstate;
     if (rejectDuringBeginEnd(gs)) return;
     sfpewEntryBarrier();
     if (!sfpewEnsureBackend() || !validateQueryObject(gs, id, pname)) return;
-    if (g_glFuncs.glGetQueryObjectivEXT != nullptr) {
-        g_glFuncs.glGetQueryObjectivEXT(id, pname, params);
-        return;
-    }
     if (g_glFuncs.glGetQueryObjectuiv == nullptr) return;
     GLuint value = 0;
     g_glFuncs.glGetQueryObjectuiv(id, pname, &value);
@@ -330,10 +334,6 @@ void glGetQueryObjecti64v(GLuint id, GLenum pname, GLint64* params) {
     if (rejectDuringBeginEnd(gs)) return;
     sfpewEntryBarrier();
     if (!sfpewEnsureBackend() || !validateQueryObject(gs, id, pname)) return;
-    if (g_glFuncs.glGetQueryObjecti64vEXT != nullptr) {
-        g_glFuncs.glGetQueryObjecti64vEXT(id, pname, params);
-        return;
-    }
     if (g_glFuncs.glGetQueryObjectuiv == nullptr) return;
     GLuint value = 0;
     g_glFuncs.glGetQueryObjectuiv(id, pname, &value);
@@ -346,10 +346,6 @@ void glGetQueryObjectui64v(GLuint id, GLenum pname, GLuint64* params) {
     if (rejectDuringBeginEnd(gs)) return;
     sfpewEntryBarrier();
     if (!sfpewEnsureBackend() || !validateQueryObject(gs, id, pname)) return;
-    if (g_glFuncs.glGetQueryObjectui64vEXT != nullptr) {
-        g_glFuncs.glGetQueryObjectui64vEXT(id, pname, params);
-        return;
-    }
     if (g_glFuncs.glGetQueryObjectuiv == nullptr) return;
     GLuint value = 0;
     g_glFuncs.glGetQueryObjectuiv(id, pname, &value);

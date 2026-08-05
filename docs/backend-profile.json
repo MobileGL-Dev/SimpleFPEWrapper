@@ -447,15 +447,15 @@
     },
     "glGetQueryObjecti64vEXT": {
       "availability": "vendor/extension suffix: never core",
-      "call_sites": 1
+      "call_sites": 0
     },
     "glGetQueryObjectivEXT": {
       "availability": "vendor/extension suffix: never core",
-      "call_sites": 1
+      "call_sites": 0
     },
     "glGetQueryObjectui64vEXT": {
       "availability": "vendor/extension suffix: never core",
-      "call_sites": 1
+      "call_sites": 0
     },
     "glGetTexImage": {
       "availability": "GL only: ES has no texture readback",

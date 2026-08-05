@@ -109,6 +109,12 @@ int sfpewLegacyHintSlot(GLenum target);
 bool sfpewDesktopGLVersion(int* major, int* minor);
 
 GLuint sfpewLogicalTextureBinding(GLenum target);
+// Same question for a unit that need not be the currently active one (GL
+// 2.1's glActiveTexture is the only way an app can address any other unit,
+// so this is a cache-only lookup, never a live query - a unit this thread
+// has not seen bound is reported as texture 0, the spec default for a unit
+// nothing has ever bound).
+GLuint sfpewLogicalTextureBindingForUnit(GLenum unit, GLenum target);
 // Changes whenever the active texture unit or any texture binding does.
 uint64_t sfpewTextureStateGeneration();
 GLint sfpewLogicalProgram();

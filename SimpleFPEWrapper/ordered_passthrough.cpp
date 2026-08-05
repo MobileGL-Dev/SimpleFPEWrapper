@@ -595,6 +595,22 @@ bool sfpewHandleGenerateMipmapParam(GLenum target, GLenum pname, GLint param) {
     return true;
 }
 
+// GL_ARB_shadow's GL_TEXTURE_COMPARE_MODE is, unlike GL_TEXTURE_PRIORITY and
+// GL_DEPTH_TEXTURE_MODE above, a real GLES3/GL-core enum the backend already
+// accepts and stores itself (a shadow sampler's hardware comparison depends
+// on the driver having it) - so this only ever mirrors it into
+// texture_compare_mode for glstate.cpp's program_hash() resync, and never
+// swallows the call: every caller below still falls through to the ordinary
+// passthrough beneath it. GL_TEXTURE_COMPARE_FUNC needs no such mirror -
+// nothing but the driver ever consults it - so it takes no special path at
+// all.
+void sfpewRecordTextureCompareMode(GLenum target, GLenum pname, GLint param) {
+    if (pname != GL_TEXTURE_COMPARE_MODE) return;
+    if (target == GL_TEXTURE_1D) target = GL_TEXTURE_2D;
+    if (!validTextureParameterTarget(target)) return;
+    g_glstate.texture_compare_mode[sfpewLogicalTextureBinding(target)] = static_cast<GLenum>(param);
+}
+
 } // namespace
 
 void glTexParameterf(GLenum target, GLenum pname, GLfloat param) {
@@ -602,6 +618,7 @@ void glTexParameterf(GLenum target, GLenum pname, GLfloat param) {
     sfpewClientStateBarrier();
     LIST_RECORD(glTexParameterf, {}, target, pname, param)
     if (sfpewHandleGenerateMipmapParam(target, pname, (GLint)param)) return;
+    sfpewRecordTextureCompareMode(target, pname, static_cast<GLint>(param));
     if (pname == GL_TEXTURE_PRIORITY) {
         if (target == GL_TEXTURE_1D) target = GL_TEXTURE_2D;
         if (!validTextureParameterTarget(target)) {
@@ -636,6 +653,7 @@ void glTexParameterfv(GLenum target, GLenum pname, const GLfloat* params) {
     LIST_RECORD(glTexParameterfv,
                 {{2, (pname == GL_TEXTURE_BORDER_COLOR ? 4u : 1u) * sizeof(GLfloat)}}, target, pname,
                 params)
+    sfpewRecordTextureCompareMode(target, pname, static_cast<GLint>(params[0]));
     if (pname == GL_TEXTURE_PRIORITY) {
         if (target == GL_TEXTURE_1D) target = GL_TEXTURE_2D;
         if (!validTextureParameterTarget(target)) {
@@ -671,6 +689,7 @@ void glTexParameteri(GLenum target, GLenum pname, GLint param) {
     sfpewClientStateBarrier();
     LIST_RECORD(glTexParameteri, {}, target, pname, param)
     if (sfpewHandleGenerateMipmapParam(target, pname, param)) return;
+    sfpewRecordTextureCompareMode(target, pname, param);
     if (pname == GL_TEXTURE_PRIORITY) {
         if (target == GL_TEXTURE_1D) target = GL_TEXTURE_2D;
         if (!validTextureParameterTarget(target)) {
@@ -704,6 +723,7 @@ void glTexParameteriv(GLenum target, GLenum pname, const GLint* params) {
     LIST_RECORD(glTexParameteriv,
                 {{2, (pname == GL_TEXTURE_BORDER_COLOR ? 4u : 1u) * sizeof(GLint)}}, target, pname,
                 params)
+    sfpewRecordTextureCompareMode(target, pname, params[0]);
     if (pname == GL_TEXTURE_PRIORITY) {
         if (target == GL_TEXTURE_1D) target = GL_TEXTURE_2D;
         if (!validTextureParameterTarget(target)) {

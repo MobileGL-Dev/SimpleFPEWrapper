@@ -766,6 +766,15 @@ GLuint sfpewLogicalTextureBinding(GLenum target) {
     return binding->second;
 }
 
+GLuint sfpewLogicalTextureBindingForUnit(GLenum unit, GLenum target) {
+    auto& state = getLogicalTextureBindings();
+    const GLenum query = textureBindingQuery(target);
+    if (query == GL_NONE) return 0;
+
+    const auto binding = state.bindings.find(textureBindingKey(unit, target));
+    return binding == state.bindings.end() ? 0 : binding->second;
+}
+
 namespace {
 
 bool validTextureParameterTarget(GLenum target) {
@@ -2417,6 +2426,7 @@ void glDeleteTextures(GLsizei n, const GLuint* textures) {
     for (GLsizei i = 0; i < n; ++i) {
         gs.texture_priorities.erase(textures[i]);
         gs.texture_depth_mode.erase(textures[i]);
+        gs.texture_compare_mode.erase(textures[i]);
         metadata.sizes.erase(textures[i]);
         metadata.levels.erase(textures[i]);
     }
@@ -2580,7 +2590,13 @@ void depthTextureModeSwizzle(GLenum mode, GLint (&out)[4]) {
 
 // Reusable trigger for both glTexImage2D (a depth texture just got uploaded)
 // and glTexParameter* (GL_DEPTH_TEXTURE_MODE changed on an already-uploaded
-// one).
+// one). GL_ARB_shadow's GL_TEXTURE_COMPARE_MODE turned out NOT to need a
+// third trigger through here: a sampler2DShadow's texture() call returns a
+// plain float, so GL_TEXTURE_SWIZZLE_RGBA (whatever it is set to) never
+// reaches the shader for a shadow-sampled unit - fpe_shadergen.cpp handles
+// that case with its own shader-side vec4 broadcast instead. See
+// glstate.cpp's resync_texture_shadow_sample() and the texture_shadow_sample
+// codegen branch in fpe_shadergen.cpp's add_fs_body.
 void sfpewApplyDepthTextureModeSwizzle(GLenum target, GLuint texture) {
     if (texture == 0 || g_glFuncs.glTexParameteriv == nullptr) return;
     const texture_level_t* level0 = findTextureLevel(texture, target, 0);

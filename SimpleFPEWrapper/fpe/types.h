@@ -234,6 +234,13 @@ struct fixed_function_bool_t {      // glEnable/glDisable
     bool point_sprite_enable = false;
     bool point_sprite_coord_replace[MAX_TEX] = {false};
     bool point_smooth_enable = false;
+    // GL_ARB_shadow: unit i samples a depth texture with
+    // GL_TEXTURE_COMPARE_MODE == GL_COMPARE_R_TO_TEXTURE, so the generated
+    // shader must declare Sampler{i} as sampler2DShadow and pass the R
+    // texcoord as the reference depth instead of returning the raw depth.
+    // Derived from per-texture-object state at the top of program_hash()
+    // (glstate.cpp) - see resync_texture_shadow_sample().
+    bool texture_shadow_sample[MAX_TEX] = {false};
 };
 
 struct light_t {
@@ -924,6 +931,16 @@ struct glstate_t {
     // specified default GL_LUMINANCE.
     unordered_map<GLuint, GLenum> texture_depth_mode;
 
+    // GL_ARB_shadow's GL_TEXTURE_COMPARE_MODE, kept per texture name for the
+    // same reason: program_hash()'s resync needs it every draw to decide
+    // fixed_function_bool_t::texture_shadow_sample, and doing that via a live
+    // glGetTexParameter round trip per unit per draw would be real cost for
+    // no benefit - GL_TEXTURE_COMPARE_MODE and _FUNC are otherwise real
+    // GLES3/GL-core enums the backend already stores and answers itself, so
+    // GL_TEXTURE_COMPARE_FUNC has no mirror here; nothing but the driver ever
+    // needs it. Absent entries use the specified default GL_NONE.
+    unordered_map<GLuint, GLenum> texture_compare_mode;
+
     // Selection / feedback (plans/10 10.3). CPU transform results only;
     // nothing reaches the GPU while render_mode != GL_RENDER.
     GLenum render_mode = GL_RENDER;
@@ -1087,6 +1104,13 @@ struct glstate_t {
     static void* cached_context();
 
     void send_uniforms(program_t& program);
+
+    // GL_ARB_shadow: derives fpe_bools.texture_shadow_sample[i] for every
+    // unit from the real texture bound there and that object's
+    // texture_compare_mode. Called at the top of program_hash(), the single
+    // point both draw paths converge, so the shader-visible booleans are
+    // always current before the hash/cache key is built from them.
+    void resync_texture_shadow_sample();
 
     program_key_t program_hash();
 

@@ -345,10 +345,31 @@ void glstate_t::send_uniforms(program_t& program) {
     values.initialized = true;
 }
 
+void glstate_t::resync_texture_shadow_sample() {
+    for (int i = 0; i < MAX_TEX; ++i) {
+        bool shadow = false;
+        // Cube/3D units are out of scope for this codegen (fpe_shadergen.cpp
+        // has no shadow-cube/shadow-3D sampler arm) - a documented cut, not a
+        // silent one.
+        if (active_texture_target(fpe_state, i) == texture_target_kind_t::tex2d) {
+            const GLuint texture =
+                sfpewLogicalTextureBindingForUnit(GL_TEXTURE0 + i, GL_TEXTURE_2D);
+            const auto it = texture_compare_mode.find(texture);
+            const GLenum mode = it == texture_compare_mode.end() ? GL_NONE : it->second;
+            // GL_COMPARE_R_TO_TEXTURE (ARB_shadow) and GL_COMPARE_REF_TO_TEXTURE
+            // (core) are the same 0x884E; both spellings reach here verbatim
+            // through glTexParameter*.
+            shadow = mode == GL_COMPARE_R_TO_TEXTURE;
+        }
+        fpe_state.fpe_bools.texture_shadow_sample[i] = shadow;
+    }
+}
+
 program_key_t glstate_t::program_hash() {
     // This executes for every fixed-function draw. The caller has already
     // normalized the vertex array, so avoid two heap allocations and a second
     // normalization just to build the shader-program key.
+    resync_texture_shadow_sample();
     const auto& va = fpe_state.normalized_vpa;
     const auto& sizes = fpe_state.fpe_draw.current_data.sizes;
 

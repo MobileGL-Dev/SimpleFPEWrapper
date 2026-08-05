@@ -1326,7 +1326,11 @@ bool needs_is_point_primitive(const fixed_function_state_t& state) {
 
 bool unit_has_point_sprite_replace(const fixed_function_state_t& state, int unit) {
     return state.fpe_bools.point_sprite_enable && state.fpe_bools.point_sprite_coord_replace[unit] &&
-           active_texture_target(state, unit) == texture_target_kind_t::tex2d;
+           active_texture_target(state, unit) == texture_target_kind_t::tex2d &&
+           // GL_COORD_REPLACE substitutes an (s,t) pair; a shadow-sampled
+           // unit's coordinate is (s,t,ref) into a comparison sampler that
+           // gl_PointCoord has no reference-depth component for.
+           !state.fpe_bools.texture_shadow_sample[unit];
 }
 
 void add_vs_inout(const fixed_function_state_t& state, scratch_t& scratch, std::string& vs) {
@@ -1741,7 +1745,8 @@ void add_fs_uniforms(const fixed_function_state_t& state, [[maybe_unused]] scrat
         if (target == texture_target_kind_t::none) continue;
         const char* sampler_type = target == texture_target_kind_t::cube    ? "samplerCube"
                                    : target == texture_target_kind_t::tex3d ? "sampler3D"
-                                                                            : "sampler2D";
+                                   : state.fpe_bools.texture_shadow_sample[i] ? "sampler2DShadow"
+                                                                              : "sampler2D";
         fs += std::format("uniform {} Sampler{};\n", sampler_type, i);
         fs += std::format("uniform float LodBias{};\n", i);
         if (state.texture_env_mode[i] == GL_BLEND || state.texture_env_mode[i] == GL_COMBINE) {
@@ -1905,10 +1910,27 @@ void add_fs_body(const fixed_function_state_t& state, scratch_t& scratch, std::s
                 "1.0 - gl_PointCoord.y : gl_PointCoord.y) : {})",
                 coord);
         }
-        fs += std::format("\n"
-                          "    // Texturing #{0}\n"
-                          "    vec4 texcolor{0} = texture(Sampler{0}, {1}, LodBias{0});\n",
-                          i, coord);
+        if (state.fpe_bools.texture_shadow_sample[i]) {
+            // GL 1.4/ARB_shadow: the R texcoord is the reference depth. A
+            // sampler2DShadow overload of texture() returns a plain float
+            // (the comparison result), never a vec4 - GL_DEPTH_TEXTURE_MODE's
+            // RGBA replication is invisible past that return type, so this
+            // does not attempt to honor it for a shadow-sampled unit; it
+            // always broadcasts the result across texcolor{0} the way the
+            // default GL_LUMINANCE/GL_INTENSITY modes would (the pairing
+            // every real ARB_shadow shadow map relies on).
+            const std::string ref = scratch.has_texcoord[i] ? std::format("texCoord{}.z", i)
+                                                            : std::string("0.0");
+            fs += std::format("\n"
+                              "    // Texturing #{0} (GL_ARB_shadow depth compare)\n"
+                              "    vec4 texcolor{0} = vec4(texture(Sampler{0}, vec3({1}, {2}), LodBias{0}));\n",
+                              i, coord, ref);
+        } else {
+            fs += std::format("\n"
+                              "    // Texturing #{0}\n"
+                              "    vec4 texcolor{0} = texture(Sampler{0}, {1}, LodBias{0});\n",
+                              i, coord);
+        }
 
         switch (state.texture_env_mode[i]) {
         case GL_REPLACE:

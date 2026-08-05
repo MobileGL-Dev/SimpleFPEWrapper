@@ -960,6 +960,7 @@ const char* const kDesktopExtensions[] = {
     "GL_ARB_multitexture",
     "GL_ARB_texture_env_add",
     "GL_ARB_texture_env_combine",
+    "GL_ARB_texture_env_crossbar",
     "GL_ARB_texture_env_dot3",
     "GL_ARB_texture_cube_map",
     "GL_ARB_texture_non_power_of_two",

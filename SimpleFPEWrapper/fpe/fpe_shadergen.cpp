@@ -1779,8 +1779,12 @@ void add_fs_inout(const fixed_function_state_t& state, scratch_t& scratch, std::
 }
 
 // GL_COMBINE argument expression: source selection x operand mapping.
-// `unit` is the combiner's unit; texcolorN may only be referenced for units
-// already sampled (ascending order), otherwise the crossbar reads black.
+// `unit` is the combiner's unit. GL_ARB_texture_env_crossbar: a
+// GL_SOURCE{0,1,2}_{RGB,ALPHA} of GL_TEXTUREn may name ANY active unit, not
+// just one earlier in iteration order - add_fs_body's sample pass runs to
+// completion for every active unit before the combine pass (this function)
+// runs for any of them, so texcolorN already exists here regardless of
+// whether n is before or after `unit`.
 std::string combine_argument(const fixed_function_state_t& state, const texture_env_t& env, int unit,
                              int arg, bool rgb_domain) {
     const GLenum source = rgb_domain ? env.source_rgb[arg] : env.source_alpha[arg];
@@ -1789,7 +1793,7 @@ std::string combine_argument(const fixed_function_state_t& state, const texture_
         src = std::format("texcolor{}", unit);
     } else if (source >= GL_TEXTURE0 && source < GL_TEXTURE0 + MAX_TEX) {
         const int n = static_cast<int>(source - GL_TEXTURE0);
-        src = (n <= unit && active_texture_target(state, n) != texture_target_kind_t::none)
+        src = active_texture_target(state, n) != texture_target_kind_t::none
                   ? std::format("texcolor{}", n)
                   : std::string("vec4(0.0)");
     } else if (source == GL_CONSTANT) {
@@ -1877,6 +1881,13 @@ void add_fs_body(const fixed_function_state_t& state, scratch_t& scratch, std::s
     else
         fs += "    vec4 color = vec4(1., 1., 1., 1.);\n";
 
+    // Pass 1: sample every active unit into texcolorN before any unit's
+    // GL_COMBINE runs (below). GL_ARB_texture_env_crossbar lets
+    // GL_SOURCE{0,1,2}_{RGB,ALPHA} name GL_TEXTUREn for ANY n, including a
+    // unit later in iteration order than the combiner's own unit - so
+    // texcolorN for every active unit must already exist by the time
+    // combine_argument() (pass 2, below) can reference it, not just the
+    // ones sampled earlier in a single interleaved loop.
     for (int i = 0; i < MAX_TEX; ++i) {
         const auto target = active_texture_target(state, i);
         if (target == texture_target_kind_t::none) continue;
@@ -1934,6 +1945,13 @@ void add_fs_body(const fixed_function_state_t& state, scratch_t& scratch, std::s
                               "    vec4 texcolor{0} = texture(Sampler{0}, {1}, LodBias{0});\n",
                               i, coord);
         }
+    }
+
+    // Pass 2: apply each active unit's texture-env / GL_COMBINE function in
+    // unit order, accumulating into `color`. Split from pass 1 above so a
+    // crossbar reference always finds its texcolorN already sampled.
+    for (int i = 0; i < MAX_TEX; ++i) {
+        if (active_texture_target(state, i) == texture_target_kind_t::none) continue;
 
         switch (state.texture_env_mode[i]) {
         case GL_REPLACE:

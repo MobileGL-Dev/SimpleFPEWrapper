@@ -586,6 +586,21 @@ GLint compatibleTextureParameter(GLenum pname, GLint param) {
     return isTextureWrapParameter(pname) && param == GL_CLAMP ? GL_CLAMP_TO_EDGE : param;
 }
 
+// True when this call needs border-clamp support the real backend may not
+// have: GL_TEXTURE_BORDER_COLOR unconditionally (the pname itself does not
+// exist without the extension), or a wrap parameter being set to
+// GL_CLAMP_TO_BORDER. wrapValue is ignored for the GL_TEXTURE_BORDER_COLOR
+// case, so callers that only reach this for that pname may pass 0.
+// sfpewTextureBorderClampSupported() (init.h) is the actual backend probe -
+// shared with getter.cpp, which uses the same answer to decide whether
+// GL_ARB_texture_border_clamp belongs in the advertised extension string.
+bool rejectsAsUnsupportedBorderClamp(GLenum pname, GLint wrapValue) {
+    const bool usesBorderClamp =
+        pname == GL_TEXTURE_BORDER_COLOR ||
+        (isTextureWrapParameter(pname) && wrapValue == GL_CLAMP_TO_BORDER);
+    return usesBorderClamp && !sfpewTextureBorderClampSupported();
+}
+
 // GL_GENERATE_MIPMAP (GL 1.4): tracked per bound texture object; TexImage
 // uploads regenerate the chain via the ES3 glGenerateMipmap.
 bool sfpewHandleGenerateMipmapParam(GLenum target, GLenum pname, GLint param) {
@@ -641,6 +656,10 @@ void glTexParameterf(GLenum target, GLenum pname, GLfloat param) {
     }
     if (target == GL_TEXTURE_1D) target = GL_TEXTURE_2D;
     if (g_glFuncs.glTexParameterf == nullptr) return;
+    if (rejectsAsUnsupportedBorderClamp(pname, static_cast<GLint>(param))) {
+        gs.set_error(GL_INVALID_ENUM);
+        return;
+    }
     if (isTextureWrapParameter(pname) && static_cast<GLint>(param) == GL_CLAMP)
         param = static_cast<GLfloat>(GL_CLAMP_TO_EDGE);
     g_glFuncs.glTexParameterf(target, pname, param);
@@ -676,6 +695,10 @@ void glTexParameterfv(GLenum target, GLenum pname, const GLfloat* params) {
     }
     if (target == GL_TEXTURE_1D) target = GL_TEXTURE_2D;
     if (g_glFuncs.glTexParameterfv == nullptr) return;
+    if (rejectsAsUnsupportedBorderClamp(pname, static_cast<GLint>(params[0]))) {
+        gs.set_error(GL_INVALID_ENUM);
+        return;
+    }
     if (isTextureWrapParameter(pname) && static_cast<GLint>(params[0]) == GL_CLAMP) {
         const GLfloat compatible = static_cast<GLfloat>(GL_CLAMP_TO_EDGE);
         g_glFuncs.glTexParameterfv(target, pname, &compatible);
@@ -712,8 +735,12 @@ void glTexParameteri(GLenum target, GLenum pname, GLint param) {
         return;
     }
     if (target == GL_TEXTURE_1D) target = GL_TEXTURE_2D;
-    if (g_glFuncs.glTexParameteri != nullptr)
-        g_glFuncs.glTexParameteri(target, pname, compatibleTextureParameter(pname, param));
+    if (g_glFuncs.glTexParameteri == nullptr) return;
+    if (rejectsAsUnsupportedBorderClamp(pname, param)) {
+        gs.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    g_glFuncs.glTexParameteri(target, pname, compatibleTextureParameter(pname, param));
 }
 
 void glTexParameteriv(GLenum target, GLenum pname, const GLint* params) {
@@ -747,6 +774,10 @@ void glTexParameteriv(GLenum target, GLenum pname, const GLint* params) {
     }
     if (target == GL_TEXTURE_1D) target = GL_TEXTURE_2D;
     if (g_glFuncs.glTexParameteriv == nullptr) return;
+    if (rejectsAsUnsupportedBorderClamp(pname, params[0])) {
+        gs.set_error(GL_INVALID_ENUM);
+        return;
+    }
     if (isTextureWrapParameter(pname) && params[0] == GL_CLAMP) {
         const GLint compatible = GL_CLAMP_TO_EDGE;
         g_glFuncs.glTexParameteriv(target, pname, &compatible);

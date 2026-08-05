@@ -889,6 +889,58 @@ bool sfpewDesktopGLVersion(int* major, int* minor) {
     return true;
 }
 
+// GL_ARB_texture_border_clamp: core on every desktop GL back to 1.3 - below
+// this wrapper's 3.2 floor, so a desktop backend always has it. Confirmed on
+// this machine's own desktop backend (NVIDIA, GL 3.3 core) that a modern
+// driver does not bother re-advertising a promotion that old in its own
+// GL_EXTENSIONS string, so passthrough alone could never surface it to an
+// app checking for the name. GLES is not uniform the same way: neither
+// GL_CLAMP_TO_BORDER nor GL_TEXTURE_BORDER_COLOR is in ES 3.0 or 3.1 core,
+// only ES 3.2 or GL_EXT_texture_border_clamp/GL_OES_texture_border_clamp
+// layered on top - so unlike every other entry in kDesktopExtensions below,
+// this one is not true for every backend the wrapper's stated floor allows,
+// and has to ask the real backend rather than assume it.
+bool sfpewTextureBorderClampSupported() {
+    static int cached = -1;
+    if (cached < 0) {
+        // SFPEW_TEST_FORCE_NO_TEXTURE_BORDER_CLAMP=1: pretend the real
+        // backend lacks it, exercising the GL_INVALID_ENUM path and the
+        // extension string's absence on a machine whose real backend (ES
+        // 3.2, or desktop) always has it - the only way to test either
+        // away from an actual ES 3.0/3.1 device, same reasoning as
+        // SFPEW_NO_MULTIDRAWARRAYS above and SFPEW_TEST_FORCE_BGRA_COPY
+        // elsewhere in this file.
+        const char* forced = getenv("SFPEW_TEST_FORCE_NO_TEXTURE_BORDER_CLAMP");
+        if (forced != nullptr && forced[0] != '\0' && forced[0] != '0') {
+            cached = 0;
+            return false;
+        }
+
+        const GLubyte* raw =
+            g_glFuncs.glGetString != nullptr ? g_glFuncs.glGetString(GL_VERSION) : nullptr;
+        if (raw == nullptr) return false; // no context yet: do not cache
+
+        if (!sfpewBackendIsES()) {
+            cached = 1;
+            return true;
+        }
+
+        int major = 0, minor = 0;
+        sfpewDesktopGLVersion(&major, &minor); // backend is ES, just confirmed above
+        if (major == 4 && minor == 5) {
+            cached = 1; // ES 3.2 core (sfpewDesktopGLVersion's ES 3.2+ mapping)
+        } else {
+            const GLubyte* ext = g_glFuncs.glGetString(GL_EXTENSIONS);
+            cached = (ext != nullptr &&
+                      (std::strstr((const char*)ext, "GL_EXT_texture_border_clamp") != nullptr ||
+                       std::strstr((const char*)ext, "GL_OES_texture_border_clamp") != nullptr))
+                         ? 1
+                         : 0;
+        }
+    }
+    return cached != 0;
+}
+
 // The DESKTOP extension surface the wrapper implements. LWJGL-era engines
 // parse this list (not the backend's GL_OES_* one) to switch on their
 // FBO/shader/VBO paths, and resolve the corresponding EXT/ARB entry
@@ -2308,6 +2360,14 @@ const GLubyte* glGetString(GLenum name) {
                 joined += ' ';
                 joined += kDesktopExtensions[i];
             }
+            // Not in kDesktopExtensions above: unlike every entry there, this
+            // one is not true for every backend the wrapper's floor allows
+            // (see sfpewTextureBorderClampSupported's comment), so it is
+            // appended only when the real backend actually has it.
+            if (sfpewTextureBorderClampSupported() &&
+                joined.find("GL_ARB_texture_border_clamp") == std::string::npos) {
+                joined += " GL_ARB_texture_border_clamp";
+            }
             cachedExtensionString = std::move(joined);
         }
         return (const GLubyte*)cachedExtensionString.c_str();
@@ -2346,10 +2406,17 @@ const GLubyte* glGetStringi(GLenum name, GLuint index) {
         return g_glFuncs.glGetStringi(name, index);
     }
     // Additive like glGetString(GL_EXTENSIONS): the wrapper's desktop
-    // extensions first, then everything the backend exposes.
+    // extensions first, then everything the backend exposes. The
+    // border-clamp name rides just after the fixed list, present only when
+    // sfpewTextureBorderClampSupported() says the real backend has it - see
+    // the GL_EXTENSIONS case of glGetString above.
+    const bool borderClamp = sfpewTextureBorderClampSupported();
+    const GLuint prefixCount = (GLuint)kDesktopExtensionCount + (borderClamp ? 1u : 0u);
     if (index < (GLuint)kDesktopExtensionCount)
         return (const GLubyte*)kDesktopExtensions[index];
-    return g_glFuncs.glGetStringi(name, index - (GLuint)kDesktopExtensionCount);
+    if (borderClamp && index < prefixCount)
+        return (const GLubyte*)"GL_ARB_texture_border_clamp";
+    return g_glFuncs.glGetStringi(name, index - prefixCount);
 }
 
 void glGetIntegerv(GLenum pname, GLint* params) {
@@ -2407,7 +2474,8 @@ void glGetIntegerv(GLenum pname, GLint* params) {
                 *params = 0;
                 return;
             }
-            cachedNumExtensions = backendCount + kDesktopExtensionCount;
+            cachedNumExtensions = backendCount + kDesktopExtensionCount +
+                                  (sfpewTextureBorderClampSupported() ? 1 : 0);
         }
         *params = cachedNumExtensions;
         break;

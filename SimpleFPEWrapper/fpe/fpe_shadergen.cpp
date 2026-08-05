@@ -1743,6 +1743,7 @@ void add_fs_uniforms(const fixed_function_state_t& state, [[maybe_unused]] scrat
                                    : target == texture_target_kind_t::tex3d ? "sampler3D"
                                                                             : "sampler2D";
         fs += std::format("uniform {} Sampler{};\n", sampler_type, i);
+        fs += std::format("uniform float LodBias{};\n", i);
         if (state.texture_env_mode[i] == GL_BLEND || state.texture_env_mode[i] == GL_COMBINE) {
             fs += std::format("uniform vec4 TexEnvColor{};\n", i);
         }
@@ -1906,7 +1907,7 @@ void add_fs_body(const fixed_function_state_t& state, scratch_t& scratch, std::s
         }
         fs += std::format("\n"
                           "    // Texturing #{0}\n"
-                          "    vec4 texcolor{0} = texture(Sampler{0}, {1});\n",
+                          "    vec4 texcolor{0} = texture(Sampler{0}, {1}, LodBias{0});\n",
                           i, coord);
 
         switch (state.texture_env_mode[i]) {

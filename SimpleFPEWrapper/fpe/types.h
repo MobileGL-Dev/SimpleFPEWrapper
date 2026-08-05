@@ -693,6 +693,7 @@ struct program_uniform_locations_t {
     GLint sampler[MAX_TEX] = {};
     GLint texture_matrix[MAX_TEX] = {};
     GLint texture_env_color[MAX_TEX] = {};
+    GLint lod_bias[MAX_TEX] = {};
     GLint texgen_obj_planes[MAX_TEX] = {};
     GLint texgen_eye_planes[MAX_TEX] = {};
     GLint clip_planes[6] = {};
@@ -733,6 +734,7 @@ struct program_uniform_values_t {
     glm::vec4 light_spot_params[MAX_LIGHTS]{};   // x = cos(cutoff) or -2, y = exponent
     glm::mat4 texture_matrix[MAX_TEX]{};
     glm::vec4 texture_env_color[MAX_TEX]{};
+    GLfloat lod_bias[MAX_TEX]{};
     glm::vec4 texgen_obj_planes[MAX_TEX][4]{};
     glm::vec4 texgen_eye_planes[MAX_TEX][4]{};
     glm::vec4 clip_planes[6]{};

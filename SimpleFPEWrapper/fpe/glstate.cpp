@@ -68,6 +68,7 @@ void program_uniform_locations_t::initialize(GLuint program) {
         sampler[i] = location(std::format("Sampler{}", i));
         texture_matrix[i] = location(std::format("TexMat{}", i));
         texture_env_color[i] = location(std::format("TexEnvColor{}", i));
+        lod_bias[i] = location(std::format("LodBias{}", i));
         texgen_obj_planes[i] = location(std::format("TexGen{}ObjPlanes", i));
         texgen_eye_planes[i] = location(std::format("TexGen{}EyePlanes", i));
     }
@@ -214,6 +215,12 @@ void glstate_t::send_uniforms(program_t& program) {
             if (locations.texture_env_color[i] >= 0)
                 g_glFuncs.glUniform4fv(locations.texture_env_color[i], 1, glm::value_ptr(env_color));
             values.texture_env_color[i] = env_color;
+        }
+
+        const auto lod_bias = fpe_uniform.texture_env[i].lod_bias;
+        if (differs(lod_bias, values.lod_bias[i])) {
+            if (locations.lod_bias[i] >= 0) g_glFuncs.glUniform1f(locations.lod_bias[i], lod_bias);
+            values.lod_bias[i] = lod_bias;
         }
 
         if (locations.texgen_obj_planes[i] >= 0 &&

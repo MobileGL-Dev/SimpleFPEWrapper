@@ -546,6 +546,10 @@ void glEnableClientState(GLenum cap) {
     // LOG_D("glEnableClientState, cap = %s", glEnumToString(cap))
 
     auto mask = vp_mask(cap);
+    if (mask == 0) {
+        gs.set_error(GL_INVALID_ENUM);
+        return;
+    }
     gs.fpe_state.vertexpointer_array.enabled_pointers |= mask;
     // LOG_D("Enabled Ptr: 0x%x", g_glstate.fpe_state.vertexpointer_array.enabled_pointers)
     gs.fpe_state.vertexpointer_array.dirty = true;
@@ -556,6 +560,10 @@ void glDisableClientState(GLenum cap) {
     sfpewClientStateBarrier();
     // LOG_D("glDisableClientState, cap = %s", glEnumToString(cap))
     auto mask = vp_mask(cap);
+    if (mask == 0) {
+        gs.set_error(GL_INVALID_ENUM);
+        return;
+    }
 
     gs.fpe_state.vertexpointer_array.enabled_pointers &= (~mask);
     // LOG_D("Enabled Ptr: 0x%x", g_glstate.fpe_state.vertexpointer_array.enabled_pointers)

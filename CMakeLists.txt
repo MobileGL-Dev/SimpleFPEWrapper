@@ -345,7 +345,8 @@ if(NOT ANDROID)
                                        depth_texture_mode texture_shadow
                                        texture_anisotropic texture_compressed_2d
                                        texture_border_clamp occlusion_query
-                                       texture_env_crossbar multitexture_unit_validation)
+                                       texture_env_crossbar multitexture_unit_validation
+                                       client_state_validation)
                                 sfpew_add_gtest(sfpew_${suite}_test SOURCES tests/gtest_${suite}.cc
                                                 LIBRARIES ${SFPEW_TEST_EGL})
                         endforeach()

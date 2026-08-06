@@ -116,6 +116,11 @@ bool sfpewDesktopGLVersion(int* major, int* minor);
 // string go through this rather than assume the wrapper's guaranteed floor
 // covers it, the way every other name in kDesktopExtensions can.
 bool sfpewTextureBorderClampSupported();
+// Count of kDesktopExtensions (getter_version_strings.cpp): the desktop
+// extension names glGetString(GL_EXTENSIONS)/glGetStringi splice in ahead of
+// the backend's own set. glGetIntegerv's GL_NUM_EXTENSIONS case needs the
+// count without needing the names.
+extern const GLint kDesktopExtensionCount;
 
 GLuint sfpewLogicalTextureBinding(GLenum target);
 // Same question for a unit that need not be the currently active one (GL
@@ -140,7 +145,10 @@ bool sfpewPackPboBound();
 void sfpewSetGenerateMipmap(GLenum target, GLuint texture, bool enable);
 void sfpewMaybeGenerateMipmap(GLenum target);
 void sfpewRememberTextureSize(GLuint texture, GLsizei width, GLsizei height);
-// GL_ARB_depth_texture's GL_DEPTH_TEXTURE_MODE swizzle (getter.cpp); a
+// Drops texture's cached size/level metadata (texture_image.cpp's
+// texture_metadata_cache_t). Called from glDeleteTextures (texture_binding.cpp).
+void sfpewForgetTextureMetadata(GLuint texture);
+// GL_ARB_depth_texture's GL_DEPTH_TEXTURE_MODE swizzle (texture_image.cpp); a
 // no-op unless `texture`'s current level-0 internalformat is a depth one.
 void sfpewApplyDepthTextureModeSwizzle(GLenum target, GLuint texture);
 SFPEW_APIENTRY void glGetTexImage(GLenum target, GLint level, GLenum format, GLenum type, GLvoid* pixels);

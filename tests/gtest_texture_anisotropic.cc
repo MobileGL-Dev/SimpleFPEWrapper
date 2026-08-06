@@ -13,7 +13,8 @@
 // for at all. glTexParameter*'s unconditional passthrough for unrecognized
 // pnames (ordered_passthrough.cpp) already forwards it to the driver, and
 // glGetTexParameter{f,i}v/glGetFloatv's unconditional passthrough for
-// unrecognized pnames (getter.cpp) already answers it back. This file adds
+// unrecognized pnames (ordered_passthrough.cpp, fpe/ffp_state_query.cpp)
+// already answers it back. This file adds
 // no wrapper state and no wrapper-side query code for this extension - it
 // exists to prove the passthrough claim rather than to exercise anything the
 // wrapper itself does.
@@ -21,7 +22,7 @@
 // The extension string is the same story: this extension is not part of the
 // wrapper's guaranteed floor (GLES3.0+/GL3.2+ core - it reached core status
 // only in GL4.6/ARB_texture_filter_anisotropic), so it is deliberately absent
-// from getter.cpp's kDesktopExtensions - unlike every other entry there,
+// from getter_version_strings.cpp's kDesktopExtensions - unlike every other entry there,
 // which the wrapper's floor guarantees regardless of the specific device.
 // glGetString(GL_EXTENSIONS)'s additive join forwards the backend's own
 // string verbatim before appending kDesktopExtensions, so this name reaches
@@ -251,7 +252,8 @@ TEST_F(TextureAnisotropicTest, ExtensionStringIsAdvertisedConsistentlyByStringAn
     // SetUp already required this to be present in glGetString(GL_EXTENSIONS)
     // to reach this point; glGetStringi must enumerate the same name, and
     // GL_NUM_EXTENSIONS must be large enough to reach it - all three are
-    // plain backend passthrough (getter.cpp), never wrapper bookkeeping for
+    // plain backend passthrough (getter_version_strings.cpp,
+    // fpe/ffp_state_query.cpp), never wrapper bookkeeping for
     // this extension.
     GLint count = 0;
     get_integerv_(GL_NUM_EXTENSIONS_, &count);

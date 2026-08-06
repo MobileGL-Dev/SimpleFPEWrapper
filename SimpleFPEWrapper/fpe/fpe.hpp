@@ -361,5 +361,21 @@ struct fpe_backend_draw_state_guard_t {
     fpe_backend_draw_state_guard_t& operator=(const fpe_backend_draw_state_guard_t&) = delete;
 };
 
+struct array_buffer_binding_guard_t {
+    GLint binding = 0;
+
+    array_buffer_binding_guard_t() { g_glFuncs.glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &binding); }
+
+    ~array_buffer_binding_guard_t() {
+        g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, binding);
+        // The restore changed the backend binding underneath the immediate
+        // arm; cold path, so a plain invalidate keeps the invariant simple.
+        sfpewInvalidateImmediateDrawState();
+    }
+
+    array_buffer_binding_guard_t(const array_buffer_binding_guard_t&) = delete;
+    array_buffer_binding_guard_t& operator=(const array_buffer_binding_guard_t&) = delete;
+};
+
 // -1 - FPE unavailable, 0 - keep DrawArrays, 1 - switch to DrawElements
 int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint previous_array_buffer);

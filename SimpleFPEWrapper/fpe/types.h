@@ -432,7 +432,7 @@ struct fixed_function_state_t {
     color_buffer_state_t color_buffer;                // blend / masks (for attrib stack)
     // glLogicOp: stored so GL_LOGIC_OP_MODE reads back exactly what was set,
     // but GL_COLOR_LOGIC_OP/GL_INDEX_LOGIC_OP never actually enable per
-    // spec's meaning of those caps - see getter.cpp and state.cpp for why
+    // spec's meaning of those caps - see ffp_state_query.cpp and state.cpp for why
     // (ES 3.0 core has no fixed-function logic op, no extension-free way to
     // read the destination color in a fragment shader on that floor either).
     GLenum logic_op_mode = GL_COPY;

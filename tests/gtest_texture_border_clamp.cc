@@ -202,7 +202,8 @@ TEST_F(TextureBorderClampTest, ExtensionStringAdvertisesArbTextureBorderClampOnT
 }
 
 // Separate fixture: the forced-unsupported probe result is cached for the
-// life of the process (sfpewTextureBorderClampSupported in getter.cpp), so
+// life of the process (sfpewTextureBorderClampSupported in
+// backend/capabilities.cpp), so
 // the environment variable has to be set before any wrapper call reaches it
 // - which means before ContextTest::SetUp resolves and touches the backend.
 // gtest_discover_tests runs each TEST_F in its own process invocation of

@@ -12,6 +12,7 @@
 #include "fpe/imaging.h"
 #include <vector>
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <limits>
 #include "fpe/fpe.hpp"
@@ -351,7 +352,7 @@ void glGetQueryObjectui64v(GLuint id, GLenum pname, GLuint64* params) {
     g_glFuncs.glGetQueryObjectuiv(id, pname, &value);
     *params = static_cast<GLuint64>(value);
 }
-// glDrawElements lives in drawing.cpp: it is FPE-converted, not passthrough.
+// glDrawElements lives in fpe/draw_now.cpp: it is FPE-converted, not passthrough.
 void glReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type,
                   GLvoid* pixels) {
     if (!sfpewEnsureBackend() || g_glFuncs.glReadPixels == nullptr) return;
@@ -588,7 +589,7 @@ GLint compatibleTextureParameter(GLenum pname, GLint param) {
 // GL_CLAMP_TO_BORDER. wrapValue is ignored for the GL_TEXTURE_BORDER_COLOR
 // case, so callers that only reach this for that pname may pass 0.
 // sfpewTextureBorderClampSupported() (init.h) is the actual backend probe -
-// shared with getter.cpp, which uses the same answer to decide whether
+// shared with getter_version_strings.cpp, which uses the same answer to decide whether
 // GL_ARB_texture_border_clamp belongs in the advertised extension string.
 bool rejectsAsUnsupportedBorderClamp(GLenum pname, GLint wrapValue) {
     const bool usesBorderClamp =
@@ -623,6 +624,109 @@ void sfpewRecordTextureCompareMode(GLenum target, GLenum pname, GLint param) {
 }
 
 } // namespace
+
+namespace {
+
+// Duplicated from texture_binding.cpp (which owns the logical texture-binding
+// shadow that sfpewLogicalTextureBinding et al. maintain, using this same
+// switch to map a target onto its GL_TEXTURE_BINDING_* query enum) rather
+// than exposed cross-TU: validTextureGetParameterTarget below only needs the
+// "is this target bindable" question, and this switch is small enough that a
+// second copy is simpler than a new export for it.
+GLenum textureBindingQuery(GLenum target) {
+    switch (target) {
+    case GL_TEXTURE_2D:
+        return GL_TEXTURE_BINDING_2D;
+    case GL_TEXTURE_CUBE_MAP:
+        return GL_TEXTURE_BINDING_CUBE_MAP;
+#ifdef GL_TEXTURE_3D
+    case GL_TEXTURE_3D:
+        return GL_TEXTURE_BINDING_3D;
+#endif
+#ifdef GL_TEXTURE_2D_ARRAY
+    case GL_TEXTURE_2D_ARRAY:
+        return GL_TEXTURE_BINDING_2D_ARRAY;
+#endif
+    default:
+        return GL_NONE;
+    }
+}
+
+// Renamed from its original "validTextureParameterTarget" when the texture
+// getters moved here: this file already has its own (differently-scoped, setter-side)
+// validTextureParameterTarget above accepting only TEXTURE_1D/2D/3D/CUBE_MAP,
+// and both would otherwise collide in this translation unit's single
+// anonymous namespace. Kept verbatim otherwise - this getter-side check also
+// accepts GL_TEXTURE_2D_ARRAY, unlike the setter-side one; that pre-existing
+// discrepancy was not introduced by this move.
+bool validTextureGetParameterTarget(GLenum target) {
+    if (target == GL_TEXTURE_1D) return true;
+    return textureBindingQuery(target) != GL_NONE;
+}
+
+GLenum textureParameterTarget(GLenum target) {
+    return target == GL_TEXTURE_1D ? GL_TEXTURE_2D : target;
+}
+
+GLclampf texturePriority(GLuint texture) {
+    const auto& priorities = g_glstate_c.texture_priorities;
+    const auto it = priorities.find(texture);
+    return it == priorities.end() ? 1.0f : it->second;
+}
+
+GLenum depthTextureMode(GLuint texture) {
+    const auto& modes = g_glstate_c.texture_depth_mode;
+    const auto it = modes.find(texture);
+    return it == modes.end() ? GL_LUMINANCE : it->second;
+}
+
+} // namespace
+
+void glGetTexParameterfv(GLenum target, GLenum pname, GLfloat* params) {
+    auto& gs = g_glstate;
+    if (params == nullptr) return;
+    if (pname == GL_TEXTURE_PRIORITY || pname == GL_TEXTURE_RESIDENT || pname == GL_DEPTH_TEXTURE_MODE) {
+        if (!validTextureGetParameterTarget(target)) {
+            gs.set_error(GL_INVALID_ENUM);
+            return;
+        }
+        sfpewEntryBarrier();
+        if (pname == GL_TEXTURE_PRIORITY)
+            params[0] = texturePriority(sfpewLogicalTextureBinding(textureParameterTarget(target)));
+        else if (pname == GL_DEPTH_TEXTURE_MODE)
+            params[0] = static_cast<GLfloat>(depthTextureMode(sfpewLogicalTextureBinding(textureParameterTarget(target))));
+        else
+            params[0] = 1.0f; // all live and default textures are reported resident
+        return;
+    }
+    if (!sfpewEnsureBackend() || g_glFuncs.glGetTexParameterfv == nullptr) return;
+    sfpewEntryBarrier();
+    g_glFuncs.glGetTexParameterfv(textureParameterTarget(target), pname, params);
+}
+
+void glGetTexParameteriv(GLenum target, GLenum pname, GLint* params) {
+    auto& gs = g_glstate;
+    if (params == nullptr) return;
+    if (pname == GL_TEXTURE_PRIORITY || pname == GL_TEXTURE_RESIDENT || pname == GL_DEPTH_TEXTURE_MODE) {
+        if (!validTextureGetParameterTarget(target)) {
+            gs.set_error(GL_INVALID_ENUM);
+            return;
+        }
+        sfpewEntryBarrier();
+        if (pname == GL_TEXTURE_PRIORITY) {
+            const GLfloat value = texturePriority(sfpewLogicalTextureBinding(textureParameterTarget(target)));
+            *params = static_cast<GLint>(std::lround(value));
+        } else if (pname == GL_DEPTH_TEXTURE_MODE) {
+            *params = static_cast<GLint>(depthTextureMode(sfpewLogicalTextureBinding(textureParameterTarget(target))));
+        } else {
+            *params = GL_TRUE;
+        }
+        return;
+    }
+    if (!sfpewEnsureBackend() || g_glFuncs.glGetTexParameteriv == nullptr) return;
+    sfpewEntryBarrier();
+    g_glFuncs.glGetTexParameteriv(textureParameterTarget(target), pname, params);
+}
 
 void glTexParameterf(GLenum target, GLenum pname, GLfloat param) {
     auto& gs = g_glstate;
@@ -814,7 +918,7 @@ void glTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, G
     }
     // Legacy formats must match the RED/RG storage glTexImage2D allocated
     // for them; BGRA is swapped on the CPU (tight rows assumed, mirroring
-    // the allocation path in getter.cpp).
+    // the allocation path in texture_image.cpp).
     if (format == GL_ALPHA || format == GL_LUMINANCE) {
         format = GL_RED;
     } else if (format == GL_LUMINANCE_ALPHA) {

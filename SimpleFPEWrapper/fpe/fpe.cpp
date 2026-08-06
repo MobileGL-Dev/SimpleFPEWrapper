@@ -800,7 +800,7 @@ int init_fpe() {
 // client_array_buffer_bindings[i] is the GL_ARRAY_BUFFER binding captured at
 // the gl*Pointer call that last set slot i (rememberClientArrayBufferBinding,
 // vertexpointer.cpp), not a guess derived from the pointer/offset value
-// itself. Declared in fpe.hpp so drawing.cpp's draw paths can share it.
+// itself. Declared in fpe.hpp so fpe/draw_now.cpp's draw paths can share it.
 client_array_kind_t classifyClientArrays(const vertex_pointer_array_t& raw, GLuint* out_buffer_id) {
     bool seen = false;
     bool all_zero = true;

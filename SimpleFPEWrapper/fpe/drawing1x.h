@@ -22,6 +22,19 @@ void flushPendingImmediateDraws();
 // wrapper's own bound (plans/12). One branch when nothing is held.
 void sfpewFlushDeferredDrawState();
 
+// What every glDrawArrays-shaped draw funnels through, whether from the
+// glDrawArrays entry point itself or a captured display-list command's
+// replay (fpe/list_capture.cpp). `arrayBufferOverride` >= 0 supplies the
+// attribute source buffer directly, skipping the synchronous binding query.
+void drawArraysNow(GLenum mode, GLint first, GLsizei count, bool forceFixedFunction,
+                   GLint arrayBufferOverride = -1);
+
+// Indexed counterpart of drawArraysNow (fpe/draw_now.cpp). External linkage
+// because multidraw.cpp's glMultiDrawElements falls back to it per sub-draw
+// when the backend has no native multi-draw or a sub-draw needs individual
+// fixed-function/user-program handling.
+void drawElementsNow(GLenum mode, GLsizei count, GLenum type, const GLvoid* indices);
+
 // What every exported entry point OUTSIDE the immediate-mode vertex family
 // calls first: drains the pending glyph batch and hands the app its draw state
 // back. Only glBegin/glEnd and the glVertex/glColor/glNormal/glTexCoord/

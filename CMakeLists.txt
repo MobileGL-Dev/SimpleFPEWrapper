@@ -115,20 +115,27 @@ add_subdirectory(3rdparty/SPIRV-Cross EXCLUDE_FROM_ALL)
 
 add_library(${CMAKE_PROJECT_NAME} SHARED
         SimpleFPEWrapper/init.cpp
-        SimpleFPEWrapper/drawing.cpp
-        SimpleFPEWrapper/getter.cpp
+        SimpleFPEWrapper/multidraw.cpp
+        SimpleFPEWrapper/getter_version_strings.cpp
         SimpleFPEWrapper/fbo.cpp
+        SimpleFPEWrapper/texture_binding.cpp
+        SimpleFPEWrapper/texture_image.cpp
         SimpleFPEWrapper/lookup.cpp
         SimpleFPEWrapper/ordered_passthrough.cpp
 
         SimpleFPEWrapper/backend/loader.cpp
+        SimpleFPEWrapper/backend/capabilities.cpp
 
         SimpleFPEWrapper/fpe/fpe.cpp
         SimpleFPEWrapper/fpe/fpe_shadergen.cpp
         SimpleFPEWrapper/fpe/state.cpp
+        SimpleFPEWrapper/fpe/ffp_state_query.cpp
         SimpleFPEWrapper/fpe/transformation.cpp
         SimpleFPEWrapper/fpe/vertexpointer.cpp
         SimpleFPEWrapper/fpe/list.cpp
+        SimpleFPEWrapper/fpe/list_diagnostics.cpp
+        SimpleFPEWrapper/fpe/list_capture.cpp
+        SimpleFPEWrapper/fpe/draw_now.cpp
         SimpleFPEWrapper/fpe/attribstack.cpp
         SimpleFPEWrapper/fpe/pixelops.cpp
         SimpleFPEWrapper/fpe/linestipple.cpp
@@ -172,8 +179,9 @@ endif()
 # invocation unconditionally; the script only touches the header's mtime
 # when the commit actually changed, so this cannot force a full rebuild.
 # version.h picks the header up via __has_include with its own existing
-# "unknown" fallback (outside a git checkout, e.g. a tarball build); drawing.cpp,
-# the other direct consumer, now includes version.h for the same reason.
+# "unknown" fallback (outside a git checkout, e.g. a tarball build);
+# fpe/list_diagnostics.cpp, the other direct consumer, now includes version.h
+# for the same reason.
 set(SFPEW_GIT_COMMIT_HEADER "${CMAKE_BINARY_DIR}/generated/sfpew_git_commit.h")
 add_custom_target(sfpew_git_commit ALL
         COMMAND ${CMAKE_COMMAND} -D SRC_DIR=${CMAKE_SOURCE_DIR}

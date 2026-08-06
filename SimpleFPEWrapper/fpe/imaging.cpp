@@ -1673,7 +1673,7 @@ void applyBasicColorTransfer(glm::vec4* pixel) {
 // ARB_imaging stages are active, the full GL 2.1 pipeline in spec order.
 // sfpewImagingReadRgba/ReadPixels themselves stay untouched - they still
 // back glCopyTexImage2D/glCopyTexSubImage2D's own imaging hook
-// (getter.cpp), which this fix does not extend to (out of scope: the
+// (texture_image.cpp), which this fix does not extend to (out of scope: the
 // user asked to fix glCopyPixels and glReadPixels specifically).
 bool sfpewFullColorReadRgba(GLint x, GLint y, GLsizei width, GLsizei height,
                             std::vector<GLfloat>* rgba, GLsizei* output_width,

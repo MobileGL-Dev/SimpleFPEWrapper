@@ -22,7 +22,7 @@
 // query wrapped around a still-batched glBegin/glEnd draw would measure
 // nothing having reached the GPU yet - a false negative that has nothing to
 // do with occlusion. A user-program glDrawArrays call submits synchronously
-// (drawing.cpp), which sidesteps that pitfall entirely.
+// (fpe/draw_now.cpp), which sidesteps that pitfall entirely.
 //
 // THIS TEST ORIGINALLY FAILED, and that failure was the answer the extension
 // survey was after: it was not a test bug. glBeginQuery/glEndQuery/

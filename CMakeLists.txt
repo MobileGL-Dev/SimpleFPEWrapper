@@ -339,7 +339,8 @@ if(NOT ANDROID)
                                        uniform_cache userprog_enable_cache userobject_blit
                                        userprog_multiattrib userobject_quads gl3_core
                                        bgra_texture manual_mipgen mixed_translation_link
-                                       multidraw_native mixed_pipeline vbo_surface render
+                                       multidraw_native multidraw_dlist mixed_pipeline
+                                       vbo_surface render
                                        transpose_matrix texture_residency clear_depth_drawbuffer
                                        secondary_color vertex_attrib_variants point_parameters
                                        texture_1d_copy drawpixels_formats copypixels_depth
@@ -354,7 +355,9 @@ if(NOT ANDROID)
                                        texture_anisotropic texture_compressed_2d
                                        texture_border_clamp occlusion_query
                                        texture_env_crossbar multitexture_unit_validation
-                                       client_state_validation client_buffer_classification)
+                                       client_state_validation client_buffer_classification
+                                       arrayelement_dlist drawelements_dlist
+                                       display_list_indexed_multidraw)
                                 sfpew_add_gtest(sfpew_${suite}_test SOURCES tests/gtest_${suite}.cc
                                                 LIBRARIES ${SFPEW_TEST_EGL})
                         endforeach()

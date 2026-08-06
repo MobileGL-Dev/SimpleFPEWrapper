@@ -13,8 +13,10 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdint>
 #include <limits>
 #include <type_traits>
+#include <vector>
 
 void flushPendingImmediateDraws();
 
@@ -32,8 +34,34 @@ void drawArraysNow(GLenum mode, GLint first, GLsizei count, bool forceFixedFunct
 // Indexed counterpart of drawArraysNow (fpe/draw_now.cpp). External linkage
 // because multidraw.cpp's glMultiDrawElements falls back to it per sub-draw
 // when the backend has no native multi-draw or a sub-draw needs individual
-// fixed-function/user-program handling.
-void drawElementsNow(GLenum mode, GLsizei count, GLenum type, const GLvoid* indices);
+// fixed-function/user-program handling, and because a captured display-list
+// draw replays through it (fpe/list_capture.cpp).
+//
+// `elementBufferOverride` >= 0 names the buffer `indices` is an offset into
+// instead of resolving the caller's binding, with 0 meaning `indices` is a
+// client-memory pointer. A replay MUST supply it: the binding this function
+// would otherwise resolve describes the APP's element source, which has
+// nothing to do with the buffer the list's own indices live in.
+void drawElementsNow(GLenum mode, GLsizei count, GLenum type, const GLvoid* indices,
+                     bool forceFixedFunction = false, GLint elementBufferOverride = -1);
+
+// Four corners into the two triangles that cover them, as GL_UNSIGNED_INT
+// indices. Shared so the immediate GL_QUADS path and the display-list capture
+// that expands its quads once at compile time cannot disagree about winding.
+template <typename T>
+void expandQuadIndices(const T* src, size_t quadCount, std::vector<uint32_t>& out) {
+    out.resize(quadCount * 6u);
+    for (size_t q = 0; q < quadCount; ++q) {
+        const uint32_t i0 = src[q * 4 + 0], i1 = src[q * 4 + 1];
+        const uint32_t i2 = src[q * 4 + 2], i3 = src[q * 4 + 3];
+        out[q * 6 + 0] = i0;
+        out[q * 6 + 1] = i1;
+        out[q * 6 + 2] = i2;
+        out[q * 6 + 3] = i2;
+        out[q * 6 + 4] = i3;
+        out[q * 6 + 5] = i0;
+    }
+}
 
 // What every exported entry point OUTSIDE the immediate-mode vertex family
 // calls first: drains the pending glyph batch and hands the app its draw state

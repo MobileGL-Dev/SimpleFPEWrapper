@@ -680,7 +680,20 @@ GLfloat clientArrayComponent(const vertexattribute_t& a, GLint i, GLint c, bool 
 } // namespace
 
 // glArrayElement: feed element i of every enabled client array through the
-// immediate-mode current-value path (vertex last: it commits the vertex).
+// immediate-mode current-value path, in the order GL 2.1 section 2.8 lays out
+// for it (vertex last: it commits the vertex).
+//
+// Dispatch goes through the public per-attribute entry points, not the mglX
+// templates they wrap, purely so that recording comes for free: each of those
+// carries its own LIST_RECORD, so a glArrayElement between glNewList and
+// glEndList compiles to exactly the commands an application spelling the
+// attributes out by hand would have produced, and glCallList replays them.
+// Calling the templates instead skipped recording entirely - under GL_COMPILE
+// the values went to a batch no glBegin had opened and the list came back
+// empty (plans/15 15.2). This costs one full entry point per attribute per
+// element; glArrayElement is legacy indexed immediate mode, never a per-frame
+// hot path, and glDrawArrays/glDrawElements do not go through here.
+//
 // Arrays living in VBOs cannot be read from the CPU here; those elements
 // are skipped (logged once per call site would be noise - manifest notes it).
 void glArrayElement(GLint i) {
@@ -691,24 +704,14 @@ void glArrayElement(GLint i) {
     }
     const auto& va = gs.fpe_state.vertexpointer_array;
     const auto enabled = [&](GLenum array) { return (va.enabled_pointers & vp_mask(array)) != 0; };
+    // plans/13: which of the two an array is comes from what was bound when
+    // gl*Pointer ran, never from how large the pointer value looks.
     const auto client_side = [&](int idx) { return getClientArrayBufferBinding(idx) == 0; };
 
-    if (enabled(GL_NORMAL_ARRAY) && client_side(vp2idx(GL_NORMAL_ARRAY))) {
-        const auto& a = va.attributes[vp2idx(GL_NORMAL_ARRAY)];
+    if (enabled(GL_EDGE_FLAG_ARRAY) && client_side(vp2idx(GL_EDGE_FLAG_ARRAY))) {
+        const auto& a = va.attributes[vp2idx(GL_EDGE_FLAG_ARRAY)];
         if (a.pointer)
-            mglNormal<GLfloat, 3>({clientArrayComponent(a, i, 0, true), clientArrayComponent(a, i, 1, true),
-                                   clientArrayComponent(a, i, 2, true)});
-    }
-    if (enabled(GL_COLOR_ARRAY) && client_side(vp2idx(GL_COLOR_ARRAY))) {
-        const auto& a = va.attributes[vp2idx(GL_COLOR_ARRAY)];
-        if (a.pointer) {
-            if (a.size == 3)
-                mglColor<GLfloat, 3>({clientArrayComponent(a, i, 0, true), clientArrayComponent(a, i, 1, true),
-                                      clientArrayComponent(a, i, 2, true)});
-            else
-                mglColor<GLfloat, 4>({clientArrayComponent(a, i, 0, true), clientArrayComponent(a, i, 1, true),
-                                      clientArrayComponent(a, i, 2, true), clientArrayComponent(a, i, 3, true)});
-        }
+            glEdgeFlag(clientArrayComponent(a, i, 0, false) != 0.0f ? GL_TRUE : GL_FALSE);
     }
     for (int unit = 0; unit < MAX_TEX; ++unit) {
         const int idx = 7 + unit;
@@ -717,14 +720,44 @@ void glArrayElement(GLint i) {
         if (!a.pointer) continue;
         GLfloat uv[4] = {0.0f, 0.0f, 0.0f, 1.0f};
         for (GLint c = 0; c < a.size && c < 4; ++c) uv[c] = clientArrayComponent(a, i, c, false);
-        mglTexCoord<GLfloat, 4>({uv[0], uv[1], uv[2], uv[3]}, unit);
+        glMultiTexCoord4f(GL_TEXTURE0 + unit, uv[0], uv[1], uv[2], uv[3]);
+    }
+    if (enabled(GL_FOG_COORD_ARRAY) && client_side(vp2idx(GL_FOG_COORD_ARRAY))) {
+        const auto& a = va.attributes[vp2idx(GL_FOG_COORD_ARRAY)];
+        if (a.pointer) glFogCoordf(clientArrayComponent(a, i, 0, false));
+    }
+    if (enabled(GL_SECONDARY_COLOR_ARRAY) && client_side(vp2idx(GL_SECONDARY_COLOR_ARRAY))) {
+        const auto& a = va.attributes[vp2idx(GL_SECONDARY_COLOR_ARRAY)];
+        if (a.pointer)
+            glSecondaryColor3f(clientArrayComponent(a, i, 0, true),
+                               clientArrayComponent(a, i, 1, true),
+                               clientArrayComponent(a, i, 2, true));
+    }
+    if (enabled(GL_COLOR_ARRAY) && client_side(vp2idx(GL_COLOR_ARRAY))) {
+        const auto& a = va.attributes[vp2idx(GL_COLOR_ARRAY)];
+        if (a.pointer) {
+            // Three components keeps the three-component current-color size the
+            // old mglColor<GLfloat, 3> recorded, not a widened four.
+            if (a.size == 3)
+                glColor3f(clientArrayComponent(a, i, 0, true), clientArrayComponent(a, i, 1, true),
+                          clientArrayComponent(a, i, 2, true));
+            else
+                glColor4f(clientArrayComponent(a, i, 0, true), clientArrayComponent(a, i, 1, true),
+                          clientArrayComponent(a, i, 2, true), clientArrayComponent(a, i, 3, true));
+        }
+    }
+    if (enabled(GL_NORMAL_ARRAY) && client_side(vp2idx(GL_NORMAL_ARRAY))) {
+        const auto& a = va.attributes[vp2idx(GL_NORMAL_ARRAY)];
+        if (a.pointer)
+            glNormal3f(clientArrayComponent(a, i, 0, true), clientArrayComponent(a, i, 1, true),
+                       clientArrayComponent(a, i, 2, true));
     }
     if (enabled(GL_VERTEX_ARRAY) && client_side(vp2idx(GL_VERTEX_ARRAY))) {
         const auto& a = va.attributes[vp2idx(GL_VERTEX_ARRAY)];
         if (a.pointer) {
             GLfloat v[4] = {0.0f, 0.0f, 0.0f, 1.0f};
             for (GLint c = 0; c < a.size && c < 4; ++c) v[c] = clientArrayComponent(a, i, c, false);
-            mglVertex<GLfloat, 4>({v[0], v[1], v[2], v[3]});
+            glVertex4f(v[0], v[1], v[2], v[3]);
         }
     }
 }

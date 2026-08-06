@@ -528,6 +528,21 @@ inline GLboolean disableRecording = GL_FALSE;
 
 bool tryExecuteCapturedDisplayLists(const GLuint* listIds, size_t listCount);
 
+// Snapshots the current client arrays for one glDrawArrays-shaped sub-draw
+// and appends it to the list being recorded, or records nothing when the draw
+// cannot be snapshotted (fpe/list_capture.cpp). The caller must already have
+// established shouldRecord() and taken its entry barrier; shouldFinish() is
+// the caller's too, since a multi-draw records every sub-draw before it
+// decides whether to also execute them.
+void sfpewRecordCapturedDrawArrays(GLenum mode, GLint first, GLsizei count);
+
+// Indexed counterpart (plans/15 15.3), same contract. Serves glDrawElements,
+// glDrawRangeElements - whose start/end are a promise about the index values,
+// not extra data to record, so they are not passed - and glMultiDrawElements,
+// which records each sub-draw the way glDrawElements records itself.
+void sfpewRecordCapturedDrawElements(GLenum mode, GLsizei count, GLenum type,
+                                     const GLvoid* indices);
+
 #define SELF_CALL(func, ...)                                                                                           \
     {                                                                                                                  \
         GLboolean alreadyDisabled = disableRecording;                                                                  \

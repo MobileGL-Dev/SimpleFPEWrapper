@@ -11,6 +11,7 @@
 
 #include "fpe/fpe.hpp"
 #include "fpe/drawing1x.h"
+#include "fpe/list.h"
 
 #include <cstring>
 
@@ -134,6 +135,21 @@ void glMultiDrawArrays(GLenum mode, const GLint* first, const GLsizei* count, GL
     if (first == nullptr || count == nullptr) return;
     sfpewEntryBarrier();
 
+    // GL 2.1 5.4: under GL_COMPILE this belongs in the list, not on the
+    // screen. A multi-draw is n independent glDrawArrays as far as the list
+    // is concerned, so each sub-draw is captured exactly the way glDrawArrays
+    // captures itself - the alternative was executing it immediately and
+    // replaying nothing at all (plans/15 15.1).
+    if (!disableRecording && DisplayListManager::shouldRecord()) {
+        (void)g_glstate; // strict resolve: capture reads the snapshot, and
+                         // nothing above this point refreshed it
+        for (GLsizei i = 0; i < drawcount; ++i) {
+            if (count[i] <= 0) continue;
+            sfpewRecordCapturedDrawArrays(mode, first[i], count[i]);
+        }
+        if (DisplayListManager::shouldFinish()) return;
+    }
+
     const auto native = nativeMultiDrawArrays();
     const GLenum native_mode = nativeMultiDrawMode(mode);
     if (native != nullptr && native_mode != GL_NONE && appOwnsVertexStateForPassthrough()) {
@@ -157,6 +173,19 @@ void glMultiDrawElements(GLenum mode, const GLsizei* count, GLenum type,
     }
     if (count == nullptr || indices == nullptr) return;
     sfpewEntryBarrier();
+
+    // Same reasoning as glMultiDrawArrays above, one step further out: n
+    // independent glDrawElements as far as the list is concerned, each
+    // captured the way glDrawElements captures itself (plans/15 15.4).
+    if (!disableRecording && DisplayListManager::shouldRecord()) {
+        (void)g_glstate; // strict resolve: capture reads the snapshot, and
+                         // nothing above this point refreshed it
+        for (GLsizei i = 0; i < drawcount; ++i) {
+            if (count[i] <= 0) continue;
+            sfpewRecordCapturedDrawElements(mode, count[i], type, indices[i]);
+        }
+        if (DisplayListManager::shouldFinish()) return;
+    }
 
     const auto native = nativeMultiDrawElements();
     const GLenum native_mode = nativeMultiDrawMode(mode);

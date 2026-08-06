@@ -281,6 +281,35 @@ inline void sfpewBackendBindElementBuffer(GLuint buffer) {
     }
 }
 
+// Which buffer an indexed draw's `indices` argument is an offset into - the
+// caller's element-array binding, which is VAO state. Resolved from the
+// wrapper's shadows instead of a synchronous glGetIntegerv per draw: while a
+// fixed-function draw holds the app's state the held snapshot has it, and
+// outside that VAO 0's binding is shadowed (healed every 256 draws by the
+// guard). The leftover cases - app VAO unknown or non-zero - restore and take
+// the real query, which also leaves the app's own binding live for a caller
+// that means to read the buffer.
+//
+// Single source of truth on purpose: this is the index-side counterpart of
+// classifyClientArrays' ground truth for vertex attributes (plans/13), and the
+// immediate draw path and the display-list capture path must never disagree
+// about whether a given `indices` value is a client pointer or a byte offset.
+inline GLint sfpewResolveElementArrayBinding() {
+    auto& gs = g_glstate_c;
+    if (gs.deferred_draw.held && gs.deferred_draw.vertex_array == 0 &&
+        gs.deferred_draw.element_array_buffer >= 0) {
+        return gs.deferred_draw.element_array_buffer;
+    }
+    if (!gs.deferred_draw.held && gs.backend_vao_known && gs.backend_vao_binding == 0 &&
+        gs.backend_vao0_element_known) {
+        return gs.backend_vao0_element_binding;
+    }
+    sfpewFlushDeferredDrawState();
+    GLint element_buffer = 0;
+    g_glFuncs.glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &element_buffer);
+    return element_buffer;
+}
+
 struct fpe_backend_draw_state_guard_t {
     GLint program = 0;
     GLint vertex_array = 0;

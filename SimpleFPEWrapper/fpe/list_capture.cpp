@@ -417,6 +417,183 @@ struct captured_attribute_t {
     GLuint sourceBuffer = 0;
 };
 
+// Why a capture gave up, for SFPEW_LISTLOG. Never read on a hot path.
+struct capture_failure_t {
+    const char* reason = "unknown";
+    int attribute = -1;
+    GLint size = 0;
+    GLint stride = 0;
+    GLint bufferSize = 0;
+    GLenum type = 0;
+    uintptr_t pointer = 0;
+    GLuint buffer = 0;
+    size_t sourceEnd = 0;
+};
+
+// The packed interleaved block both captured draw commands store vertices in:
+// every enabled attribute at a fixed offset inside one shared stride, so the
+// replay can hand the whole thing to the backend as a single buffer. Sizes
+// `count` vertices' worth of storage in `vertexData` but copies nothing - the
+// two commands source their vertices from different ranges.
+//
+// Shared rather than copied because the arithmetic here is what decides how
+// many bytes get read out of the caller's arrays: an indexed capture that
+// packed even one attribute at a different offset than the arrays capture
+// would silently draw the wrong components.
+bool buildCapturedVertexLayout(const vertex_pointer_array_t& source, GLsizei count,
+                               std::array<captured_attribute_t, VERTEX_POINTER_COUNT>* attributes,
+                               vertex_pointer_array_t* layout,
+                               std::array<size_t, VERTEX_POINTER_COUNT>* packedOffsets,
+                               size_t* packedStride, std::vector<uint8_t>* vertexData,
+                               capture_failure_t* failure) {
+    size_t stride = 0;
+    size_t largestAlignment = 1;
+
+    layout->reset();
+    layout->enabled_pointers = source.enabled_pointers;
+    layout->dirty = true;
+    layout->buffer_based = false;
+
+    for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
+        if (((source.enabled_pointers >> i) & 1u) == 0) continue;
+
+        const auto& sourceAttribute = source.attributes[i];
+        const size_t componentBytes = componentSize(sourceAttribute.type);
+        if (sourceAttribute.size < 1 || sourceAttribute.size > 4 || componentBytes == 0 ||
+            sourceAttribute.stride < 0) {
+            failure->reason = "bad attribute size/type/stride";
+            failure->attribute = i;
+            failure->size = sourceAttribute.size;
+            failure->type = sourceAttribute.type;
+            failure->stride = sourceAttribute.stride;
+            return false;
+        }
+
+        size_t elementBytes = 0;
+        if (!checkedMultiply(static_cast<size_t>(sourceAttribute.size), componentBytes, &elementBytes) ||
+            !alignSize(stride, componentBytes, &stride)) {
+            failure->reason = "packed-stride overflow";
+            failure->attribute = i;
+            return false;
+        }
+
+        auto& captured = (*attributes)[i];
+        captured.enabled = true;
+        captured.elementSize = elementBytes;
+        captured.sourceStride = sourceAttribute.stride == 0 ? elementBytes
+                                                            : static_cast<size_t>(sourceAttribute.stride);
+        captured.packedOffset = stride;
+        captured.sourcePointer = reinterpret_cast<uintptr_t>(sourceAttribute.pointer);
+        captured.sourceBuffer = getClientArrayBufferBinding(i);
+
+        (*packedOffsets)[i] = stride;
+        if (!checkedAdd(stride, elementBytes, &stride)) {
+            failure->reason = "packed-offset overflow";
+            failure->attribute = i;
+            return false;
+        }
+        if (componentBytes > largestAlignment) largestAlignment = componentBytes;
+
+        layout->attributes[i] = sourceAttribute;
+    }
+
+    if (!alignSize(stride, largestAlignment, &stride) || stride == 0 ||
+        stride > static_cast<size_t>(std::numeric_limits<GLsizei>::max())) {
+        failure->reason = "final stride invalid";
+        return false;
+    }
+
+    size_t allocationSize = 0;
+    if (!checkedMultiply(static_cast<size_t>(count), stride, &allocationSize)) {
+        failure->reason = "vertex block size overflow";
+        return false;
+    }
+    vertexData->resize(allocationSize);
+
+    for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
+        if (!(*attributes)[i].enabled) continue;
+        layout->attributes[i].stride = static_cast<GLsizei>(stride);
+        layout->attributes[i].pointer = reinterpret_cast<const void*>((*packedOffsets)[i]);
+    }
+    layout->stride = static_cast<GLsizei>(stride);
+    *packedStride = stride;
+    return true;
+}
+
+// One attribute's `count` vertices starting at `first`, from wherever that
+// attribute's gl*Pointer call left its data, into the packed block.
+// GL_ARRAY_BUFFER is left bound to the last source buffer read; the caller
+// owns an array_buffer_binding_guard_t around the whole loop.
+bool copyCapturedAttribute(const captured_attribute_t& attribute, GLint first, GLsizei count,
+                           size_t packedStride, std::vector<uint8_t>* vertexData,
+                           capture_failure_t* failure) {
+    size_t firstByte = 0;
+    if (!checkedMultiply(static_cast<size_t>(first), attribute.sourceStride, &firstByte) ||
+        !checkedAdd(firstByte, static_cast<size_t>(attribute.sourcePointer), &firstByte)) {
+        failure->reason = "attribute start offset overflow";
+        return false;
+    }
+
+    size_t lastVertexOffset = 0;
+    size_t sourceEnd = 0;
+    if (!checkedMultiply(static_cast<size_t>(count - 1), attribute.sourceStride, &lastVertexOffset) ||
+        !checkedAdd(firstByte, lastVertexOffset, &sourceEnd) ||
+        !checkedAdd(sourceEnd, attribute.elementSize, &sourceEnd)) {
+        failure->reason = "attribute source range overflow";
+        return false;
+    }
+
+    const uint8_t* source = nullptr;
+    void* mappedBuffer = nullptr;
+    if (attribute.sourceBuffer == 0) {
+        // Low values are buffer offsets, not dereferenceable client
+        // addresses. They cannot be captured without the buffer binding
+        // that was active at gl*Pointer time.
+        if (attribute.sourcePointer < 4096) {
+            failure->reason = "client pointer below 4096 (looks like a buffer offset)";
+            return false;
+        }
+        source = reinterpret_cast<const uint8_t*>(firstByte);
+    } else {
+        if (g_glFuncs.glGetBufferParameteriv == nullptr || g_glFuncs.glMapBufferRange == nullptr ||
+            g_glFuncs.glUnmapBuffer == nullptr) {
+            failure->reason = "backend has no buffer mapping";
+            return false;
+        }
+
+        g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, attribute.sourceBuffer);
+        GLint bufferSize = 0;
+        g_glFuncs.glGetBufferParameteriv(GL_ARRAY_BUFFER, GL_BUFFER_SIZE, &bufferSize);
+        if (bufferSize <= 0 || sourceEnd > static_cast<size_t>(bufferSize)) {
+            failure->reason = "source VBO too small for the draw range";
+            failure->bufferSize = bufferSize;
+            failure->sourceEnd = sourceEnd;
+            return false;
+        }
+
+        mappedBuffer = g_glFuncs.glMapBufferRange(GL_ARRAY_BUFFER, 0, bufferSize, GL_MAP_READ_BIT);
+        if (mappedBuffer == nullptr) {
+            failure->reason = "glMapBufferRange(READ) refused by the driver";
+            failure->bufferSize = bufferSize;
+            return false;
+        }
+        source = static_cast<const uint8_t*>(mappedBuffer) + firstByte;
+    }
+
+    for (GLsizei vertex = 0; vertex < count; ++vertex) {
+        auto* destination = vertexData->data() + static_cast<size_t>(vertex) * packedStride +
+                            attribute.packedOffset;
+        std::memcpy(destination, source + static_cast<size_t>(vertex) * attribute.sourceStride,
+                    attribute.elementSize);
+    }
+
+    if (mappedBuffer != nullptr && g_glFuncs.glUnmapBuffer(GL_ARRAY_BUFFER) == GL_FALSE) {
+        failure->reason = "glUnmapBuffer reported data loss";
+        return false;
+    }
+    return true;
+}
+
 class captured_draw_arrays_cmd_t final : public GLCmd {
 public:
     captured_draw_arrays_cmd_t(GLenum mode, GLint first, GLsizei count, const vertex_pointer_array_t& source,
@@ -451,14 +628,7 @@ public:
     }
 
     bool isValid() const { return valid; }
-    // Why capture() gave up, for SFPEW_LISTLOG. Never read on a hot path.
-    const char* failReason = "unknown";
-    int failAttribute = -1;
-    GLint failSize = 0, failStride = 0, failBufferSize = 0;
-    GLenum failType = 0;
-    uintptr_t failPointer = 0;
-    GLuint failBuffer = 0;
-    size_t failSourceEnd = 0;
+    capture_failure_t failure;
     bool isCapturedDraw() const override { return true; }
     bool bakePositionTranslation(const glm::vec3& translation) override {
         if (!valid || arenaAllocation.buffer != 0 || vertexBuffer != 0 || vertexBufferUploaded) {
@@ -658,161 +828,31 @@ private:
 
     bool capture(GLint first, const vertex_pointer_array_t& source) {
         if (first < 0 || count <= 0) {
-            failReason = "first<0 or count<=0";
+            failure.reason = "first<0 or count<=0";
             return false;
         }
 
         std::array<captured_attribute_t, VERTEX_POINTER_COUNT> attributes{};
         size_t packedStride = 0;
-        size_t largestAlignment = 1;
-
-        layout.reset();
-        layout.enabled_pointers = source.enabled_pointers;
-        layout.dirty = true;
-        layout.buffer_based = false;
-
-        for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
-            if (((source.enabled_pointers >> i) & 1u) == 0) continue;
-
-            const auto& sourceAttribute = source.attributes[i];
-            const size_t componentBytes = componentSize(sourceAttribute.type);
-            if (sourceAttribute.size < 1 || sourceAttribute.size > 4 || componentBytes == 0 ||
-                sourceAttribute.stride < 0) {
-                failReason = "bad attribute size/type/stride";
-                failAttribute = i;
-                failSize = sourceAttribute.size;
-                failType = sourceAttribute.type;
-                failStride = sourceAttribute.stride;
-                return false;
-            }
-
-            size_t elementBytes = 0;
-            if (!checkedMultiply(static_cast<size_t>(sourceAttribute.size), componentBytes, &elementBytes) ||
-                !alignSize(packedStride, componentBytes, &packedStride)) {
-                failReason = "packed-stride overflow";
-                failAttribute = i;
-                return false;
-            }
-
-            auto& captured = attributes[i];
-            captured.enabled = true;
-            captured.elementSize = elementBytes;
-            captured.sourceStride = sourceAttribute.stride == 0 ? elementBytes
-                                                                 : static_cast<size_t>(sourceAttribute.stride);
-            captured.packedOffset = packedStride;
-            captured.sourcePointer = reinterpret_cast<uintptr_t>(sourceAttribute.pointer);
-            captured.sourceBuffer = getClientArrayBufferBinding(i);
-
-            packedOffsets[i] = packedStride;
-            if (!checkedAdd(packedStride, elementBytes, &packedStride)) {
-                failReason = "packed-offset overflow";
-                failAttribute = i;
-                return false;
-            }
-            if (componentBytes > largestAlignment) largestAlignment = componentBytes;
-
-            layout.attributes[i] = sourceAttribute;
-        }
-
-        if (!alignSize(packedStride, largestAlignment, &packedStride) || packedStride == 0 ||
-            packedStride > static_cast<size_t>(std::numeric_limits<GLsizei>::max())) {
-            failReason = "final stride invalid";
+        if (!buildCapturedVertexLayout(source, count, &attributes, &layout, &packedOffsets,
+                                       &packedStride, &vertexData, &failure)) {
             return false;
         }
-
-        size_t allocationSize = 0;
-        if (!checkedMultiply(static_cast<size_t>(count), packedStride, &allocationSize)) {
-            failReason = "vertex block size overflow";
-            return false;
-        }
-        vertexData.resize(allocationSize);
-
-        for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
-            if (!attributes[i].enabled) continue;
-            layout.attributes[i].stride = static_cast<GLsizei>(packedStride);
-            layout.attributes[i].pointer = reinterpret_cast<const void*>(packedOffsets[i]);
-        }
-        layout.stride = static_cast<GLsizei>(packedStride);
 
         array_buffer_binding_guard_t bindingState;
         for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
             const auto& attribute = attributes[i];
             if (!attribute.enabled) continue;
-            if (!copyAttribute(attribute, first, packedStride)) {
-                failAttribute = i;
-                failSize = layout.attributes[i].size;
-                failType = layout.attributes[i].type;
-                failStride = layout.attributes[i].stride;
-                failPointer = attribute.sourcePointer;
-                failBuffer = attribute.sourceBuffer;
+            if (!copyCapturedAttribute(attribute, first, count, packedStride, &vertexData,
+                                       &failure)) {
+                failure.attribute = i;
+                failure.size = layout.attributes[i].size;
+                failure.type = layout.attributes[i].type;
+                failure.stride = layout.attributes[i].stride;
+                failure.pointer = attribute.sourcePointer;
+                failure.buffer = attribute.sourceBuffer;
                 return false;
             }
-        }
-        return true;
-    }
-
-    bool copyAttribute(const captured_attribute_t& attribute, GLint first, size_t packedStride) {
-        size_t firstByte = 0;
-        if (!checkedMultiply(static_cast<size_t>(first), attribute.sourceStride, &firstByte) ||
-            !checkedAdd(firstByte, static_cast<size_t>(attribute.sourcePointer), &firstByte)) {
-            return false;
-        }
-
-        size_t lastVertexOffset = 0;
-        size_t sourceEnd = 0;
-        if (!checkedMultiply(static_cast<size_t>(count - 1), attribute.sourceStride, &lastVertexOffset) ||
-            !checkedAdd(firstByte, lastVertexOffset, &sourceEnd) ||
-            !checkedAdd(sourceEnd, attribute.elementSize, &sourceEnd)) {
-            return false;
-        }
-
-        const uint8_t* source = nullptr;
-        void* mappedBuffer = nullptr;
-        if (attribute.sourceBuffer == 0) {
-            // Low values are buffer offsets, not dereferenceable client
-            // addresses. They cannot be captured without the buffer binding
-            // that was active at gl*Pointer time.
-            if (attribute.sourcePointer < 4096) {
-                failReason = "client pointer below 4096 (looks like a buffer offset)";
-                return false;
-            }
-            source = reinterpret_cast<const uint8_t*>(firstByte);
-        } else {
-            if (g_glFuncs.glGetBufferParameteriv == nullptr || g_glFuncs.glMapBufferRange == nullptr ||
-                g_glFuncs.glUnmapBuffer == nullptr) {
-                failReason = "backend has no buffer mapping";
-                return false;
-            }
-
-            g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, attribute.sourceBuffer);
-            GLint bufferSize = 0;
-            g_glFuncs.glGetBufferParameteriv(GL_ARRAY_BUFFER, GL_BUFFER_SIZE, &bufferSize);
-            if (bufferSize <= 0 || sourceEnd > static_cast<size_t>(bufferSize)) {
-                failReason = "source VBO too small for the draw range";
-                failBufferSize = bufferSize;
-                failSourceEnd = sourceEnd;
-                return false;
-            }
-
-            mappedBuffer = g_glFuncs.glMapBufferRange(GL_ARRAY_BUFFER, 0, bufferSize, GL_MAP_READ_BIT);
-            if (mappedBuffer == nullptr) {
-                failReason = "glMapBufferRange(READ) refused by the driver";
-                failBufferSize = bufferSize;
-                return false;
-            }
-            source = static_cast<const uint8_t*>(mappedBuffer) + firstByte;
-        }
-
-        for (GLsizei vertex = 0; vertex < count; ++vertex) {
-            auto* destination = vertexData.data() + static_cast<size_t>(vertex) * packedStride +
-                                attribute.packedOffset;
-            std::memcpy(destination, source + static_cast<size_t>(vertex) * attribute.sourceStride,
-                        attribute.elementSize);
-        }
-
-        if (mappedBuffer != nullptr && g_glFuncs.glUnmapBuffer(GL_ARRAY_BUFFER) == GL_FALSE) {
-            failReason = "glUnmapBuffer reported data loss";
-            return false;
         }
         return true;
     }
@@ -829,6 +869,392 @@ private:
     mutable bool vertexBufferUploaded = false;
 
     friend bool ::tryExecuteCapturedDisplayLists(const GLuint* listIds, size_t listCount);
+};
+
+// glDrawElements / glDrawRangeElements / glMultiDrawElements compiled into a
+// display list (plans/15 15.3). GL 2.1 5.4 dereferences a vertex-array draw's
+// arrays at COMPILE time, so the list has to own a copy of both the vertices
+// and the indices; until this existed, GL_COMPILE drew the geometry
+// immediately and glCallList replayed nothing, with glGetError clean about it.
+//
+// Deliberately WITHOUT captured_draw_arrays_cmd_t's cross-list batching (no
+// tryMerge, no capturedDrawForBatch, no shared arena): that is a performance
+// optimization scoped out of plans/15, so each captured indexed draw simply
+// owns its two buffers - the arrays command's arena-allocation-failed
+// fallback, made the only path.
+class captured_draw_elements_cmd_t final : public GLCmd {
+public:
+    captured_draw_elements_cmd_t(GLenum mode, GLsizei count, GLenum type, const GLvoid* indices,
+                                 const vertex_pointer_array_t& source, GLenum clientActiveTexture)
+        : clientActiveTexture(clientActiveTexture) {
+        valid = capture(mode, count, type, indices, source);
+    }
+
+    ~captured_draw_elements_cmd_t() override {
+        // Cold path (list deletion/re-record): one strict resolve up front,
+        // since destruction can run from entries with no anchor.
+        auto& gs = g_glstate;
+        if ((vertexBuffer == 0 && indexBuffer == 0) || g_glFuncs.glDeleteBuffers == nullptr) return;
+        if ((EGLContext)glstate_t::cached_context() == EGL_NO_CONTEXT) return;
+
+        // Deleting a buffer clears backend VAO/binding references. Scrub the
+        // matching wrapper cache as well so a subsequently recycled GL name
+        // cannot make send_vertex_attributes incorrectly skip its rebind. The
+        // index buffer needs no equivalent: fpe_ibo_bound is already false
+        // wherever this buffer was the bound one (drawElementsNow clears it
+        // when it binds anything that is not fpe_ibo).
+        if (gs.fpe_vertex_binding_valid && gs.fpe_vertex_binding_buffer == vertexBuffer) {
+            gs.fpe_vertex_binding_valid = false;
+        }
+        for (auto& attribute : gs.fpe_vertex_attributes) {
+            if (!attribute.separate_binding && attribute.array_buffer == vertexBuffer) {
+                attribute.pointer_valid = false;
+            }
+        }
+        if (vertexBuffer != 0) {
+            sfpewForgetInternalBuffer(vertexBuffer);
+            g_glFuncs.glDeleteBuffers(1, &vertexBuffer);
+        }
+        if (indexBuffer != 0) {
+            sfpewForgetInternalBuffer(indexBuffer);
+            g_glFuncs.glDeleteBuffers(1, &indexBuffer);
+        }
+    }
+
+    bool isValid() const { return valid; }
+    capture_failure_t failure;
+    bool isCapturedDraw() const override { return true; }
+
+    void execute() const override {
+        if (!valid || drawCount <= 0) return;
+        SFPEW_LISTLOG_TALLY(++g_listLog.replayDraws);
+        SFPEW_LISTLOG_TALLY(g_listLog.vertsDrawn += (unsigned long long)drawCount);
+
+        wrapper_client_state_guard_t wrapperState;
+
+        // Selection/feedback never reaches the backend - drawElementsNow reads
+        // the positions and the index list on the CPU - so uploading either
+        // would only buy itself a readback to undo.
+        const bool cpuOnlyDraw = g_glstate_c.render_mode != GL_RENDER;
+        GLuint replayVertexBuffer = 0;
+        GLuint replayIndexBuffer = 0;
+        const bool useStaticBuffers =
+            !cpuOnlyDraw && uploadStaticBuffers(&replayVertexBuffer, &replayIndexBuffer);
+
+        auto replayState = layout;
+        replayState.starting_pointer = nullptr;
+        replayState.dirty = true;
+        replayState.buffer_based = useStaticBuffers;
+
+        for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
+            if (((replayState.enabled_pointers >> i) & 1u) == 0) continue;
+            replayState.attributes[i].pointer = useStaticBuffers
+                                                    ? reinterpret_cast<const void*>(packedOffsets[i])
+                                                    : vertexData.data() + packedOffsets[i];
+            // Ground truth for classifyClientArrays (plans/13): this bypasses
+            // gl*Pointer, so nothing else records which source this replay's
+            // pointer values are relative to.
+            g_glstate_c.fpe_state.client_array_buffer_bindings[i] =
+                useStaticBuffers ? replayVertexBuffer : 0u;
+        }
+
+        g_glstate_c.fpe_state.vertexpointer_array = replayState;
+        g_glstate_c.fpe_state.normalized_vpa.reset();
+        g_glstate_c.fpe_normalized_valid = false;
+        g_glstate_c.fpe_state.client_active_texture = clientActiveTexture;
+
+        // The index source is the other half of that ground truth, and binding
+        // alone cannot hand it over: drawElementsNow resolves the caller's
+        // index buffer from the deferred-draw / VAO-0 shadows, and those
+        // describe the APP's element binding - a list replayed between two of
+        // the app's own draws would otherwise read its indices out of whatever
+        // buffer the app last bound. It takes the source explicitly instead,
+        // with 0 meaning the client-memory copy handed over with it.
+        drawElementsNow(drawMode, drawCount, drawType,
+                        useStaticBuffers ? nullptr : static_cast<const GLvoid*>(indexData.data()),
+                        true, useStaticBuffers ? static_cast<GLint>(replayIndexBuffer) : 0);
+    }
+
+private:
+    // Both blocks are immutable after glEndList, so they go to device-local
+    // storage once and every later glCallList just draws from them. Uploaded
+    // through GL_COPY_WRITE_BUFFER for the reason the arena documents: it is
+    // not part of vertex-array state, so neither upload can disturb the
+    // caller's GL_ARRAY_BUFFER or (crucially, this being an element buffer)
+    // the current VAO's element binding, and no wrapper shadow can observe it.
+    bool uploadStaticBuffers(GLuint* vertexBufferOut, GLuint* indexBufferOut) const {
+        if (buffersUploaded) {
+            *vertexBufferOut = vertexBuffer;
+            *indexBufferOut = indexBuffer;
+            return true;
+        }
+        if ((!g_glstate_c.fpe_ready && init_fpe() != 0) || g_glFuncs.glGenBuffers == nullptr ||
+            g_glFuncs.glBufferData == nullptr || g_glFuncs.glBindBuffer == nullptr) {
+            SFPEW_LISTLOG_TALLY(++g_listLog.staticFail);
+            return false;
+        }
+
+        if (vertexBuffer == 0) {
+            g_glFuncs.glGenBuffers(1, &vertexBuffer);
+            sfpewNoteInternalBuffer(vertexBuffer);
+        }
+        if (indexBuffer == 0) {
+            g_glFuncs.glGenBuffers(1, &indexBuffer);
+            sfpewNoteInternalBuffer(indexBuffer);
+        }
+        if (vertexBuffer == 0 || indexBuffer == 0) {
+            SFPEW_LISTLOG_TALLY(++g_listLog.staticFail);
+#if SFPEW_LIST_DEBUG
+            if (listLogEnabled() && g_listLog.detailsArena++ < kListLogDetailLimit) {
+                listLogLine(true,
+                            "LISTLOG glGenBuffers returned 0 for an indexed list block "
+                            "(%zu vertex bytes, %zu index bytes)",
+                            vertexData.size(), indexData.size());
+            }
+#endif
+            return false;
+        }
+
+        g_glFuncs.glBindBuffer(GL_COPY_WRITE_BUFFER, vertexBuffer);
+        g_glFuncs.glBufferData(GL_COPY_WRITE_BUFFER, static_cast<GLsizeiptr>(vertexData.size()),
+                               vertexData.data(), GL_STATIC_DRAW);
+        g_glFuncs.glBindBuffer(GL_COPY_WRITE_BUFFER, indexBuffer);
+        g_glFuncs.glBufferData(GL_COPY_WRITE_BUFFER, static_cast<GLsizeiptr>(indexData.size()),
+                               indexData.data(), GL_STATIC_DRAW);
+        g_glFuncs.glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
+
+        buffersUploaded = true;
+        SFPEW_LISTLOG_TALLY(++g_listLog.dedicated);
+        *vertexBufferOut = vertexBuffer;
+        *indexBufferOut = indexBuffer;
+        return true;
+    }
+
+    bool capture(GLenum mode, GLsizei count, GLenum type, const GLvoid* indices,
+                 const vertex_pointer_array_t& source) {
+        if (count <= 0) {
+            failure.reason = "count<=0";
+            return false;
+        }
+        // The replay draws through the fixed-function path, which needs a
+        // position array; without one there is nothing to snapshot.
+        if (((source.enabled_pointers >> vp2idx(GL_VERTEX_ARRAY)) & 1u) == 0) {
+            failure.reason = "GL_VERTEX_ARRAY disabled";
+            return false;
+        }
+
+        GLint baseVertex = 0;
+        GLsizei vertexSpan = 0;
+        if (!captureIndices(mode, count, type, indices, &baseVertex, &vertexSpan)) return false;
+
+        std::array<captured_attribute_t, VERTEX_POINTER_COUNT> attributes{};
+        size_t packedStride = 0;
+        if (!buildCapturedVertexLayout(source, vertexSpan, &attributes, &layout, &packedOffsets,
+                                       &packedStride, &vertexData, &failure)) {
+            return false;
+        }
+
+        array_buffer_binding_guard_t bindingState;
+        for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
+            const auto& attribute = attributes[i];
+            if (!attribute.enabled) continue;
+            if (!copyCapturedAttribute(attribute, baseVertex, vertexSpan, packedStride, &vertexData,
+                                       &failure)) {
+                failure.attribute = i;
+                failure.size = layout.attributes[i].size;
+                failure.type = layout.attributes[i].type;
+                failure.stride = layout.attributes[i].stride;
+                failure.pointer = attribute.sourcePointer;
+                failure.buffer = attribute.sourceBuffer;
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // Pulls the index list to the CPU and rebases it onto the vertex block the
+    // caller is about to pack, reporting that block's range through
+    // `baseVertex`/`vertexSpan`.
+    //
+    // The range comes from the indices themselves rather than from
+    // glDrawRangeElements' start/end: those are a PROMISE about the values (an
+    // index outside them is undefined behavior, and the immediate path does
+    // not check them either), while the scan is exact - which matters here in
+    // a way it never does for an immediate draw, because the captured block is
+    // SIZED by it. Rebasing by the smallest index is what keeps a list that
+    // draws vertices 60000..60100 of a large array from capturing 60101 of
+    // them; the values only shrink, so they still fit the type they came in.
+    bool captureIndices(GLenum mode, GLsizei count, GLenum type, const GLvoid* indices,
+                        GLint* baseVertex, GLsizei* vertexSpan) {
+        const bool indexType =
+            type == GL_UNSIGNED_BYTE || type == GL_UNSIGNED_SHORT || type == GL_UNSIGNED_INT;
+        const size_t indexSize = indexType ? componentSize(type) : 0;
+        if (indexSize == 0) {
+            failure.reason = "index type is not GL_UNSIGNED_BYTE/SHORT/INT";
+            failure.type = type;
+            return false;
+        }
+
+        size_t indexBytes = 0;
+        if (!checkedMultiply(static_cast<size_t>(count), indexSize, &indexBytes)) {
+            failure.reason = "index block size overflow";
+            return false;
+        }
+
+        // Ground truth for where the indices live - the same shadow-resolved
+        // binding the immediate path uses, never the pointer's magnitude
+        // (plans/13).
+        const GLint elementBuffer = sfpewResolveElementArrayBinding();
+        std::vector<uint8_t> readback;
+        const uint8_t* rawIndices = nullptr;
+        if (elementBuffer == 0) {
+            if (indices == nullptr) {
+                failure.reason = "client index pointer is null";
+                return false;
+            }
+            rawIndices = static_cast<const uint8_t*>(indices);
+        } else {
+            if (g_glFuncs.glGetBufferParameteriv == nullptr ||
+                g_glFuncs.glMapBufferRange == nullptr || g_glFuncs.glUnmapBuffer == nullptr) {
+                failure.reason = "backend has no buffer mapping";
+                return false;
+            }
+            // Hand the app its own state back before reading through the
+            // element binding: an earlier fixed-function draw in this list may
+            // still be holding the wrapper's VAO, and the wrapper's element
+            // buffer with it, over the binding just resolved.
+            sfpewFlushDeferredDrawState();
+
+            const size_t offset = reinterpret_cast<uintptr_t>(indices);
+            size_t sourceEnd = 0;
+            if (!checkedAdd(offset, indexBytes, &sourceEnd)) {
+                failure.reason = "index source range overflow";
+                return false;
+            }
+            GLint bufferSize = 0;
+            g_glFuncs.glGetBufferParameteriv(GL_ELEMENT_ARRAY_BUFFER, GL_BUFFER_SIZE, &bufferSize);
+            if (bufferSize <= 0 || sourceEnd > static_cast<size_t>(bufferSize)) {
+                failure.reason = "source index VBO too small for the draw range";
+                failure.buffer = static_cast<GLuint>(elementBuffer);
+                failure.bufferSize = bufferSize;
+                failure.sourceEnd = sourceEnd;
+                return false;
+            }
+            void* mapped =
+                g_glFuncs.glMapBufferRange(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLintptr>(offset),
+                                           static_cast<GLsizeiptr>(indexBytes), GL_MAP_READ_BIT);
+            if (mapped == nullptr) {
+                failure.reason = "glMapBufferRange(READ) refused for the index buffer";
+                failure.buffer = static_cast<GLuint>(elementBuffer);
+                return false;
+            }
+            readback.assign(static_cast<const uint8_t*>(mapped),
+                            static_cast<const uint8_t*>(mapped) + indexBytes);
+            if (g_glFuncs.glUnmapBuffer(GL_ELEMENT_ARRAY_BUFFER) == GL_FALSE) {
+                failure.reason = "glUnmapBuffer reported index data loss";
+                return false;
+            }
+            rawIndices = readback.data();
+        }
+
+        // Widened for the scan and the rebase, then written back in the type
+        // it arrived in. memcpy per element: a client array is only aligned to
+        // its own index type, and nothing promises the caller's pointer is
+        // aligned even to that.
+        std::vector<uint32_t> values(static_cast<size_t>(count));
+        for (size_t i = 0; i < values.size(); ++i) {
+            switch (indexSize) {
+            case 1:
+                values[i] = rawIndices[i];
+                break;
+            case 2: {
+                uint16_t value = 0;
+                std::memcpy(&value, rawIndices + i * sizeof(value), sizeof(value));
+                values[i] = value;
+                break;
+            }
+            default: {
+                uint32_t value = 0;
+                std::memcpy(&value, rawIndices + i * sizeof(value), sizeof(value));
+                values[i] = value;
+                break;
+            }
+            }
+        }
+
+        uint32_t smallest = std::numeric_limits<uint32_t>::max();
+        uint32_t largest = 0;
+        for (const uint32_t value : values) {
+            smallest = std::min(smallest, value);
+            largest = std::max(largest, value);
+        }
+        if (largest >= static_cast<uint32_t>(std::numeric_limits<GLsizei>::max())) {
+            failure.reason = "index value exceeds GLsizei";
+            return false;
+        }
+        *baseVertex = static_cast<GLint>(smallest);
+        *vertexSpan = static_cast<GLsizei>(largest - smallest + 1u);
+        for (uint32_t& value : values) value -= smallest;
+
+        if (mode == GL_QUADS) {
+            // The same expansion, and the same GL_UNSIGNED_INT promotion, the
+            // immediate path applies (drawElementsNow) - done once here rather
+            // than on every replay, which is what compiling a list is for. The
+            // one thing this gives up is that a replay under differing
+            // front/back polygon modes outlines the triangles instead of the
+            // quads they came from.
+            std::vector<uint32_t> expanded;
+            expandQuadIndices(values.data(), values.size() / 4u, expanded);
+            if (expanded.size() > static_cast<size_t>(std::numeric_limits<GLsizei>::max())) {
+                failure.reason = "expanded quad index count exceeds GLsizei";
+                return false;
+            }
+            indexData.resize(expanded.size() * sizeof(uint32_t));
+            // An incomplete trailing quad leaves nothing to draw, the same
+            // way the immediate path drops it; execute() short-circuits on
+            // the zero count rather than issuing an empty draw.
+            if (!expanded.empty())
+                std::memcpy(indexData.data(), expanded.data(), indexData.size());
+            drawMode = GL_TRIANGLES;
+            drawType = GL_UNSIGNED_INT;
+            drawCount = static_cast<GLsizei>(expanded.size());
+            return true;
+        }
+
+        indexData.resize(indexBytes);
+        for (size_t i = 0; i < values.size(); ++i) {
+            switch (indexSize) {
+            case 1:
+                indexData[i] = static_cast<uint8_t>(values[i]);
+                break;
+            case 2: {
+                const uint16_t value = static_cast<uint16_t>(values[i]);
+                std::memcpy(indexData.data() + i * sizeof(value), &value, sizeof(value));
+                break;
+            }
+            default:
+                std::memcpy(indexData.data() + i * sizeof(uint32_t), &values[i], sizeof(uint32_t));
+                break;
+            }
+        }
+        drawMode = mode;
+        drawType = type;
+        drawCount = count;
+        return true;
+    }
+
+    GLenum drawMode = GL_TRIANGLES;
+    GLenum drawType = GL_UNSIGNED_SHORT;
+    GLsizei drawCount = 0;
+    GLenum clientActiveTexture;
+    bool valid = false;
+    vertex_pointer_array_t layout{};
+    std::array<size_t, VERTEX_POINTER_COUNT> packedOffsets{};
+    std::vector<uint8_t> vertexData;
+    std::vector<uint8_t> indexData;
+    mutable GLuint vertexBuffer = 0;
+    mutable GLuint indexBuffer = 0;
+    mutable bool buffersUploaded = false;
 };
 
 constexpr size_t kCapturedDisplayListBatchCacheSize = 4;
@@ -1140,6 +1566,117 @@ bool tryExecuteCapturedDisplayLists(const GLuint* listIds, size_t listCount) {
     return executed;
 }
 
+// The capture half of glDrawArrays on its own, because glMultiDrawArrays is
+// n glDrawArrays calls as far as recording is concerned and has to record
+// each sub-draw exactly the same way (plans/15 15.1). Callers own the
+// shouldRecord()/shouldFinish() test and the entry barrier around it.
+void sfpewRecordCapturedDrawArrays(GLenum mode, GLint first, GLsizei count) {
+    std::unique_ptr<GLCmd> command;
+
+    const GLint currentProgram = sfpewLogicalProgram();
+    const auto& vertexArray = g_glstate_c.fpe_state.vertexpointer_array;
+    const uint32_t vertexArrayMask = 1u << vp2idx(GL_VERTEX_ARRAY);
+
+    if (currentProgram == 0 && first >= 0 && count > 0 &&
+        (vertexArray.enabled_pointers & vertexArrayMask) != 0) {
+        auto captured = std::make_unique<captured_draw_arrays_cmd_t>(
+            mode, first, count, vertexArray, g_glstate_c.fpe_state.client_active_texture);
+        if (captured->isValid()) {
+            SFPEW_LISTLOG_TALLY(++g_listLog.captureOk);
+            SFPEW_LISTLOG_TALLY(g_listLog.vertsCompiled += (unsigned long long)count);
+            command = std::move(captured);
+        } else {
+            SFPEW_LISTLOG_TALLY(++g_listLog.captureFail);
+#if SFPEW_LIST_DEBUG
+            if (listLogEnabled() && g_listLog.detailsCapture++ < kListLogDetailLimit) {
+                const auto& failure = captured->failure;
+                const auto& vp =
+                    vertexArray.attributes[failure.attribute >= 0 ? failure.attribute : 0];
+                listLogLine(true, "LISTLOG DROP capture failed: list=%u mode=0x%x first=%d count=%d "
+                           "enabled=0x%x stride=%d | reason=%s attr=%d size=%d type=0x%x "
+                           "attrStride=%d ptr=%p buf=%u bufSize=%d needEnd=%zu",
+                           DisplayListManager::currentList(), mode, first, count,
+                           vertexArray.enabled_pointers, vertexArray.stride, failure.reason,
+                           failure.attribute, failure.size, failure.type, failure.stride,
+                           failure.pointer != 0 ? (const void*)failure.pointer : vp.pointer,
+                           failure.buffer, failure.bufferSize, failure.sourceEnd);
+            }
+#endif
+        }
+    } else {
+        SFPEW_LISTLOG_TALLY(++g_listLog.preconditionSkip);
+#if SFPEW_LIST_DEBUG
+        if (listLogEnabled() && g_listLog.detailsPrecondition++ < kListLogDetailLimit) {
+            listLogLine(true, "LISTLOG DROP not capturable: list=%u mode=0x%x first=%d count=%d "
+                       "program=%d enabled=0x%x (GL_VERTEX_ARRAY %s)",
+                       DisplayListManager::currentList(), mode, first, count, currentProgram,
+                       vertexArray.enabled_pointers,
+                       (vertexArray.enabled_pointers & vertexArrayMask) ? "on" : "OFF");
+        }
+#endif
+    }
+
+    // Never retain the caller's raw client-array pointers in a display
+    // list. If a fixed-function draw cannot be snapshotted, omitting the
+    // command is safer than replaying stale Java/LWJGL memory later.
+    if (command != nullptr) displayListManager.recordCommand(std::move(command));
+}
+
+// Same contract for the indexed draws (plans/15 15.3/15.4): the caller owns
+// the shouldRecord()/shouldFinish() test and the entry barrier, and
+// glDrawRangeElements passes its own arguments straight through - the capture
+// derives the vertex range from the indices, so start/end have nothing to add.
+void sfpewRecordCapturedDrawElements(GLenum mode, GLsizei count, GLenum type,
+                                     const GLvoid* indices) {
+    std::unique_ptr<GLCmd> command;
+
+    const GLint currentProgram = sfpewLogicalProgram();
+    const auto& vertexArray = g_glstate_c.fpe_state.vertexpointer_array;
+    const uint32_t vertexArrayMask = 1u << vp2idx(GL_VERTEX_ARRAY);
+
+    if (currentProgram == 0 && count > 0 &&
+        (vertexArray.enabled_pointers & vertexArrayMask) != 0) {
+        auto captured = std::make_unique<captured_draw_elements_cmd_t>(
+            mode, count, type, indices, vertexArray,
+            g_glstate_c.fpe_state.client_active_texture);
+        if (captured->isValid()) {
+            SFPEW_LISTLOG_TALLY(++g_listLog.captureOk);
+            SFPEW_LISTLOG_TALLY(g_listLog.vertsCompiled += (unsigned long long)count);
+            command = std::move(captured);
+        } else {
+            SFPEW_LISTLOG_TALLY(++g_listLog.captureFail);
+#if SFPEW_LIST_DEBUG
+            if (listLogEnabled() && g_listLog.detailsCapture++ < kListLogDetailLimit) {
+                const auto& failure = captured->failure;
+                const auto& vp =
+                    vertexArray.attributes[failure.attribute >= 0 ? failure.attribute : 0];
+                listLogLine(true, "LISTLOG DROP indexed capture failed: list=%u mode=0x%x count=%d "
+                           "type=0x%x indices=%p enabled=0x%x | reason=%s attr=%d size=%d "
+                           "type=0x%x attrStride=%d ptr=%p buf=%u bufSize=%d needEnd=%zu",
+                           DisplayListManager::currentList(), mode, count, type, indices,
+                           vertexArray.enabled_pointers, failure.reason, failure.attribute,
+                           failure.size, failure.type, failure.stride,
+                           failure.pointer != 0 ? (const void*)failure.pointer : vp.pointer,
+                           failure.buffer, failure.bufferSize, failure.sourceEnd);
+            }
+#endif
+        }
+    } else {
+        SFPEW_LISTLOG_TALLY(++g_listLog.preconditionSkip);
+#if SFPEW_LIST_DEBUG
+        if (listLogEnabled() && g_listLog.detailsPrecondition++ < kListLogDetailLimit) {
+            listLogLine(true, "LISTLOG DROP indexed draw not capturable: list=%u mode=0x%x "
+                       "count=%d program=%d enabled=0x%x (GL_VERTEX_ARRAY %s)",
+                       DisplayListManager::currentList(), mode, count, currentProgram,
+                       vertexArray.enabled_pointers,
+                       (vertexArray.enabled_pointers & vertexArrayMask) ? "on" : "OFF");
+        }
+#endif
+    }
+
+    if (command != nullptr) displayListManager.recordCommand(std::move(command));
+}
+
 void glDrawArrays(GLenum mode, GLint first, GLsizei count) {
     if (!sfpewEnsureBackend()) return;
     (void)g_glstate; // entry strict resolve; commit/capture path reads the snapshot
@@ -1152,59 +1689,7 @@ void glDrawArrays(GLenum mode, GLint first, GLsizei count) {
     if (sfpewLogicalProgram() != 0 || DisplayListManager::shouldRecord())
         sfpewFlushDeferredDrawState();
     if (!disableRecording && DisplayListManager::shouldRecord()) {
-        std::unique_ptr<GLCmd> command;
-
-        const GLint currentProgram = sfpewLogicalProgram();
-        const auto& vertexArray = g_glstate_c.fpe_state.vertexpointer_array;
-        const uint32_t vertexArrayMask = 1u << vp2idx(GL_VERTEX_ARRAY);
-
-        if (currentProgram == 0 && first >= 0 && count > 0 &&
-            (vertexArray.enabled_pointers & vertexArrayMask) != 0) {
-            auto captured = std::make_unique<captured_draw_arrays_cmd_t>(
-                mode, first, count, vertexArray, g_glstate_c.fpe_state.client_active_texture);
-            if (captured->isValid()) {
-                SFPEW_LISTLOG_TALLY(++g_listLog.captureOk);
-                SFPEW_LISTLOG_TALLY(g_listLog.vertsCompiled += (unsigned long long)count);
-                command = std::move(captured);
-            } else {
-                SFPEW_LISTLOG_TALLY(++g_listLog.captureFail);
-#if SFPEW_LIST_DEBUG
-                if (listLogEnabled() && g_listLog.detailsCapture++ < kListLogDetailLimit) {
-                    const auto& vp = vertexArray.attributes[captured->failAttribute >= 0
-                                                                ? captured->failAttribute
-                                                                : 0];
-                    listLogLine(true, "LISTLOG DROP capture failed: list=%u mode=0x%x first=%d count=%d "
-                               "enabled=0x%x stride=%d | reason=%s attr=%d size=%d type=0x%x "
-                               "attrStride=%d ptr=%p buf=%u bufSize=%d needEnd=%zu",
-                               DisplayListManager::currentList(), mode, first, count,
-                               vertexArray.enabled_pointers, vertexArray.stride,
-                               captured->failReason, captured->failAttribute, captured->failSize,
-                               captured->failType, captured->failStride,
-                               captured->failPointer != 0 ? (const void*)captured->failPointer
-                                                          : vp.pointer,
-                               captured->failBuffer, captured->failBufferSize,
-                               captured->failSourceEnd);
-                }
-#endif
-            }
-        } else {
-            SFPEW_LISTLOG_TALLY(++g_listLog.preconditionSkip);
-#if SFPEW_LIST_DEBUG
-            if (listLogEnabled() && g_listLog.detailsPrecondition++ < kListLogDetailLimit) {
-                listLogLine(true, "LISTLOG DROP not capturable: list=%u mode=0x%x first=%d count=%d "
-                           "program=%d enabled=0x%x (GL_VERTEX_ARRAY %s)",
-                           DisplayListManager::currentList(), mode, first, count, currentProgram,
-                           vertexArray.enabled_pointers,
-                           (vertexArray.enabled_pointers & vertexArrayMask) ? "on" : "OFF");
-            }
-#endif
-        }
-
-        // Never retain the caller's raw client-array pointers in a display
-        // list. If a fixed-function draw cannot be snapshotted, omitting the
-        // command is safer than replaying stale Java/LWJGL memory later.
-        if (command != nullptr) displayListManager.recordCommand(std::move(command));
-
+        sfpewRecordCapturedDrawArrays(mode, first, count);
         if (DisplayListManager::shouldFinish()) return;
     }
 

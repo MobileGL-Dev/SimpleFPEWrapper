@@ -349,21 +349,6 @@ void copyIndicesToUint32(const uint8_t* source, size_t count, GLenum type,
     }
 }
 
-template <typename T>
-void expandQuadIndices(const T* src, size_t quadCount, std::vector<uint32_t>& out) {
-    out.resize(quadCount * 6u);
-    for (size_t q = 0; q < quadCount; ++q) {
-        const uint32_t i0 = src[q * 4 + 0], i1 = src[q * 4 + 1];
-        const uint32_t i2 = src[q * 4 + 2], i3 = src[q * 4 + 3];
-        out[q * 6 + 0] = i0;
-        out[q * 6 + 1] = i1;
-        out[q * 6 + 2] = i2;
-        out[q * 6 + 3] = i2;
-        out[q * 6 + 4] = i3;
-        out[q * 6 + 5] = i0;
-    }
-}
-
 // FPE conversion for glDrawElements (plans/02 section B): mirrors the
 // glDrawArrays interception - only program 0 with an enabled legacy vertex
 // array is converted, everything else passes through untouched.
@@ -650,20 +635,27 @@ bool passthroughLegacyDrawElements(GLenum mode, GLsizei count, GLenum type,
 // per sub-draw as its loop fallback, so it needs external linkage rather than
 // staying confined to this file's anonymous namespace (mirrors drawArraysNow
 // above).
-void drawElementsNow(GLenum mode, GLsizei count, GLenum type, const GLvoid* indices) {
+void drawElementsNow(GLenum mode, GLsizei count, GLenum type, const GLvoid* indices,
+                     bool forceFixedFunction, GLint elementBufferOverride) {
     const GLint current_program = sfpewLogicalProgram();
     const auto& vertex_array = g_glstate_c.fpe_state.vertexpointer_array;
     const uint32_t vertex_array_mask = 1u << vp2idx(GL_VERTEX_ARRAY);
+    // A captured display-list replay owns the arrays it just installed and
+    // draws them through the fixed-function pipeline whatever program the app
+    // has bound now, exactly as drawArraysNow's forceFixedFunction does - the
+    // user-program branches below would hand the app's state back and lose the
+    // replay's own element binding with it.
+    const bool app_program_draw = !forceFixedFunction && current_program != 0;
 
     if (g_glstate_c.render_mode != GL_RENDER &&
-        (current_program != 0 || !(vertex_array.enabled_pointers & vertex_array_mask))) {
+        (app_program_draw || !(vertex_array.enabled_pointers & vertex_array_mask))) {
         sfpewFlushDeferredDrawState();
         SFPEW_LOGW(
             "selection: draw elements skipped because no fixed-function vertex transform is available");
         return;
     }
 
-    if (current_program != 0 || !(vertex_array.enabled_pointers & vertex_array_mask)) {
+    if (app_program_draw || !(vertex_array.enabled_pointers & vertex_array_mask)) {
         // These paths draw with the app's own program/VAO/element state; the
         // glDrawElements entry no longer restores it for fixed-function
         // draws, so it must come back before anything reaches the backend.
@@ -697,8 +689,9 @@ void drawElementsNow(GLenum mode, GLsizei count, GLenum type, const GLvoid* indi
         // in an array buffer, so read each source while the app's bindings are
         // restored and never submit the draw to the backend.
         sfpewFlushDeferredDrawState();
-        GLint element_buffer = 0;
-        g_glFuncs.glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &element_buffer);
+        GLint element_buffer = elementBufferOverride;
+        if (element_buffer < 0)
+            g_glFuncs.glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &element_buffer);
 
         const uint64_t index_bytes = static_cast<uint64_t>(count) * index_size;
         const uint64_t index_offset = reinterpret_cast<uintptr_t>(indices);
@@ -775,26 +768,11 @@ void drawElementsNow(GLenum mode, GLsizei count, GLenum type, const GLvoid* indi
         return;
     }
 
-    // The caller's element-array binding is VAO state. Resolve it from the
-    // wrapper's shadows instead of a synchronous glGetIntegerv per draw:
-    // while a fixed-function draw holds the app's state the held snapshot
-    // has it, and outside that VAO 0's binding is shadowed (healed every
-    // 256 draws by the guard). The leftover cases - app VAO unknown or
-    // non-zero - restore and take the real query.
-    GLint element_buffer = 0;
-    {
-        auto& gsc = g_glstate_c;
-        if (gsc.deferred_draw.held && gsc.deferred_draw.vertex_array == 0 &&
-            gsc.deferred_draw.element_array_buffer >= 0) {
-            element_buffer = gsc.deferred_draw.element_array_buffer;
-        } else if (!gsc.deferred_draw.held && gsc.backend_vao_known &&
-                   gsc.backend_vao_binding == 0 && gsc.backend_vao0_element_known) {
-            element_buffer = gsc.backend_vao0_element_binding;
-        } else {
-            sfpewFlushDeferredDrawState();
-            g_glFuncs.glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &element_buffer);
-        }
-    }
+    // Where this draw's indices live. A display-list replay names its own
+    // index buffer; everyone else asks for the caller's element-array binding
+    // (fpe.hpp, shared with the capture path so the two cannot disagree).
+    const GLint element_buffer =
+        elementBufferOverride >= 0 ? elementBufferOverride : sfpewResolveElementArrayBinding();
 
     // Legacy modes: GL_QUADS needs index rewriting; the strip/fan quads
     // modes are vertex-order compatible with core modes.
@@ -1014,16 +992,40 @@ void drawElementsNow(GLenum mode, GLsizei count, GLenum type, const GLvoid* indi
     g_glFuncs.glDrawElements(draw_mode, draw_count, draw_type, draw_indices);
 }
 
-void glDrawElements(GLenum mode, GLsizei count, GLenum type, const GLvoid* indices) {
+namespace {
+
+// glDrawElements and glDrawRangeElements are one entry point under two names
+// as far as the wrapper is concerned, so they share one body rather than two
+// copies of a display-list gate that would have to stay identical.
+void drawElementsEntry(GLenum mode, GLsizei count, GLenum type, const GLvoid* indices) {
     if (!sfpewEnsureBackend()) return;
-    (void)g_glstate; // entry strict resolve; commit path reads the snapshot
+    (void)g_glstate; // entry strict resolve; commit/capture path reads the snapshot
     // Same contract as glDrawArrays: a fixed-function draw re-establishes
-    // the wrapper's state itself; only user-program draws consume the app's.
+    // the wrapper's state itself; only user-program draws consume the app's -
+    // and recording, whose capture reads the caller's arrays and index buffer
+    // through the app's own bindings and so needs them live.
     flushPendingImmediateDraws();
-    if (sfpewLogicalProgram() != 0) sfpewFlushDeferredDrawState();
-    // Display-list capture of indexed draws lands with plans/06; while
-    // recording, execution matches the previous passthrough behavior.
+    if (sfpewLogicalProgram() != 0 || DisplayListManager::shouldRecord())
+        sfpewFlushDeferredDrawState();
+
+    // GL 2.1 5.4: under GL_COMPILE the draw belongs in the list, with both its
+    // arrays and its indices dereferenced now (plans/15 15.4). Until this was
+    // here the draw went straight to the screen and the list came out empty.
+    // A capture that cannot be taken records nothing and the GL_COMPILE case
+    // still returns: omitting the geometry beats replaying whatever the
+    // caller's pointers point at by then, which is what glDrawArrays does too.
+    if (!disableRecording && DisplayListManager::shouldRecord()) {
+        sfpewRecordCapturedDrawElements(mode, count, type, indices);
+        if (DisplayListManager::shouldFinish()) return;
+    }
+
     drawElementsNow(mode, count, type, indices);
+}
+
+} // namespace
+
+void glDrawElements(GLenum mode, GLsizei count, GLenum type, const GLvoid* indices) {
+    drawElementsEntry(mode, count, type, indices);
 }
 
 // GL 1.2 core. start/end are a promise about the index range, not state, so
@@ -1034,11 +1036,10 @@ void glDrawElements(GLenum mode, GLsizei count, GLenum type, const GLvoid* indic
 // this way kept a stale alpha-test state.
 void glDrawRangeElements(GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type,
                          const GLvoid* indices) {
+    // The recording path has no use for them either: it derives the captured
+    // vertex range by scanning the indices, which is exact where start/end are
+    // only a promise an app is free to break (plans/15 15.3).
     (void)start;
     (void)end;
-    if (!sfpewEnsureBackend()) return;
-    (void)g_glstate; // entry strict resolve, matching glDrawElements
-    flushPendingImmediateDraws();
-    if (sfpewLogicalProgram() != 0) sfpewFlushDeferredDrawState();
-    drawElementsNow(mode, count, type, indices);
+    drawElementsEntry(mode, count, type, indices);
 }

@@ -95,7 +95,7 @@ protected:
         clear_color_(0.0f, 0.0f, 0.0f, 1.0f);
     }
 
-    // Six faces, six solid distinguishable colours.
+    // Six faces, six solid distinguishable colors.
     GLuint MakeCubeMap() {
         static constexpr GLubyte kFaceColor[6][4] = {
             {255, 0, 0, 255},   // +X red

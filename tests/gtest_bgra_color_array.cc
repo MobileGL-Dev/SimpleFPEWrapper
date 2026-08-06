@@ -14,12 +14,12 @@
 //
 // GLES has no such format, so the wrapper hands the driver a plain
 // four-component array and undoes the order in the generated shader. A
-// desktop GL backend takes GL_BGRA itself. Either way the drawn colour must
+// desktop GL backend takes GL_BGRA itself. Either way the drawn color must
 // be the one the application described, which is what this checks: the same
 // bytes are drawn twice, once declared BGRA and once RGBA, and the two must
 // come out as each other's channel swap.
 //
-// The probe colours keep R == B out of the picture on purpose - a swap has to
+// The probe colors keep R == B out of the picture on purpose - a swap has to
 // be visible - so this test would fail on a driver that swaps R and B behind
 // our back. That is the point.
 
@@ -83,19 +83,19 @@ TEST_F(BgraColorArrayTest, ComponentOrderSurvivesTheDraw) {
     finish();
     const PixelProbe::Rgba p1 = probe.At(32, 32);
     EXPECT_TRUE(p1.r > 200 && p1.g <= 50 && p1.b <= 50)
-        << "GL_BGRA colour array must reach the shader in B,G,R,A order: (" << (int)p1.r << ','
+        << "GL_BGRA color array must reach the shader in B,G,R,A order: (" << (int)p1.r << ','
         << (int)p1.g << ',' << (int)p1.b << ')';
 
     // The same bytes declared the ordinary way must come out the other way
     // round, which is what makes the check above about the ORDER and not
-    // about the wrapper drawing some fixed colour.
+    // about the wrapper drawing some fixed color.
     color_pointer(4, GL_UNSIGNED_BYTE_, 0, packed);
     clear(GL_COLOR_BUFFER_BIT_);
     draw_arrays(GL_TRIANGLES_, 0, 6);
     finish();
     const PixelProbe::Rgba p2 = probe.At(32, 32);
     EXPECT_TRUE(p2.r <= 50 && p2.g <= 50 && p2.b > 200)
-        << "the same bytes as RGBA must draw the swapped colour: (" << (int)p2.r << ',' << (int)p2.g
+        << "the same bytes as RGBA must draw the swapped color: (" << (int)p2.r << ',' << (int)p2.g
         << ',' << (int)p2.b << ')';
 
     // Back to BGRA: the two must not share a generated program, and the

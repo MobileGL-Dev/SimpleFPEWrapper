@@ -2004,12 +2004,12 @@ void add_fs_body(const fixed_function_state_t& state, scratch_t& scratch, std::s
     }
 
     // GL_COLOR_SUM (GL 1.4 / EXT_secondary_color, spec 3.9.1): the secondary
-    // colour adds into RGB only, after texturing, before fog. Alpha is
+    // color adds into RGB only, after texturing, before fog. Alpha is
     // untouched - glSecondaryColor3* has no alpha component; the spec fixes
     // it at 1.0 for exactly this reason. Guarded on has_secondary_color_input
     // too: with COLOR_SUM enabled but no glSecondaryColor3*/Pointer call
     // ever made, add_vs_inout never declares vertexSecColor at all (nothing
-    // fed attribute slot 6), and the GL default secondary colour is
+    // fed attribute slot 6), and the GL default secondary color is
     // {0,0,0,1} anyway - adding it would be a no-op, so skip the reference
     // rather than emit an undeclared identifier.
     if (state.fpe_bools.color_sum_enable && scratch.has_secondary_color_input) {

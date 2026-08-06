@@ -264,7 +264,7 @@ TEST_F(PointSpriteTest, FadeThresholdDimsPointsBelowThresholdSize) {
     // z=0), but this one needs eye-space distances out to 6.0. Give this
     // test its own orthographic projection (x/y scale is untouched by
     // near/far, so NDC.xy stays 0 for a vertex at object-space (0,0,z)
-    // regardless of z, matching every other test's window-centre sampling).
+    // regardless of z, matching every other test's window-center sampling).
     auto ortho = Get<void (*)(sfpew_test::GLdouble, sfpew_test::GLdouble, sfpew_test::GLdouble,
                               sfpew_test::GLdouble, sfpew_test::GLdouble, sfpew_test::GLdouble)>(
         "glOrtho");
@@ -296,7 +296,7 @@ TEST_F(PointSpriteTest, FadeThresholdDimsPointsBelowThresholdSize) {
     // Close: distance 1.5 -> derived 16px, well above the 8px threshold -
     // fully lit, no fade. Both cases keep the rasterized point several
     // pixels wide (not shrunk to a near-invisible dot), so sampling dead
-    // centre reliably lands inside it either way.
+    // center reliably lands inside it either way.
     const auto near_red = draw_at(1.5f);
     // Far: distance 6.0 -> derived 4px, half the threshold - alpha scales
     // by (4/8)^2 = 0.25, faded toward the black background but still a

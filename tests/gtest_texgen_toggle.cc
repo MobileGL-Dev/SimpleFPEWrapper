@@ -17,7 +17,7 @@
 //
 // The texture has a red left half and a blue right half. The vertex texcoords
 // address the red half; the object-linear texgen planes address the blue
-// half. Which colour appears IS which program ran, so the off -> on -> off
+// half. Which color appears IS which program ran, so the off -> on -> off
 // sequence checks the cache notices both edges.
 
 #include "sfpew_gtest.h"

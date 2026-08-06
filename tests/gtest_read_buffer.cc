@@ -189,10 +189,10 @@ TEST_F(ReadBufferFboTest, SelectedAttachmentIsWhatReadPixelsActuallyReturns) {
     MakeAttachedTexture(fbo, GL_COLOR_ATTACHMENT1_);
     ASSERT_EQ(check_framebuffer_(GL_FRAMEBUFFER_), GL_FRAMEBUFFER_COMPLETE_);
 
-    // Clear each attachment to a distinct colour by selecting it as the
+    // Clear each attachment to a distinct color by selecting it as the
     // sole draw buffer first - avoids needing a multi-output fragment
     // shader (the FPE uber-shader only ever writes one), so this test
-    // isolates glReadBuffer's own behaviour from FPE draw output entirely.
+    // isolates glReadBuffer's own behavior from FPE draw output entirely.
     draw_buffer_(GL_COLOR_ATTACHMENT0_);
     clear_color_(1.0f, 0.0f, 0.0f, 1.0f);
     clear_(GL_COLOR_BUFFER_BIT_);

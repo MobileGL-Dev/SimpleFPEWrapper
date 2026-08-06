@@ -357,7 +357,7 @@ void glReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format
                   GLvoid* pixels) {
     if (!sfpewEnsureBackend() || g_glFuncs.glReadPixels == nullptr) return;
     sfpewEntryBarrier();
-    // defects-plan-3.md: full GL 2.1 3.6.3 pixel transfer for colour reads
+    // defects-plan-3.md: full GL 2.1 3.6.3 pixel transfer for color reads
     // (scale/bias/map, then whatever ARB_imaging stages are active -
     // supersedes sfpewImagingReadPixels, which only ever ran the second
     // half); GL_DEPTH_SCALE/BIAS for depth reads. Both return false
@@ -407,7 +407,7 @@ void glUseProgram(GLuint program) {
 // shadow lets glPushAttrib(GL_COLOR_BUFFER_BIT) restore it (legacy
 // Minecraft brackets GUI and item rendering that way, and a leaked blend
 // function corrupts every later translucent draw).
-// Blend, colour mask, depth range, hint, pixel store and texture parameters
+// Blend, color mask, depth range, hint, pixel store and texture parameters
 // take the flush-only barrier: all of them are server or CPU state that
 // neither reads nor writes the program, VAO or buffer bindings, and a
 // renderer changes blending and texture filtering between draws constantly.

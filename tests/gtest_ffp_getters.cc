@@ -124,7 +124,7 @@ void SweepEveryStateVariable(const Queries& q) {
             ADD_FAILURE() << row.name << " answered nothing at all";
             continue;
         }
-        // The four forms are one value in four types. Colours and normals
+        // The four forms are one value in four types. Colors and normals
         // are the documented exception for the integer form, so compare the
         // ones that never rescale.
         for (int k = 0; k < row.count; ++k) {
@@ -183,10 +183,10 @@ TEST_F(Gl2StateTest, InitialValuesMatchTheManual) {
     EXPECT_FLOAT_EQ(q.Float(0x0D14), 1.0f) << "GL_RED_SCALE";
     EXPECT_FLOAT_EQ(q.Float(0x0D15), 0.0f) << "GL_RED_BIAS";
 
-    GLfloat colour[4] = {0, 0, 0, 0};
-    q.get_floatv(0x0B00, colour); // GL_CURRENT_COLOR
-    EXPECT_FLOAT_EQ(colour[0], 1.0f);
-    EXPECT_FLOAT_EQ(colour[3], 1.0f);
+    GLfloat color[4] = {0, 0, 0, 0};
+    q.get_floatv(0x0B00, color); // GL_CURRENT_COLOR
+    EXPECT_FLOAT_EQ(color[0], 1.0f);
+    EXPECT_FLOAT_EQ(color[3], 1.0f);
 
     GLfloat matrix[16] = {};
     q.get_floatv(0x0BA6, matrix); // GL_MODELVIEW_MATRIX

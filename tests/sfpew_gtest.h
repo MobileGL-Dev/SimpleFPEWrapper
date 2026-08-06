@@ -219,7 +219,7 @@ protected:
 // and ask whether it is lit. "Lit" is the green channel past a threshold,
 // which is what every ported piglit case here already agreed on - green
 // because it is the channel every other piece of wrapper state (alpha
-// blending, the clear colour, texturing) is least likely to touch by
+// blending, the clear color, texturing) is least likely to touch by
 // accident.
 class PixelProbe {
 public:

@@ -163,12 +163,12 @@ void mglTexCoord(std::array<Type, N> uv, GLint texid) {
     state.current_data.texcoord[texid] = mglDefaultedVec4<N>(uv);
 }
 
-// Colour material is a per-vertex side effect that mutates uniform material
+// Color material is a per-vertex side effect that mutates uniform material
 // state, so it has to stay ordered with the batch - but it is off for almost
 // every draw. Kept out of line so glColor4f can inline the part that always
 // runs: with the whole thing in one function the compiler declined to inline
 // it, and every immediate-mode vertex paid a call.
-void sfpewApplyColorMaterial(glstate_t& gs, const glm::vec4& colour);
+void sfpewApplyColorMaterial(glstate_t& gs, const glm::vec4& color);
 
 template <typename Type, GLint N>
 __attribute__((always_inline)) inline void mglColor(std::array<Type, N> color) {

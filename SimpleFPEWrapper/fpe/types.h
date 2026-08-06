@@ -856,7 +856,7 @@ struct program_hash_cache_t {
 };
 
 // The subset of a texture environment the shader generator bakes into its
-// source. The environment colour and LOD bias are excluded on purpose: they
+// source. The environment color and LOD bias are excluded on purpose: they
 // reach the shader as uniforms, so changing them must not mint a new program.
 inline program_hash_cache_t::combiner_signature_t sfpewCombinerSignature(const texture_env_t& env) {
     program_hash_cache_t::combiner_signature_t out;
@@ -1229,7 +1229,7 @@ inline glstate_t& sfpewVertexDataState() {
     // lands on the no-context state, and vertices arriving after the app then
     // makes one current must resolve strictly (and be dropped by the
     // primitive == kNoPrimitive guard) exactly like the pre-snapshot
-    // behaviour.
+    // behavior.
     glstate_t* const state = tls_snapshot_state;
     if (state != nullptr && state->fpe_state.fpe_draw.primitive != kNoPrimitive &&
         tls_snapshot_context != nullptr) {

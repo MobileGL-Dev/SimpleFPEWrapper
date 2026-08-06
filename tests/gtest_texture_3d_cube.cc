@@ -117,8 +117,8 @@ protected:
 
 TEST_F(Texture3DCubeTest, ThreeDTextureSamplesTheCorrectSliceThroughTheFpePipeline) {
     // 2x2x2: slice 0 solid red, slice 1 solid green. A sampler2D
-    // reinterpreting this storage (the pre-fix behaviour) cannot land on
-    // either pure colour, so this discriminates a real 3D sample.
+    // reinterpreting this storage (the pre-fix behavior) cannot land on
+    // either pure color, so this discriminates a real 3D sample.
     const GLubyte red_slice[2 * 2 * 4] = {
         255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255,
     };
@@ -142,13 +142,13 @@ TEST_F(Texture3DCubeTest, ThreeDTextureSamplesTheCorrectSliceThroughTheFpePipeli
     enable_(GL_TEXTURE_3D_);
 
     clear_(GL_COLOR_BUFFER_BIT_);
-    DrawFullscreenQuadWithTexCoord(0.5f, 0.5f, 0.25f); // slice 0 centre
+    DrawFullscreenQuadWithTexCoord(0.5f, 0.5f, 0.25f); // slice 0 center
     const auto slice0 = probe_->At(8, 8);
     EXPECT_GT(slice0.r, 200) << "z=0.25 must sample slice 0 (red)";
     EXPECT_LT(slice0.g, 40);
 
     clear_(GL_COLOR_BUFFER_BIT_);
-    DrawFullscreenQuadWithTexCoord(0.5f, 0.5f, 0.75f); // slice 1 centre
+    DrawFullscreenQuadWithTexCoord(0.5f, 0.5f, 0.75f); // slice 1 center
     const auto slice1 = probe_->At(8, 8);
     EXPECT_LT(slice1.r, 40) << "z=0.75 must sample slice 1 (green), not slice 0";
     EXPECT_GT(slice1.g, 200);

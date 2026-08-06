@@ -1461,7 +1461,7 @@ bool sfpewImagingActive();
 // Every stage is disabled by default and the whole subsystem is bypassed
 // then (see sfpewImagingActive), so a normal application pays nothing.
 
-// The three colour lookup tables, in pipeline order: GL_COLOR_TABLE,
+// The three color lookup tables, in pipeline order: GL_COLOR_TABLE,
 // GL_POST_CONVOLUTION_COLOR_TABLE, GL_POST_COLOR_MATRIX_COLOR_TABLE.
 // Entries are RGBA floats regardless of the internalformat the caller
 // requested; `format` records what was asked for so the getters can report
@@ -1522,7 +1522,7 @@ Index helpers in `imaging.cpp`: `colorTableIndex(GLenum)` mapping
 same slots (proxies validate only, they store nothing), returning −1 for
 anything else. Same shape for convolutions.
 
-### A.3 Colour tables (9 entry points)
+### A.3 Color tables (9 entry points)
 
 | Entry point | Status |
 |---|---|
@@ -1597,7 +1597,7 @@ Filter upload mirrors §A.3: decode `(format, type)` → RGBA float, apply
 
 Kernel width/height are bounded by `GL_MAX_CONVOLUTION_WIDTH` /
 `_HEIGHT` — pick 32 and report it consistently through
-`glGetIntegerv`; exceeding it is `GL_INVALID_VALUE`. Unlike colour tables,
+`glGetIntegerv`; exceeding it is `GL_INVALID_VALUE`. Unlike color tables,
 convolution kernel sizes need **not** be powers of two.
 
 `glConvolutionParameter*` pnames: `GL_CONVOLUTION_BORDER_MODE`
@@ -1636,8 +1636,8 @@ above.
 
 **Integer-vs-float conversion trap:** for `glGetConvolutionParameteriv` with
 `GL_CONVOLUTION_BORDER_COLOR` or the scale/bias pnames, the float values are
-converted per GL 2.1 §6.1.2 — colours map [0,1] onto the full int range, but
-scale/bias are *not* colours and are rounded, not scaled. Read the spec text.
+converted per GL 2.1 §6.1.2 — colors map [0,1] onto the full int range, but
+scale/bias are *not* colors and are rounded, not scaled. Read the spec text.
 
 ### A.5 Histogram (5 entry points)
 
@@ -1807,7 +1807,7 @@ Split by subsystem; one giant file will be unmaintainable.
 - [x] `tests/gtest_imaging_convolution.cc` — a 3×3 identity kernel leaves an image
   unchanged; a known blur kernel produces hand-computed values;
   **`GL_REDUCE` shrinks the output by `kw-1` × `kh-1`** (the assertion most
-  worth having); `GL_CONSTANT_BORDER` uses the border colour;
+  worth having); `GL_CONSTANT_BORDER` uses the border color;
   `GL_REPLICATE_BORDER` clamps; separable and equivalent-2D kernels agree
   pixel-for-pixel; oversized kernels error.
 - [x] `tests/gtest_imaging_histogram_minmax.cc` — a known image produces
@@ -1815,7 +1815,7 @@ Split by subsystem; one giant file will be unmaintainable.
   pixel sets both; `sink` suppresses the destination write; saturation at
   `2^32-1`; both `glGet*Parameter*` families.
 - [x] `tests/gtest_imaging_pipeline.cc` — the stages compose **in the specified
-  order**: enable a colour table that inverts, a convolution that blurs, and a
+  order**: enable a color table that inverts, a convolution that blurs, and a
   post-convolution table that halves, then assert the result matches
   applying them in that sequence and not any other. This is the test that
   proves the pipeline, and it is the one that would catch a mis-ordered stage.
@@ -1845,7 +1845,7 @@ client-side code calling public GL. It does not belong in a `libGL` replacement.
 If a frontend needs it, build `libGLU` separately against this wrapper.
 
 **Color-index mode** — `GL_INDEX_MODE` reports `GL_FALSE` and there is no
-colour-index framebuffer. Every `glIndex*` entry point is therefore a no-op on
+color-index framebuffer. Every `glIndex*` entry point is therefore a no-op on
 current state, which is conforming for an RGBA-only implementation. Leave it.
 
 **`glGetTexImage` (uncompressed readback)** — same constraint as
@@ -1865,7 +1865,7 @@ Group B; decide when you get there.
 | C — Texture residency | 2 | 2 / 2 |
 | D — Transpose matrices | 4 | 4 / 4 |
 | E — Point parameters | 4 | 4 / 4 |
-| F — Secondary colour immediate | 16 | 16 / 16 |
+| F — Secondary color immediate | 16 | 16 / 16 |
 | G — Vertex attrib variants | 29 | 29 / 29 |
 | H — Half-implemented fixes | 3 | 3 / 3 |
 | I — Completing partial paths | 6 items | 6 / 6 |

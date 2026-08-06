@@ -271,7 +271,7 @@ TEST_F(DrawPixelsTest, DepthPixelsWriteDepthWithoutChangingColorOrColorMask) {
     // FBO alike (verified independently: the write itself completes with no
     // error, only the readback rejects the format) - so depth is checked the
     // way an application actually observes it: render a second, distinctly-
-    // coloured quad through the ordinary depth-tested pipeline and see
+    // colored quad through the ordinary depth-tested pipeline and see
     // whether IT wins or loses against the depth glDrawPixels wrote, at two
     // window depths straddling the written value.
     //

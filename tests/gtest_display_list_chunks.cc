@@ -15,7 +15,7 @@
 // with the last chunk's contents, and one that silently dropped a draw it
 // could not snapshot would lose the chunk entirely.
 //
-// Each list here draws one quad in its own screen column with its own colour,
+// Each list here draws one quad in its own screen column with its own color,
 // so the readback names exactly which lists survived compilation and replay.
 // The lists are then called three ways, because the wrapper has a separate
 // path for each: one glCallLists batch (which it tries to merge into a single
@@ -67,7 +67,7 @@ constexpr int kChunks = 64;
 // A quad needs four vertices, the same band as triangles needs six; the
 // buffer is sized for the larger so one shape serves both modes.
 constexpr int kMaxVertsPerChunk = 6;
-constexpr int kStride = 32; // MC's tessellator stride: xyz, uv, colour, padding
+constexpr int kStride = 32; // MC's tessellator stride: xyz, uv, color, padding
 
 enum class Mode { Quads, Triangles };
 
@@ -120,7 +120,7 @@ protected:
     }
 
     // Chunk i owns the horizontal band [i/CHUNKS, (i+1)/CHUNKS] in clip space
-    // and is tinted with a colour derived from i, so a readback in that band
+    // and is tinted with a color derived from i, so a readback in that band
     // proves which chunk's data the list replayed.
     void FillSharedBuffer(int chunk) {
         const float left = -1.0f + 2.0f * static_cast<float>(chunk) / kChunks;
@@ -172,13 +172,13 @@ protected:
         end_list_();
     }
 
-    // Every chunk must have drawn its own band in its own colour.
+    // Every chunk must have drawn its own band in its own color.
     void CheckAllChunks(const char* what) {
         GLubyte pixels[64 * 4];
         read_pixels_(0, 32, 64, 1, 0x1908 /* GL_RGBA */, GL_UNSIGNED_BYTE_, pixels);
         int missing = 0, wrong = 0, first_bad = -1;
         for (int chunk = 0; chunk < kChunks; ++chunk) {
-            // Band centre for a 64-wide readback with CHUNKS == 64: one pixel
+            // Band center for a 64-wide readback with CHUNKS == 64: one pixel
             // each.
             const int x = chunk;
             const GLubyte* pixel = pixels + x * 4;

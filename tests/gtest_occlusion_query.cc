@@ -58,7 +58,7 @@
 //   A. an unobstructed near quad against a freshly cleared depth buffer -
 //      GL_ANY_SAMPLES_PASSED must report true, and the pixel must be lit.
 //   B. the same quad drawn behind an opaque nearer blocker - the query must
-//      report false, and the pixel must still show the blocker's colour.
+//      report false, and the pixel must still show the blocker's color.
 //
 // GL_ARB_occlusion_query candidacy check (below, ClassicSamplesPassedTarget
 // test): the classic extension's exact-count GL_SAMPLES_PASSED (0x8914) is

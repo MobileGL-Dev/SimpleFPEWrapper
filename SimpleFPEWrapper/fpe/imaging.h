@@ -30,15 +30,15 @@ bool sfpewImagingReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLe
 // applied to the READ direction (glReadPixels, glCopyPixels), which had
 // none of it: sfpewImagingReadRgba/ReadPixels above only ever ran the
 // ARB_imaging-specific stages, gated on ARB_imaging state alone, so an app
-// that set GL_RED_SCALE without ever touching a colour table/convolution/
+// that set GL_RED_SCALE without ever touching a color table/convolution/
 // histogram got it silently ignored on readback (the write direction,
 // glDrawPixels, already applies this same transfer unconditionally - see
-// its own decode loop in pixelops.cpp). Colour reuses this file's existing
+// its own decode loop in pixelops.cpp). Color reuses this file's existing
 // encode/decode/readFramebuffer machinery with the basic step spliced in
 // first, spec order (3.6.3); depth and stencil (glCopyPixels only, in
-// pixelops.cpp - GL_MAP_STENCIL is not a colour-table concept this file
+// pixelops.cpp - GL_MAP_STENCIL is not a color-table concept this file
 // otherwise deals with) are separate, since GLES/desktop have no shared
-// "arbitrary pixel format" encoder for those the way colour tables do.
+// "arbitrary pixel format" encoder for those the way color tables do.
 // Each *Active() check lets a caller's existing fast (real backend call,
 // or blit) path stay exactly as it was in the overwhelmingly common case
 // where the corresponding transfer is at its default (no-op) values -

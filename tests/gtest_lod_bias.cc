@@ -9,7 +9,7 @@
 // GL_EXT_texture_lod_bias: glTexEnvf(GL_TEXTURE_FILTER_CONTROL,
 // GL_TEXTURE_LOD_BIAS, ...) was already captured into per-unit state but
 // never reached the generated shader, so it had no effect on which mip level
-// got sampled. A two-level texture with a solid, distinct colour per level,
+// got sampled. A two-level texture with a solid, distinct color per level,
 // sampled at its native texel:pixel ratio (bias 0 lands on level 0 by
 // construction), proves the bias actually reaches the sampler: a large
 // positive bias must push the same draw onto level 1.

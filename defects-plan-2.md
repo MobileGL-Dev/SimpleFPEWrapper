@@ -100,7 +100,7 @@ attachment's content is what comes back.
 `GL_FRONT_AND_BACK` carve-out; `GL_READ_BUFFER` added to
 `glGetIntegerv`; `GETPROC(glReadBuffer, name)` added to `lookup.cpp`. Five
 tests in `tests/gtest_read_buffer.cc`, including the multi-attachment FBO
-case (clear each of two attachments to a distinct colour by selecting it
+case (clear each of two attachments to a distinct color by selecting it
 as the sole *draw* buffer first, sidestepping the FPE uber-shader's
 single-output limitation entirely, then prove `glReadBuffer` selects
 between them for `glReadPixels`).
@@ -302,7 +302,7 @@ first idea turned out to be unsound or unnecessary on closer look:
 3. **No explicit "does a stencil buffer exist" check, and consequently no
    `GL_INVALID_OPERATION` for the missing-buffer case anymore.** Real GL
    does not error when a fragment operation targets a plane the current
-   framebuffer does not have (writing colour when there is no colour
+   framebuffer does not have (writing color when there is no color
    buffer is a silent no-op, not an error) - the *pre-existing* blanket
    refusal was actually stricter than spec, not spec-matching. Matching
    `drawQuad`'s own depth-mode precedent (force `GL_ALWAYS`/`REPLACE`,
@@ -316,13 +316,13 @@ first idea turned out to be unsound or unnecessary on closer look:
    is superseded - `tests/gtest_drawpixels_stencil.cc` does not have that
    case for this reason.
 
-Also implemented, matching the existing colour path's own established
+Also implemented, matching the existing color path's own established
 scope boundary rather than inventing a new one: `GL_INDEX_SHIFT`/
 `GL_INDEX_OFFSET` are **not** applied (state.cpp's `glPixelTransfer`
 already treats them as a project-wide no-op, "index shift/offset belong
 to color-index mode, which this implementation does not provide" -
 inherited verbatim, not special-cased away for stencil). `GL_PIXEL_MAP_S_TO_S`
-**is** applied - a real, separate feature from colour-index mode, and
+**is** applied - a real, separate feature from color-index mode, and
 `pixel_map_stencil`/`g_glstate.pixel_maps[1]` already existed with nothing
 consuming them. `GL_BITMAP` as a stencil source type is a further,
 documented scope cut (`readPixelStencilIndex` only accepts the six
@@ -502,10 +502,10 @@ like an implementation bug at first:
   needs eye-space distances out to 6.0 to shrink a point below the fade
   threshold - the point was being clipped away entirely, not fading.
   Fixed by giving that one test its own local `glOrtho` (an orthographic
-  projection leaves NDC.xy independent of z, so the window-centre sampling
+  projection leaves NDC.xy independent of z, so the window-center sampling
   every other test in the file relies on still holds). Also not a bug:
   `DrawPixelsStencilTest.DistinctIndicesLandAtTheirOwnPixelsNotJustOneSharedValue`'s
-  original 2x2-image form sampled two of its four texel centres exactly on
+  original 2x2-image form sampled two of its four texel centers exactly on
   the shared diagonal seam between the quad drawer's two triangles
   (UV (0.75,0.25) and (0.25,0.75), both summing to the boundary value 1.0)
   - a rasterizer boundary-rounding case for that specific coincidence of

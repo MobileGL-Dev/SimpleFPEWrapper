@@ -11,9 +11,9 @@
 // (GL_*_SCALE/GL_*_BIAS, GL_MAP_COLOR) at all - only the write direction
 // (glDrawPixels) did. glCopyPixels(GL_DEPTH/GL_STENCIL)'s own transfer is
 // covered in gtest_copypixels_depth.cc, next to its existing FBO/probe-quad
-// fixture; this file is the colour side, plus the regression that motivated
+// fixture; this file is the color side, plus the regression that motivated
 // sfpewDepthPixelTransferReadPixels taking `format`: a glReadPixels of a
-// colour format must ignore an unrelated GL_DEPTH_SCALE/BIAS setting.
+// color format must ignore an unrelated GL_DEPTH_SCALE/BIAS setting.
 
 #include "sfpew_gtest.h"
 
@@ -128,7 +128,7 @@ TEST_F(PixelTransferReadbackTest, ReadPixelsIgnoresUnrelatedDepthTransfer) {
     // `format`, not just `type` - GL_UNSIGNED_BYTE is a legal type for both
     // GL_RGBA and GL_DEPTH_COMPONENT reads, so an app that happened to set
     // GL_DEPTH_SCALE/BIAS earlier (e.g. while reading a depth buffer
-    // elsewhere) must not have it silently hijack a later colour read.
+    // elsewhere) must not have it silently hijack a later color read.
     pixel_transferf_(GL_DEPTH_SCALE_, 0.0f);
     pixel_transferf_(GL_DEPTH_BIAS_, 1.0f);
     clear_color_(0.6f, 0.4f, 0.2f, 1.0f);

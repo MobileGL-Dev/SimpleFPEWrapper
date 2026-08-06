@@ -301,7 +301,7 @@ void drawQuad(const void* pixels, GLsizei tex_w, GLsizei tex_h, GLenum tex_forma
 // "write these values into this rectangle," not a tested draw. If the
 // current framebuffer has no stencil attachment at all, glStencilMask's
 // bits and the REPLACE writes simply land nowhere, matching how a
-// colour-only default framebuffer already treats a depth write it has no
+// color-only default framebuffer already treats a depth write it has no
 // buffer for - no explicit presence check needed.
 void drawStencilBitplanes(const GLubyte* stencil_bytes, GLsizei tex_w, GLsizei tex_h, GLfloat x0,
                           GLfloat y0, GLfloat wpx, GLfloat hpx, GLfloat depth) {
@@ -773,7 +773,7 @@ void glGetPixelMapusv(GLenum map, GLushort* values) {
 }
 
 // GL_ACCUM_CLEAR_VALUE, for the glGet family: the accumulation state is
-// private to this file, but its clear colour is queryable state.
+// private to this file, but its clear color is queryable state.
 void sfpewAccumClearValue(GLfloat* rgba) {
     const glm::vec4& value = accumState().clear_value;
     rgba[0] = value.r;
@@ -1061,7 +1061,7 @@ float readPixelComponent(const uint8_t* source, GLenum type, bool swap_bytes) {
 
 // defects-plan-2.md 2.5: a GL_STENCIL_INDEX value is the index itself, not
 // a [0,1]-normalized quantity - unlike readPixelComponent above, which
-// exists for colour/depth. Signed types reinterpret their bit pattern as
+// exists for color/depth. Signed types reinterpret their bit pattern as
 // unsigned (a source byte 0xFF/-1 becomes index 255), the same convention
 // GL_UNSIGNED_BYTE already uses implicitly. GL_FLOAT/GL_HALF_FLOAT are not
 // legal glDrawPixels(GL_STENCIL_INDEX) types (GL 2.1 table 3.6) and
@@ -1300,14 +1300,14 @@ float clampPixel(float value) {
 // glPixelTransfer already treats as a no-op project-wide (plans/10, 10.5;
 // see defects-plan.md's §2 boundary note), and this inherits that same
 // decision rather than special-casing stencil out of it. GL_PIXEL_MAP_S_TO_S
-// (a real, separate feature from colour-index mode) IS applied, since
+// (a real, separate feature from color-index mode) IS applied, since
 // pixel_map_stencil/pixel_maps already exist and are otherwise unused.
 void drawStencilPixels(GLsizei width, GLsizei height, GLenum type, const GLvoid* pixels) {
     // The six integer scalar types readPixelStencilIndex handles.
     // scalarPixelType() alone isn't a tight enough filter: it also accepts
     // GL_FLOAT/GL_HALF_FLOAT, which are not legal glDrawPixels(GL_STENCIL_
     // INDEX) types (GL 2.1 table 3.6). GL_BITMAP is a further, documented
-    // scope cut - packedPixelType's formats are all colour-component
+    // scope cut - packedPixelType's formats are all color-component
     // packings with no stencil equivalent.
     size_t pixel_bytes = 0;
     if ((type != GL_BYTE && type != GL_UNSIGNED_BYTE && type != GL_SHORT &&
@@ -1649,7 +1649,7 @@ struct copy_pixels_backend_guard_t {
 // bytes read straight off the framebuffer - like drawStencilPixels above,
 // the S_TO_S map stores and looks up raw index values directly, no
 // normalization. GL_INDEX_SHIFT/GL_INDEX_OFFSET stay unapplied, same
-// project-wide colour-index-mode boundary drawStencilPixels documents.
+// project-wide color-index-mode boundary drawStencilPixels documents.
 bool readStencilIndices(GLint x, GLint y, GLsizei width, GLsizei height,
                         std::vector<GLubyte>* out) {
     if (!sfpewEnsureBackend() || g_glFuncs.glReadPixels == nullptr ||
@@ -1733,7 +1733,7 @@ void glCopyPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum type) 
     // overlap in the same framebuffer, with no separate scratch-FBO copy
     // needed.
     //
-    // Same-framebuffer colour copies force this path even with no transfer
+    // Same-framebuffer color copies force this path even with no transfer
     // active: GLES's glBlitFramebuffer refuses "if the source and
     // destination buffers are identical" (no desktop-GL equivalent, and -
     // unlike the depth/stencil overlap check below - no rectangle-overlap

@@ -56,7 +56,7 @@ TEST_F(DesktopContextTest, ThreeDTextureRoundTripsOnDesktop) {
     ASSERT_NE(tex_image_3d, nullptr);
     ASSERT_NE(get_tex_image, nullptr);
 
-    // 2x2x2: each of the 8 texels a distinct colour, so a scrambled slice
+    // 2x2x2: each of the 8 texels a distinct color, so a scrambled slice
     // order or a wrong readback size shows up immediately.
     const GLubyte upload[2 * 2 * 2 * 4] = {
         255, 0,   0,   255, 0, 255, 0,   255, 0,   0, 255, 255, 255, 255, 0, 255,

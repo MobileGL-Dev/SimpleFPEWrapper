@@ -8,10 +8,10 @@
 
 // defects-plan.md 1.4: glSecondaryColor3* already existed (state, queries,
 // display-list capture), but the generated fragment shader never summed it
-// into the fragment colour and GL_COLOR_SUM read back permanently disabled.
+// into the fragment color and GL_COLOR_SUM read back permanently disabled.
 // Covers: the sum actually reaching the framebuffer, GL_COLOR_SUM's real
-// enable state, alpha staying untouched (spec: secondary colour has none),
-// and the no-secondary-colour-ever-set case not breaking the shader.
+// enable state, alpha staying untouched (spec: secondary color has none),
+// and the no-secondary-color-ever-set case not breaking the shader.
 
 #include "sfpew_gtest.h"
 
@@ -98,7 +98,7 @@ TEST_F(ColorSumTest, EnabledSumsIntoTheFramebufferDisabledLeavesPrimaryOnly) {
     DrawFullscreenQuad();
     const auto enabled = probe_->At(8, 8);
     EXPECT_GT(enabled.r, 200) << "enabled: red + green -> yellow, red channel still high";
-    EXPECT_GT(enabled.g, 200) << "enabled: green channel now shows the secondary colour";
+    EXPECT_GT(enabled.g, 200) << "enabled: green channel now shows the secondary color";
 
     disable_(GL_COLOR_SUM_);
     EXPECT_EQ(is_enabled_(GL_COLOR_SUM_), sfpew_test::GL_FALSE_);
@@ -121,7 +121,7 @@ TEST_F(ColorSumTest, AlphaIsNotSummedSecondaryColorHasNoAlphaComponent) {
     const auto pixel = probe_->At(8, 8);
     // Blending is not enabled, so alpha simply writes through: 0.5, not
     // clamped to 1.0 by an errant += on the alpha channel.
-    EXPECT_NEAR(static_cast<int>(pixel.a), 128, 12) << "alpha must come from the primary colour alone";
+    EXPECT_NEAR(static_cast<int>(pixel.a), 128, 12) << "alpha must come from the primary color alone";
 }
 
 TEST_F(ColorSumTest, EnabledWithoutEverSettingSecondaryColorStillRendersPrimary) {
@@ -135,7 +135,7 @@ TEST_F(ColorSumTest, EnabledWithoutEverSettingSecondaryColorStillRendersPrimary)
     DrawFullscreenQuad();
     const auto pixel = probe_->At(8, 8);
     EXPECT_GT(pixel.r, 200);
-    EXPECT_LT(pixel.g, 40) << "default secondary colour is (0,0,0,1): summing it is a no-op";
+    EXPECT_LT(pixel.g, 40) << "default secondary color is (0,0,0,1): summing it is a no-op";
     EXPECT_EQ(get_error_(), GL_NO_ERROR_);
 }
 

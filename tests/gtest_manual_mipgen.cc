@@ -16,7 +16,7 @@
 //
 // The repair must not corrupt what a healthy driver produces, so on a desktop
 // GL stack this checks, for an NPOT texture sized to hit odd level dimensions:
-//  - every level of the chain reads back the base's solid colour;
+//  - every level of the chain reads back the base's solid color;
 //  - a SECOND upload + mipgen replaces every level (no stale content - on the
 //    device this is the part the driver got wrong);
 //  - framebuffer bindings and the scissor switch survive the wrapped call.
@@ -94,7 +94,7 @@ protected:
         }
     }
 
-    // Solid input, so every level of a correct chain reads the same colour
+    // Solid input, so every level of a correct chain reads the same color
     // to within blit rounding.
     void ExpectChain(GLuint fbo, GLuint tex, GLubyte r, GLubyte g, GLubyte b, const char* what) {
         bind_framebuffer_(GL_READ_FRAMEBUFFER_, fbo);
@@ -125,7 +125,7 @@ protected:
         // Allocate every level up front, filled with magenta garbage. With
         // SFPEW_MANUAL_MIPGEN=only the wrapper skips the backend mipgen
         // entirely, so ONLY the wrapper's blit chain can replace this garbage
-        // - any level it misses fails the colour checks.
+        // - any level it misses fails the color checks.
         FillLevel0(255, 0, 255);
         {
             int w = kTexW, h = kTexH;
@@ -162,9 +162,9 @@ protected:
         }
         generate_mipmap_(GL_TEXTURE_2D_);
         finish_();
-        ExpectChain(fbo, tex, 200, 60, 20, "first chain carries the base colour to the top");
+        ExpectChain(fbo, tex, 200, 60, 20, "first chain carries the base color to the top");
         // Re-upload and regenerate: every level must FOLLOW. Stale high
-        // levels keeping the first colour is exactly the device failure.
+        // levels keeping the first color is exactly the device failure.
         FillLevel0(20, 180, 220);
         tex_image2d_(GL_TEXTURE_2D_, 0, GL_RGBA_, kTexW, kTexH, 0, GL_RGBA_, GL_UNSIGNED_BYTE_,
                      level0_);

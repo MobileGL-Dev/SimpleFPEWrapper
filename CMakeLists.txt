@@ -301,7 +301,7 @@ if(NOT ANDROID)
                 # process. That is fine within one backend and wrong across
                 # them; ctest is the supported way to run these.
 
-                # Migrated suites. Each file is one area of behaviour; the
+                # Migrated suites. Each file is one area of behavior; the
                 # backend a case needs is chosen by its fixture. These need no
                 # driver at all - the wrapper's own bookkeeping.
                 foreach(suite load error display_list_cpu)

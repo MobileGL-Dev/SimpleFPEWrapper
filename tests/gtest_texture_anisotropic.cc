@@ -145,11 +145,11 @@ protected:
         return texture;
     }
 
-    // High-frequency vertical stripes - the colour varies only with X, never
+    // High-frequency vertical stripes - the color varies only with X, never
     // with Y - mipmapped. Deliberately NOT a checkerboard: a checkerboard's
-    // colour is (x/cell + y/cell) % 2, and box-filtering that over a V span
-    // that covers a whole number of periods averages to 50% grey for every
-    // X equally (an XOR-cancellation artefact of the pattern, not a
+    // color is (x/cell + y/cell) % 2, and box-filtering that over a V span
+    // that covers a whole number of periods averages to 50% gray for every
+    // X equally (an XOR-cancellation artifact of the pattern, not a
     // filtering effect), which would make isotropic and anisotropic
     // filtering look identical here for the wrong reason. Because this
     // texture never varies with Y, blurring Y is always harmless; the only
@@ -317,9 +317,9 @@ TEST_F(TextureAnisotropicTest, ValueAboveTheImplementationCapReachesTheDriverUnr
     // Measured on this machine's real driver (NVIDIA, cap 16.0): a request
     // above GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT round-trips back EXACTLY as
     // set (164 in, 164 out), not clamped to the cap - the same
-    // store-what-was-asked/clamp-only-the-effective-filtering behaviour as
+    // store-what-was-asked/clamp-only-the-effective-filtering behavior as
     // GL_LINE_WIDTH vs GL_ALIASED_LINE_WIDTH_RANGE. This is real backend
-    // behaviour the wrapper has no part in (it never touches this pname);
+    // behavior the wrapper has no part in (it never touches this pname);
     // what this proves is that the value truly reached the driver's own
     // per-texture sampler state - a wrapper bug that silently dropped or
     // rejected the call would leave the default 1.0 in place instead.
@@ -348,7 +348,7 @@ TEST_F(TextureAnisotropicTest,
     // the exact artifact GL_EXT_texture_filter_anisotropic exists to avoid:
     // it takes several samples along the minified (V) axis at a much
     // sharper base LOD, so U keeps its native resolution. Measured on this
-    // machine: aniso 1.0 flattens the stripes to uniform 50% grey (peak
+    // machine: aniso 1.0 flattens the stripes to uniform 50% gray (peak
     // to peak swing 0); aniso 16.0 (the backend's own cap) restores the
     // stripes to their full 0/255 swing, identical to the unminified
     // baseline. The margin below is generous on purpose - the property

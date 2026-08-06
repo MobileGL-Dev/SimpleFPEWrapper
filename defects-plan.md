@@ -193,7 +193,7 @@ Entry points/state/queries already exist (Group F, prior session); this is
 purely the shader-generator half that was explicitly deferred there.
 
 **Done — turned out simpler than planned, no uniform needed.** Secondary
-colour is not a per-draw uniform in this codebase's design; it is a proper
+color is not a per-draw uniform in this codebase's design; it is a proper
 per-vertex generic attribute (slot 6), already flowing through the SAME
 generic mechanism `add_vs_inout` uses for every other optional vertex input
 (color, normal, fog coord, texcoords): the loop already declares
@@ -215,11 +215,11 @@ active (`enabled_pointers` bit 6 for `glSecondaryColorPointer`, or
    could be true while slot 6 was never fed (app enables GL_COLOR_SUM but
    never calls glSecondaryColor3*) — without this guard the fragment shader
    would reference an attribute add_vs_inout never declared. Gated on
-   *both* flags together; the GL default secondary colour is `{0,0,0,1}`,
+   *both* flags together; the GL default secondary color is `{0,0,0,1}`,
    so skipping the reference in that case is a correct no-op, not an
    approximation.
 4. One line in `add_fs_body`: `color.rgb += vertexSecColor.rgb;` — alpha
-   untouched, since secondary colour has none (GL 2.1 3.9.1) — placed after
+   untouched, since secondary color has none (GL 2.1 3.9.1) — placed after
    the specular-color addition and before the alpha test, matching the
    spec's texturing → color-sum → fog conceptual order.
 5. `getter.cpp`'s `GL_COLOR_SUM` case now reads `bools.color_sum_enable`.

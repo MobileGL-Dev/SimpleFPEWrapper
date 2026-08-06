@@ -14,8 +14,8 @@
 // reorders into tight RGBA before the backend sees it, so a texture can mix
 // BGRA and plain uploads freely.
 //
-// Probe colours keep R != B - a channel swap has to be visible - and the
-// quad is drawn with the texture modulating a white vertex colour.
+// Probe colors keep R != B - a channel swap has to be visible - and the
+// quad is drawn with the texture modulating a white vertex color.
 
 #include "sfpew_gtest.h"
 
@@ -167,7 +167,7 @@ TEST_F(BgraTextureTest, EveryUploadRouteKeepsTheComponentOrder) {
     pixel_storei(GL_UNPACK_ROW_LENGTH_, 0);
     pixel_storei(GL_UNPACK_SKIP_PIXELS_, 0);
     // Only the red 2x2 at columns 2-3, rows 0-1 was selected; the probe reads
-    // the texture centre, so a correct upload shows red everywhere.
+    // the texture center, so a correct upload shows red everywhere.
     draw_and_expect(1, 0, 0, "row-length + skip sub-rectangle keeps its bytes straight");
 
     disable_client_state(GL_TEXTURE_COORD_ARRAY_);

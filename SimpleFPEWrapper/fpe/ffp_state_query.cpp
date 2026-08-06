@@ -83,9 +83,9 @@ namespace {
 //
 // Values leave as doubles because that is the widest state type, and the
 // conversion runs one way from there (GL 2.1 section 6.1.2): booleans are
-// 0 or 1, enums keep their numeric value, and colours and normals are the
+// 0 or 1, enums keep their numeric value, and colors and normals are the
 // only values an integer query rescales instead of rounding - which is what
-// `colour` reports.
+// `color` reports.
 enum array_field_t { kArrayEnabled, kArraySize, kArrayType, kArrayStride, kArrayBuffer };
 
 // GL_RED_BITS and its family: ES 3 still answers them, GL 3.1 core removed
@@ -95,7 +95,7 @@ enum array_field_t { kArrayEnabled, kArraySize, kArrayType, kArrayStride, kArray
 // is a property of the bound framebuffer, not of the context.
 bool framebufferBits(GLenum pname, GLdouble* out) {
     GLenum size_pname = 0;
-    int attachment_kind = 0; // 0 colour, 1 depth, 2 stencil
+    int attachment_kind = 0; // 0 color, 1 depth, 2 stencil
     switch (pname) {
     case GL_RED_BITS: size_pname = GL_FRAMEBUFFER_ATTACHMENT_RED_SIZE; break;
     case GL_GREEN_BITS: size_pname = GL_FRAMEBUFFER_ATTACHMENT_GREEN_SIZE; break;
@@ -123,7 +123,7 @@ bool framebufferBits(GLenum pname, GLdouble* out) {
     g_glFuncs.glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &framebuffer);
     GLenum attachment;
     if (framebuffer == 0) {
-        // The default framebuffer names its colour buffer differently on the
+        // The default framebuffer names its color buffer differently on the
         // two backends; depth and stencil agree.
         int major = 0, minor = 0;
         const bool es_backend = sfpewDesktopGLVersion(&major, &minor);
@@ -154,7 +154,7 @@ bool framebufferBits(GLenum pname, GLdouble* out) {
 // `enable` marks the subset glIsEnabled may answer for: a capability, not
 // just any state that happens to be 0 or 1. Without it glIsEnabled(GL_FOG_MODE)
 // would return a value where the spec wants GL_INVALID_ENUM.
-bool fixedFunctionState(GLenum pname, GLdouble* values, int* count, bool* colour, bool* enable) {
+bool fixedFunctionState(GLenum pname, GLdouble* values, int* count, bool* color, bool* enable) {
     auto& gs = g_glstate;
     const auto& ff = gs.fpe_state;
     const auto& bools = ff.fpe_bools;
@@ -165,7 +165,7 @@ bool fixedFunctionState(GLenum pname, GLdouble* values, int* count, bool* colour
         std::clamp(static_cast<int>(sfpewLogicalActiveTexture() - GL_TEXTURE0), 0, MAX_TEX - 1);
 
     *count = 1;
-    *colour = false;
+    *color = false;
     *enable = false;
 
     const auto scalar = [&](GLdouble value) {
@@ -183,10 +183,10 @@ bool fixedFunctionState(GLenum pname, GLdouble* values, int* count, bool* colour
         *count = n;
         return true;
     };
-    // Colours and normals: same values, but an integer query maps them onto
+    // Colors and normals: same values, but an integer query maps them onto
     // the full integer range rather than rounding them to 0 or 1.
     const auto signal = [&](const GLfloat* source, int n) {
-        *colour = true;
+        *color = true;
         return vector(source, n);
     };
     const auto matrix = [&](const glm::mat4& m, bool transpose) {
@@ -306,7 +306,7 @@ bool fixedFunctionState(GLenum pname, GLdouble* values, int* count, bool* colour
     case GL_CURRENT_RASTER_COLOR: return signal(glm::value_ptr(uni.raster_color), 4);
     case GL_CURRENT_RASTER_TEXTURE_COORDS: return vector(glm::value_ptr(uni.raster_texcoord), 4);
     case GL_CURRENT_RASTER_DISTANCE: return scalar(0);
-    // Colour-index mode does not exist here; its state keeps its initial
+    // Color-index mode does not exist here; its state keeps its initial
     // values so a query cannot mistake absence for a written zero.
     case GL_CURRENT_INDEX:
     case GL_CURRENT_RASTER_INDEX: return scalar(1);
@@ -680,8 +680,8 @@ GLboolean glIsEnabled(GLenum cap) {
     // reads, so the two can never disagree about whether fog is on.
     GLdouble values[16] = {};
     int count = 0;
-    bool colour = false, enable = false;
-    if (fixedFunctionState(cap, values, &count, &colour, &enable) && enable)
+    bool color = false, enable = false;
+    if (fixedFunctionState(cap, values, &count, &color, &enable) && enable)
         return values[0] != 0 ? GL_TRUE : GL_FALSE;
     if (!sfpewEnsureBackend() || g_glFuncs.glIsEnabled == nullptr) return GL_FALSE;
     return g_glFuncs.glIsEnabled(cap);
@@ -691,8 +691,8 @@ void glGetBooleanv(GLenum pname, GLboolean* params) {
     if (!params) return;
     GLdouble values[16] = {};
     int count = 0;
-    bool colour = false, enable = false;
-    if (fixedFunctionState(pname, values, &count, &colour, &enable)) {
+    bool color = false, enable = false;
+    if (fixedFunctionState(pname, values, &count, &color, &enable)) {
         // "GL_FALSE if and only if it is 0.0" - no rounding, no scaling.
         for (int i = 0; i < count; ++i) params[i] = values[i] != 0.0 ? GL_TRUE : GL_FALSE;
         return;
@@ -710,8 +710,8 @@ void glGetBooleanv(GLenum pname, GLboolean* params) {
 void glGetDoublev(GLenum pname, GLdouble* params) {
     if (!params) return;
     int count = 0;
-    bool colour = false, enable = false;
-    if (fixedFunctionState(pname, params, &count, &colour, &enable)) return;
+    bool color = false, enable = false;
+    if (fixedFunctionState(pname, params, &count, &color, &enable)) return;
     if (isWrapperIntegerPname(pname)) {
         GLint value = 0;
         glGetIntegerv(pname, &value);
@@ -733,15 +733,15 @@ void glGetIntegerv(GLenum pname, GLint* params) {
     if (!params) return;
     // Fixed-function state first, and without needing a backend: it is the
     // wrapper's own, and the conversion to integers is the spec's - round,
-    // except colours and normals, which map onto the whole integer range.
+    // except colors and normals, which map onto the whole integer range.
     {
         GLdouble values[16] = {};
         int count = 0;
-        bool colour = false, enable = false;
-        if (fixedFunctionState(pname, values, &count, &colour, &enable)) {
+        bool color = false, enable = false;
+        if (fixedFunctionState(pname, values, &count, &color, &enable)) {
             for (int i = 0; i < count; ++i) {
                 const double scaled =
-                    colour ? std::clamp(values[i], -1.0, 1.0) * 2147483647.0 : values[i];
+                    color ? std::clamp(values[i], -1.0, 1.0) * 2147483647.0 : values[i];
                 params[i] = static_cast<GLint>(std::clamp(std::round(scaled), -2147483648.0,
                                                           2147483647.0));
             }
@@ -805,8 +805,8 @@ void glGetFloatv(GLenum pname, GLfloat* params) {
     // the same values, and integers in it (enums, counts) become floats.
     GLdouble values[16] = {};
     int count = 0;
-    bool colour = false, enable = false;
-    if (fixedFunctionState(pname, values, &count, &colour, &enable)) {
+    bool color = false, enable = false;
+    if (fixedFunctionState(pname, values, &count, &color, &enable)) {
         for (int i = 0; i < count; ++i) params[i] = static_cast<GLfloat>(values[i]);
         return;
     }

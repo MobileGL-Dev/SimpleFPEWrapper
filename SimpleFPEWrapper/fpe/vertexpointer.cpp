@@ -269,7 +269,7 @@ void glVertexAttribPointer(GLuint index, GLint size, GLenum type, GLboolean norm
     (void)g_glstate;
     sfpewEntryBarrier();
     // GL_BGRA reaches a USER program's attribute, whose shader the wrapper
-    // does not get to rewrite - so unlike the fixed-function colour array
+    // does not get to rewrite - so unlike the fixed-function color array
     // (glColorPointer) there is nowhere to put the component reordering.
     // Desktop GL performs it in the driver; on GLES the array is declared as
     // four plain components so the draw still happens, with the application's

@@ -1699,7 +1699,7 @@ bool sfpewFullColorReadRgba(GLint x, GLint y, GLsizei width, GLsizei height,
 bool sfpewFullColorReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format,
                               GLenum type, GLvoid* pixels) {
     pixel_format_t info; // GL_DEPTH_COMPONENT/GL_STENCIL_INDEX are not
-                         // colour formats - not this function's concern.
+                         // color formats - not this function's concern.
     if (!pixelFormat(format, &info)) return false;
     std::vector<GLfloat> rgba;
     GLsizei output_width = width, output_height = height;
@@ -1779,7 +1779,7 @@ size_t depthScalarBytes(GLenum type) {
 
 // GL 2.1 table 3.7's DEPTH_COMPONENT encodings: float stays exact, the
 // unsigned integer types normalize [0,1] -> their full range like every
-// other normalized colour channel already does elsewhere in this file.
+// other normalized color channel already does elsewhere in this file.
 void encodeDepthScalar(uint8_t* dest, GLenum type, float value, bool swap) {
     switch (type) {
     case GL_FLOAT: {
@@ -1830,11 +1830,11 @@ void encodeDepthScalar(uint8_t* dest, GLenum type, float value, bool swap) {
 bool sfpewDepthPixelTransferReadPixels(GLint x, GLint y, GLsizei width, GLsizei height,
                                        GLenum format, GLenum type, GLvoid* pixels) {
     // format must be checked here, not left to the caller: `type` alone
-    // (GL_UNSIGNED_BYTE etc.) is also a legal type for plenty of colour
+    // (GL_UNSIGNED_BYTE etc.) is also a legal type for plenty of color
     // formats, so without this a glReadPixels(GL_RGBA, GL_UNSIGNED_BYTE)
     // done while some unrelated earlier call had set GL_DEPTH_SCALE/BIAS
     // would otherwise get silently hijacked into writing reinterpreted
-    // depth data over the caller's requested colour output.
+    // depth data over the caller's requested color output.
     if (format != GL_DEPTH_COMPONENT || !sfpewDepthPixelTransferActive()) return false;
     const size_t scalar_bytes = depthScalarBytes(type);
     if (scalar_bytes == 0 || pixels == nullptr) return false;

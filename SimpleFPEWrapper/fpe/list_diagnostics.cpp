@@ -132,7 +132,7 @@ void sfpewListLogFrame() {
         DisplayListManager::inventory(&heldTotal, &heldFilled);
         // The wrapper is holding plenty of chunk geometry and the game is
         // asking for almost none of it: that is the reported symptom, and
-        // labelling it here means the log identifies its own bad frames.
+        // labeling it here means the log identifies its own bad frames.
         const bool symptom = heldFilled >= 50 && c.requested * 8 < heldFilled;
         listLogLine(c.requested != c.drawnLists || symptom,
                    "LISTLOG frame=%u lists=%u/%u%s%s held=%u/%u verts=%llu draws=%u "

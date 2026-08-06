@@ -894,7 +894,7 @@ SFPEW_APIENTRY bool sfpewImmediateBatchPendingForTest() { return pendingGlyphBat
 void flushPendingImmediateDraws() {
     // A run being built straight into the batch is not part of it yet.
     // Entry points that are legal inside Begin/End can reach this (glMaterial
-    // under a lit batch, colour material), and drawing the batch with a half
+    // under a lit batch, color material), and drawing the batch with a half
     // collected run appended to it would draw vertices the application has
     // not finished describing.
     if (g_immediate_collect != nullptr)
@@ -1293,20 +1293,20 @@ void sfpewCompileImmediateRuns(DisplayList& commands) {
 
 // See the declaration in drawing1x.h: the cold half of glColor* under
 // GL_COLOR_MATERIAL.
-void sfpewApplyColorMaterial(glstate_t& gs, const glm::vec4& colour) {
-    // Vertex colours are copied into the pending batch, so ordinary colour
-    // changes do not affect older glyphs. Colour material also mutates
+void sfpewApplyColorMaterial(glstate_t& gs, const glm::vec4& color) {
+    // Vertex colors are copied into the pending batch, so ordinary color
+    // changes do not affect older glyphs. Color material also mutates
     // uniform material state, which must remain ordered with the batch.
     flushPendingImmediateDraws();
     const auto apply = [&](material_t& material) {
         switch (gs.fpe_state.color_material_mode) {
-        case GL_AMBIENT: material.ambient = colour; break;
-        case GL_DIFFUSE: material.diffuse = colour; break;
-        case GL_SPECULAR: material.specular = colour; break;
-        case GL_EMISSION: material.emission = colour; break;
+        case GL_AMBIENT: material.ambient = color; break;
+        case GL_DIFFUSE: material.diffuse = color; break;
+        case GL_SPECULAR: material.specular = color; break;
+        case GL_EMISSION: material.emission = color; break;
         case GL_AMBIENT_AND_DIFFUSE:
-            material.ambient = colour;
-            material.diffuse = colour;
+            material.ambient = color;
+            material.diffuse = color;
             break;
         default: break;
         }

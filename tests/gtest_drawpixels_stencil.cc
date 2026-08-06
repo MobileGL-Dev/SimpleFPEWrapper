@@ -148,10 +148,10 @@ TEST_F(DrawPixelsStencilTest, DistinctIndicesLandAtTheirOwnPixelsNotJustOneShare
     // Four distinct values chosen to exercise different bit patterns (not
     // just "all bits set/clear" every time): 0x03, 0x50, 0xAA, 0xFF. Four
     // separate 1x1 draws at four separate positions, not one 2x2 image -
-    // a 2x2 image's four texel centres land at UV (0.25,0.25)/(0.75,0.25)/
+    // a 2x2 image's four texel centers land at UV (0.25,0.25)/(0.75,0.25)/
     // (0.25,0.75)/(0.75,0.75) against the quad's own internal diagonal
     // (the two triangles of the drawer's GL_TRIANGLE_STRIP meet along
-    // u+v=1), and two of those four centres sit exactly on that seam -
+    // u+v=1), and two of those four centers sit exactly on that seam -
     // a rasterizer boundary-rounding case, not a bit-plane logic bug (this
     // same set of values at four independent single-pixel positions, which
     // cannot hit that seam, all land correctly).

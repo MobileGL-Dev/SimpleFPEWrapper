@@ -1312,6 +1312,21 @@ void sfpewFinishBgraUpload(const sfpew_bgra_upload_t& upload) {
         g_glFuncs.glBindBuffer(GL_PIXEL_UNPACK_BUFFER, upload.rebind_pbo);
 }
 
+namespace {
+
+// The compiled form of glTexImage2D: its payload is tight by then, so the
+// unpack state at glCallList - a bound unpack buffer above all, which would
+// read the captured client pointer back as an offset - must not reach it.
+void replayTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei width,
+                      GLsizei height, GLint border, GLenum format, GLenum type,
+                      GLboolean swap_bytes, const GLvoid* pixels) {
+    sfpew_list_unpack_replay_t unpack(swap_bytes != GL_FALSE, false);
+    SELF_CALL(glTexImage2D, target, level, internalformat, width, height, border, format, type,
+              pixels)
+}
+
+} // namespace
+
 void glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height, GLint border,
                   GLenum format, GLenum type, const GLvoid* pixels) {
     if (!sfpewEnsureBackend() || g_glFuncs.glTexImage2D == nullptr || g_glFuncs.glGetIntegerv == nullptr) return;
@@ -1333,6 +1348,25 @@ void glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei widt
     } imagingUpload;
     (void)g_glstate; // entry strict resolve; the binding/proxy shadows read the snapshot
     sfpewEntryBarrier();
+    // plans/17 P15. A proxy target records no payload: GL requires it to
+    // ignore the pixels entirely, so an application is free to hand it a
+    // pointer that must never be dereferenced.
+    if (!disableRecording && DisplayListManager::shouldRecord()) {
+        std::vector<uint8_t> payload;
+        const bool captured =
+            target == GL_PROXY_TEXTURE_2D ||
+            sfpewCaptureListPixelUpload("glTexImage2D", width, height, format, type, pixels,
+                                        &payload);
+        if (captured) {
+            displayListManager.record<replayTexImage2D>(
+                {{9, payload.size()}}, target, level, internalformat, width, height, border,
+                format, type,
+                static_cast<GLboolean>(g_glstate.pixel_store_unpack_swap_bytes ? GL_TRUE
+                                                                              : GL_FALSE),
+                payload.empty() ? nullptr : static_cast<const GLvoid*>(payload.data()));
+        }
+        if (DisplayListManager::shouldFinish()) return;
+    }
     if (target != GL_PROXY_TEXTURE_2D && sfpewImagingActive() &&
         (pixels != nullptr || sfpewUnpackPboBound())) {
         imagingUpload.active =

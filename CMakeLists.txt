@@ -373,7 +373,8 @@ if(NOT ANDROID)
                                        pixel_rect_rules
                                        user_program_generic_arrays
                                        texture_legacy_swizzle compressed_dlist_pbo
-                                       texture_scratch_context)
+                                       texture_scratch_context
+                                       pixel_dlist_record bitmap_dlist_advance)
                                 sfpew_add_gtest(sfpew_${suite}_test SOURCES tests/gtest_${suite}.cc
                                                 LIBRARIES ${SFPEW_TEST_EGL})
                         endforeach()

@@ -9,7 +9,9 @@
 #pragma once
 #include <string>
 #include <cstring>
+#include <cstdint>
 #include <stdexcept>
+#include <vector>
 #include "backend/loader.h"
 
 #define SFPEW_APIENTRY extern "C" __attribute__((visibility("default")))
@@ -51,6 +53,56 @@ struct sfpew_bgra_upload_t {
 bool sfpewPrepareBgraUpload(GLsizei width, GLsizei height, GLenum type, const void* pixels,
                             sfpew_bgra_upload_t* out);
 void sfpewFinishBgraUpload(const sfpew_bgra_upload_t& upload);
+
+// --- Display-list capture of pixel rectangles (plans/17 P13/P15) ----------
+//
+// GL 2.1 compiles glDrawPixels, glBitmap, glTexImage2D and glTexSubImage2D
+// into a display list, and glPixelStore's own reference page fixes what that
+// means: "the pixel storage modes in effect when [they are] placed in a
+// display list control the interpretation of memory data ... the pixel
+// storage modes in effect when a display list is executed are not
+// significant". So the list gets a copy of the rectangle taken under the
+// COMPILE-time unpack state, normalised to a tight one - rows contiguous, no
+// skips, alignment 1, read out of any bound unpack buffer - and replays it
+// under sfpew_list_unpack_replay_t below. Normalising beats storing the raw
+// bytes next to the five pixel-store values: the replay then depends on none
+// of them, and a captured payload is client memory, so an unpack buffer the
+// app has bound at glCallList would otherwise read the pointer back as an
+// offset (the hazard commit 08cc918 handled for the compressed family).
+//
+// The tight copy itself. True on success - `out` empty means the command
+// carries no payload (a zero-area rectangle, or a null pointer with no unpack
+// buffer bound, i.e. a pure allocation). False means the rectangle could not
+// be read at all and nothing should be recorded, matching the answer
+// fpe/list_capture.cpp gives for vertex data it cannot snapshot.
+bool sfpewCaptureListPixelPayload(GLsizei width, GLsizei height, size_t pixel_bytes,
+                                  const GLvoid* pixels, std::vector<uint8_t>* out);
+// The same for a caller that has not already worked out its pixel size, which
+// is every entry point but glDrawPixels. A format/type pair with no known
+// client-memory size is logged against `entry` and records nothing rather
+// than being guessed at.
+bool sfpewCaptureListPixelUpload(const char* entry, GLsizei width, GLsizei height, GLenum format,
+                                 GLenum type, const GLvoid* pixels, std::vector<uint8_t>* out);
+// Installs the unpack state a captured payload was normalised to, for the
+// duration of one replayed command, and restores the application's after.
+// SWAP_BYTES is per-element byte order rather than layout, so a tight copy
+// cannot express it; the compile-time value travels with the command and is
+// re-imposed here instead of pre-swapping at capture, which would need a
+// second copy of decodePixel's element granularity. LSB_FIRST is glBitmap's
+// and is normalised away at capture (its bits are repacked MSB-first),
+// because GL_UNPACK_SKIP_PIXELS counts BITS and a byte-granular tight copy
+// has nowhere to keep the remainder.
+struct sfpew_list_unpack_replay_t {
+    sfpew_list_unpack_replay_t(bool swap_bytes, bool lsb_first);
+    ~sfpew_list_unpack_replay_t();
+    sfpew_list_unpack_replay_t(const sfpew_list_unpack_replay_t&) = delete;
+    sfpew_list_unpack_replay_t& operator=(const sfpew_list_unpack_replay_t&) = delete;
+
+private:
+    GLint alignment_ = 4, row_length_ = 0, skip_rows_ = 0, skip_pixels_ = 0, pbo_ = 0;
+    bool swap_bytes_ = false, lsb_first_ = false;
+    bool active_ = false;
+};
 
 // Display-list geometry accounting: a per-frame tally of every way chunk
 // geometry can go missing, plus switches that take the batched replay apart

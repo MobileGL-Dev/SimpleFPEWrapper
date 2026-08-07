@@ -932,6 +932,21 @@ void glTexParameteriv(GLenum target, GLenum pname, const GLint* params) {
         g_glFuncs.glTexParameteriv(target, pname, params);
     }
 }
+namespace {
+
+// The compiled form of glTexSubImage2D; see replayTexImage2D in
+// texture_image.cpp - the payload is tight, so no unpack state (least of all
+// a bound unpack buffer) from glCallList time may reach it.
+void replayTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width,
+                         GLsizei height, GLenum format, GLenum type, GLboolean swap_bytes,
+                         const GLvoid* pixels) {
+    sfpew_list_unpack_replay_t unpack(swap_bytes != GL_FALSE, false);
+    SELF_CALL(glTexSubImage2D, target, level, xoffset, yoffset, width, height, format, type,
+              pixels)
+}
+
+} // namespace
+
 void glTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width,
                      GLsizei height, GLenum format, GLenum type, const GLvoid* pixels) {
     if (!sfpewEnsureBackend() || g_glFuncs.glTexSubImage2D == nullptr) return;
@@ -951,6 +966,20 @@ void glTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, G
     } imagingUpload;
     (void)g_glstate; // entry strict resolve; mipmap tracking reads the binding shadow
     sfpewEntryBarrier();
+    // plans/17 P15.
+    if (!disableRecording && DisplayListManager::shouldRecord()) {
+        std::vector<uint8_t> payload;
+        if (sfpewCaptureListPixelUpload("glTexSubImage2D", width, height, format, type, pixels,
+                                        &payload)) {
+            displayListManager.record<replayTexSubImage2D>(
+                {{9, payload.size()}}, target, level, xoffset, yoffset, width, height, format,
+                type,
+                static_cast<GLboolean>(g_glstate.pixel_store_unpack_swap_bytes ? GL_TRUE
+                                                                              : GL_FALSE),
+                payload.empty() ? nullptr : static_cast<const GLvoid*>(payload.data()));
+        }
+        if (DisplayListManager::shouldFinish()) return;
+    }
     if (sfpewImagingActive() && (pixels != nullptr || sfpewUnpackPboBound())) {
         imagingUpload.active =
             sfpewPrepareImagingUpload(width, height, format, type, pixels, &imagingUpload.state);

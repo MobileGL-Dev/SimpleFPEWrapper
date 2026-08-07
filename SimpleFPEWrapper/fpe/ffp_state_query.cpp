@@ -29,6 +29,8 @@ bool isWrapperIntegerPname(GLenum pname) {
     case GL_NUM_EXTENSIONS:
     case GL_CURRENT_PROGRAM:
     case GL_ARRAY_BUFFER_BINDING:
+    case GL_VERTEX_ARRAY_BINDING:
+    case GL_ELEMENT_ARRAY_BUFFER_BINDING:
         return true;
     default:
         return false;
@@ -787,11 +789,33 @@ void glGetIntegerv(GLenum pname, GLint* params) {
         *params = cachedNumExtensions;
         break;
     }
+    // The four bindings a fixed-function draw takes over. Its deferred save
+    // (plans/12) leaves the backend holding the wrapper's FPE program, fpe_vao,
+    // ring buffer and element ring until the next entry barrier, so forwarding
+    // any of these hands the app an internal name - which it then believes is
+    // its own and "restores". Measured for the two that were missing: 0 before
+    // a draw, the element ring after it (plans/16 M7).
+    //
+    // Answered from the same shadows the draw paths resolve them from, NOT by
+    // taking the barrier here: glGetIntegerv is one of the hottest entry points
+    // a legacy frontend has, and a restore per query would undo the deferral
+    // the shadows exist to make possible.
     case GL_CURRENT_PROGRAM:
         *params = sfpewLogicalProgram();
         break;
     case GL_ARRAY_BUFFER_BINDING:
         *params = static_cast<GLint>(sfpewLogicalArrayBufferBinding());
+        break;
+    case GL_VERTEX_ARRAY_BINDING:
+        *params = static_cast<GLint>(sfpewLogicalVertexArrayBinding());
+        break;
+    // The one that cannot always come from a shadow: an element binding is VAO
+    // state and only VAO 0's is tracked, so a non-zero app VAO restores and
+    // takes the real query inside the helper. Sharing it with the indexed draw
+    // paths is deliberate - what this reports and what an indexed draw treats
+    // `indices` as an offset into must never disagree.
+    case GL_ELEMENT_ARRAY_BUFFER_BINDING:
+        *params = sfpewResolveElementArrayBinding();
         break;
     default:
         g_glFuncs.glGetIntegerv(pname, params);

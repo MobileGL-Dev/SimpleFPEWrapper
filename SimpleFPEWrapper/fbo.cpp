@@ -18,6 +18,7 @@
 #include "GL/gl.h"
 #include "init.h"
 #include "log.h"
+#include "fpe/drawing1x.h"
 #include "fpe/fpe.hpp"
 
 #include <cstring>
@@ -84,11 +85,20 @@ void glFramebufferTexture3D(GLenum target, GLenum attachment, GLenum textarget, 
     g_glFuncs.glFramebufferTextureLayer(target, attachment, texture, level, zoffset);
 }
 
+// Both of these act through the CURRENTLY BOUND buffer, so they owe the entry
+// barrier the rest of the buffer surface takes (the contract note above
+// glBufferData in fpe/vertexpointer.cpp). Without it, everything after any
+// fixed-function draw addresses the wrapper's immediate ring instead of the
+// app's buffer, the deferred draw-state restore still being held: the size
+// query answers for the ring, and the map either fails outright (the ring is
+// already persistently mapped) or hands the app a pointer into wrapper memory.
 void* glMapBuffer(GLenum target, GLenum access) {
     if (!sfpewEnsureBackend() || g_glFuncs.glMapBufferRange == nullptr ||
         g_glFuncs.glGetBufferParameteriv == nullptr) {
         return nullptr;
     }
+    (void)g_glstate; // entry strict resolve
+    sfpewEntryBarrier();
     GLint size = 0;
     g_glFuncs.glGetBufferParameteriv(target, 0x8764 /* GL_BUFFER_SIZE */, &size);
     if (size <= 0) {
@@ -119,6 +129,8 @@ void glGetBufferSubData(GLenum target, GLintptr offset, GLsizeiptr size, void* d
         g_glFuncs.glUnmapBuffer == nullptr) {
         return;
     }
+    (void)g_glstate; // entry strict resolve
+    sfpewEntryBarrier();
     void* mapped = g_glFuncs.glMapBufferRange(target, offset, size, 0x0001 /* GL_MAP_READ_BIT */);
     if (mapped == nullptr) {
         g_glstate.set_error(GL_INVALID_OPERATION);

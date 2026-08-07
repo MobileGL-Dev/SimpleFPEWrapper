@@ -64,8 +64,11 @@ bool sfpewBasicColorTransferActive();
 bool sfpewFullColorReadRgba(GLint x, GLint y, GLsizei width, GLsizei height,
                             std::vector<GLfloat>* rgba, GLsizei* output_width,
                             GLsizei* output_height, bool force = false);
+// `force` has the same meaning here, for glReadPixels' second reason to want
+// the CPU round trip with no transfer active (plans/17 P1): a format/type
+// pair the backend would reject outright has no other encoder.
 bool sfpewFullColorReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format,
-                              GLenum type, GLvoid* pixels);
+                              GLenum type, GLvoid* pixels, bool force = false);
 bool sfpewDepthPixelTransferActive();
 bool sfpewDepthPixelTransferReadPixels(GLint x, GLint y, GLsizei width, GLsizei height,
                                        GLenum format, GLenum type, GLvoid* pixels);

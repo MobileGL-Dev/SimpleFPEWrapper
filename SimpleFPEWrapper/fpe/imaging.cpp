@@ -120,9 +120,17 @@ bool pixelSize(GLenum format, GLenum type, size_t* bytes) {
     int widths[4] = {}, components = 0;
     bool reversed = false;
     if (!packedType(type, widths, &components, bytes, &reversed)) return false;
-    return components == info.components &&
-           ((components == 3 && (format == GL_RGB || format == GL_BGR)) ||
-            (components == 4 && (format == GL_RGBA || format == GL_BGRA)));
+    // GL 2.1 3.6.4: a packed type names its fields after exactly one format -
+    // GL_RGB for the three-field types (GL_BGR is NOT among them; only the
+    // four-field types have a reversed spelling), GL_RGBA or GL_BGRA for the
+    // four-field ones. Anything else is GL_INVALID_OPERATION, which the
+    // callers' own GL_INVALID_ENUM cannot overwrite once latched.
+    if ((components == 3 && format != GL_RGB) ||
+        (components == 4 && format != GL_RGBA && format != GL_BGRA)) {
+        g_glstate.set_error(GL_INVALID_OPERATION);
+        return false;
+    }
+    return true;
 }
 
 template <typename T>
@@ -597,6 +605,24 @@ glm::vec4 applyInternalFormat(const glm::vec4& value, GLenum format) {
     case GL_INTENSITY: return {value.r, value.r, value.r, value.r};
     case GL_RGB: return {value.r, value.g, value.b, 1};
     default: return value;
+    }
+}
+
+// Which of R,G,B,A a color table or convolution filter of this internal
+// format actually carries, as a bit per channel. Everything else is
+// applyInternalFormat's 0/1 filler, which is the right thing to STORE -
+// glGetColorTable/glGetConvolutionFilter must hand those defaults back -
+// but must never reach a pixel group: GL 2.1 3.6.3's resulting-component
+// tables pass undefined channels through the stage untouched (an ALPHA
+// table yields (R, G, B, A[a]), a LUMINANCE filter leaves alpha alone).
+unsigned definedChannels(GLenum internalformat) {
+    internal_format_t info;
+    internalFormat(internalformat, &info);
+    switch (info.base) {
+    case GL_ALPHA: return 0x8u;
+    case GL_LUMINANCE:
+    case GL_RGB: return 0x7u;
+    default: return 0xfu;
     }
 }
 
@@ -1375,8 +1401,10 @@ bool minmaxParameter(GLenum target, GLenum pname, GLfloat* value) {
 
 glm::vec4 tableLookup(const color_table_t& table, const glm::vec4& value) {
     if (!table.enabled || table.entries.empty()) return value;
-    glm::vec4 result;
+    const unsigned defined = definedChannels(table.internalformat);
+    glm::vec4 result = value;
     for (int channel = 0; channel < 4; ++channel) {
+        if ((defined & (1u << channel)) == 0) continue;
         const float component = std::clamp(value[channel], 0.0f, 1.0f);
         const size_t index = std::min(static_cast<size_t>(std::floor(component * table.entries.size())),
                                       table.entries.size() - 1u);
@@ -1403,6 +1431,7 @@ void convolve2D(std::vector<glm::vec4>* image, GLsizei* width, GLsizei* height,
     const GLsizei kh = state.height;
     if (kw <= 0 || kh <= 0 || state.entries.empty()) return;
     const bool reduce = state.border_mode == GL_REDUCE;
+    const unsigned defined = definedChannels(state.internalformat);
     const GLsizei output_width = reduce ? std::max<GLsizei>(*width - kw + 1, 0) : *width;
     const GLsizei output_height = reduce ? std::max<GLsizei>(*height - kh + 1, 0) : *height;
     std::vector<glm::vec4> output(static_cast<size_t>(output_width) * output_height,
@@ -1419,6 +1448,18 @@ void convolve2D(std::vector<glm::vec4>* image, GLsizei* width, GLsizei* height,
                            state.entries[static_cast<size_t>(ky) * kw + kx];
                 }
             }
+            if (defined != 0xfu) {
+                // The channels this filter's base internal format does not
+                // carry come from source pixel (x, y) - the ORIGIN of the
+                // footprint, which under GL_REDUCE is not its centre.
+                // Measured against the desktop driver: a 3-wide LUMINANCE
+                // filter reducing a 3-wide source to one pixel passes the
+                // leftmost source alpha through, not the middle one.
+                const glm::vec4 unfiltered =
+                    convolutionSample(*image, *width, *height, x, y, state);
+                for (int channel = 0; channel < 4; ++channel)
+                    if ((defined & (1u << channel)) == 0) sum[channel] = unfiltered[channel];
+            }
             output[static_cast<size_t>(y) * output_width + x] = sum;
         }
     }
@@ -1433,6 +1474,7 @@ void convolveSeparable(std::vector<glm::vec4>* image, GLsizei* width, GLsizei* h
         state.separable_column.empty())
         return;
     const bool reduce = state.border_mode == GL_REDUCE;
+    const unsigned defined = definedChannels(state.internalformat);
     const GLsizei row_width = reduce ? std::max<GLsizei>(*width - state.width + 1, 0) : *width;
     std::vector<glm::vec4> horizontal(static_cast<size_t>(row_width) * *height,
                                       glm::vec4(0.0f));
@@ -1474,6 +1516,14 @@ void convolveSeparable(std::vector<glm::vec4>* image, GLsizei* width, GLsizei* h
                 }
                 sum += sample * state.separable_column[k];
             }
+            // Same pass-through rule as convolve2D, against the source this
+            // two-pass form still holds untouched until the move below.
+            if (defined != 0xfu) {
+                const glm::vec4 unfiltered =
+                    convolutionSample(*image, *width, *height, x, y, state);
+                for (int channel = 0; channel < 4; ++channel)
+                    if ((defined & (1u << channel)) == 0) sum[channel] = unfiltered[channel];
+            }
             output[static_cast<size_t>(y) * row_width + x] = sum;
         }
     }
@@ -1495,6 +1545,20 @@ void collectHistogram(const std::vector<glm::vec4>& image, histogram_t& state) {
             if (count != std::numeric_limits<GLuint>::max()) ++count;
         }
     }
+}
+
+// The color matrix and the post-color-matrix scale/bias are the one part of
+// 3.6.3 with no glEnable of their own - the stage runs unconditionally - so
+// a non-default value is the only "enabled" they have, and sfpewImagingActive
+// cannot be a pure OR of the eight enable flags without dropping them.
+bool colorMatrixStageActive() {
+    const auto& un = g_glstate.fpe_uniform;
+    for (int channel = 0; channel < 4; ++channel) {
+        if (un.post_color_matrix_scale[channel] != 1.0f ||
+            un.post_color_matrix_bias[channel] != 0.0f)
+            return true;
+    }
+    return un.transformation.matrices[matrix_idx(GL_COLOR)] != glm::mat4(1.0f);
 }
 
 void collectMinmax(const std::vector<glm::vec4>& image, minmax_t& state) {
@@ -1526,7 +1590,7 @@ bool sfpewImagingActive() {
     return gs.color_tables[0].enabled || gs.color_tables[1].enabled ||
            gs.color_tables[2].enabled || gs.convolutions[0].enabled ||
            gs.convolutions[1].enabled || gs.convolutions[2].enabled ||
-           gs.histogram.enabled || gs.minmax.enabled;
+           gs.histogram.enabled || gs.minmax.enabled || colorMatrixStageActive();
 }
 
 bool sfpewImagingSink() {
@@ -1549,11 +1613,17 @@ bool sfpewImagingTransfer(GLfloat* rgba, GLsizei* width, GLsizei* height) {
     auto& gs = g_glstate;
     for (glm::vec4& pixel : image) pixel = tableLookup(gs.color_tables[0], pixel);
 
+    // Everything reaching this transfer is a 2D image, and 3.6.3 chooses
+    // between CONVOLUTION_2D (winning) and SEPARABLE_2D for those.
+    // CONVOLUTION_1D filters one-dimensional images only, so it never
+    // competes here however it is enabled.
+    const int convolution_index = gs.convolutions[1].enabled   ? 1
+                                  : gs.convolutions[2].enabled ? 2
+                                                               : -1;
     try {
-        for (int index = 0; index < 3; ++index) {
-            const convolution_t& convolution = gs.convolutions[index];
-            if (!convolution.enabled) continue;
-            if (index == 2)
+        if (convolution_index >= 0) {
+            const convolution_t& convolution = gs.convolutions[convolution_index];
+            if (convolution_index == 2)
                 convolveSeparable(&image, width, height, convolution);
             else
                 convolve2D(&image, width, height, convolution);
@@ -1563,7 +1633,6 @@ bool sfpewImagingTransfer(GLfloat* rgba, GLsizei* width, GLsizei* height) {
             const glm::vec4 bias(un.post_convolution_bias[0], un.post_convolution_bias[1],
                                  un.post_convolution_bias[2], un.post_convolution_bias[3]);
             for (glm::vec4& pixel : image) pixel = clampColor(pixel * scale + bias);
-            break;
         }
     } catch (const std::bad_alloc&) {
         g_glstate.set_error(GL_OUT_OF_MEMORY);
@@ -1697,13 +1766,13 @@ bool sfpewFullColorReadRgba(GLint x, GLint y, GLsizei width, GLsizei height,
 }
 
 bool sfpewFullColorReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format,
-                              GLenum type, GLvoid* pixels) {
+                              GLenum type, GLvoid* pixels, bool force) {
     pixel_format_t info; // GL_DEPTH_COMPONENT/GL_STENCIL_INDEX are not
                          // color formats - not this function's concern.
     if (!pixelFormat(format, &info)) return false;
     std::vector<GLfloat> rgba;
     GLsizei output_width = width, output_height = height;
-    if (!sfpewFullColorReadRgba(x, y, width, height, &rgba, &output_width, &output_height))
+    if (!sfpewFullColorReadRgba(x, y, width, height, &rgba, &output_width, &output_height, force))
         return false;
     if (sfpewImagingSink() || rgba.empty()) return true;
     encodePixels(output_width, output_height, format, type,

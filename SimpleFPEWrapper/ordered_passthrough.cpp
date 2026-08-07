@@ -352,6 +352,53 @@ void glGetQueryObjectui64v(GLuint id, GLenum pname, GLuint64* params) {
     g_glFuncs.glGetQueryObjectuiv(id, pname, &value);
     *params = static_cast<GLuint64>(value);
 }
+
+namespace {
+
+// plans/17 P1: whether the backend will accept this color format/type pair
+// for a read at all. A GLES backend takes exactly two (ES 3.0 4.3.1,
+// /docsgl/es3/glReadPixels.xhtml): GL_RGBA+GL_UNSIGNED_BYTE for a normalized
+// fixed-point read buffer, plus the single pair the implementation names
+// through GL_IMPLEMENTATION_COLOR_READ_FORMAT/_TYPE. Everything else - all
+// twelve packed types, GL_BGRA, GL_RGB, GL_LUMINANCE, GL_FLOAT - is
+// GL_INVALID_OPERATION, and "if an error is generated, no change is made to
+// the contents of data": the caller gets its own uninitialized buffer back.
+// Desktop GL takes the whole GL 2.1 table instead.
+//
+// This is the capability test imaging.h:40-46 asks for rather than a
+// blanket CPU round trip: the no-transfer GL_RGBA+GL_UNSIGNED_BYTE read -
+// the overwhelmingly common one, and the only pair every backend floor is
+// required to have - answers true before anything is queried, so it keeps
+// the raw backend path it always had.
+bool backendTakesColorReadPair(GLenum format, GLenum type) {
+    if (format == GL_RGBA && type == GL_UNSIGNED_BYTE) return true;
+    // Not color reads: they have their own transfer path, and the color
+    // encoder refuses them anyway. Answering here also keeps the two
+    // queries below off the depth-read path.
+    if (format == GL_DEPTH_COMPONENT || format == GL_STENCIL_INDEX ||
+        format == GL_DEPTH_STENCIL) {
+        return true;
+    }
+    // sfpewBackendTakesBgra() and not sfpewBackendIsES(): the question is
+    // "is this really desktop GL", and MobileGlues answers GL_VERSION like
+    // desktop while forwarding every read to GLES underneath
+    // (backend/capabilities.cpp) - it needs the CPU encoder exactly as much
+    // as a plain ES backend does.
+    if (sfpewBackendTakesBgra()) return true;
+    if (g_glFuncs.glGetIntegerv == nullptr) return false;
+    // Asked per read, never cached: the implementation-chosen pair is a
+    // property of the bound read framebuffer's attachment, not of the
+    // backend, so an app that reads from an FBO with a different format
+    // gets a different answer.
+    GLint implementation_format = 0, implementation_type = 0;
+    g_glFuncs.glGetIntegerv(GL_IMPLEMENTATION_COLOR_READ_FORMAT, &implementation_format);
+    g_glFuncs.glGetIntegerv(GL_IMPLEMENTATION_COLOR_READ_TYPE, &implementation_type);
+    return static_cast<GLenum>(implementation_format) == format &&
+           static_cast<GLenum>(implementation_type) == type;
+}
+
+} // namespace
+
 // glDrawElements lives in fpe/draw_now.cpp: it is FPE-converted, not passthrough.
 void glReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type,
                   GLvoid* pixels) {
@@ -364,19 +411,19 @@ void glReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format
     // (nothing to do) whenever the corresponding transfer sits at its
     // default no-op values - the overwhelmingly common case - so the raw
     // passthrough below stays exactly as it always was for that case.
-    if (sfpewFullColorReadPixels(x, y, width, height, format, type, pixels)) return;
+    //
+    // plans/17 P1/P4: that same CPU path is also the only correct encoder
+    // for a pair the backend would refuse, so a refused pair forces it even
+    // with the transfer at its defaults. It supersedes the old in-place
+    // BGRA->RGBA swap outright: that read with the caller's full GL_PACK_*
+    // layout and then swapped a TIGHT width*height*4 run from the caller's
+    // base pointer, so a non-zero GL_PACK_ROW_LENGTH left every row past
+    // the first unswapped and GL_PACK_SKIP_ROWS rewrote caller bytes
+    // outside the requested rectangle. imaging.cpp's encodePixels writes
+    // the addresses the pack state actually names, pixel buffer included.
+    const bool raw = backendTakesColorReadPair(format, type);
+    if (sfpewFullColorReadPixels(x, y, width, height, format, type, pixels, !raw)) return;
     if (sfpewDepthPixelTransferReadPixels(x, y, width, height, format, type, pixels)) return;
-    // Desktop apps read GL_BGRA, which GLES3 core does not offer: read RGBA
-    // and swap in place (tight rows, the common screenshot/AWT case). A
-    // desktop GL backend reads it directly.
-    if (format == GL_BGRA && !sfpewBackendTakesBgra() && type == GL_UNSIGNED_BYTE && pixels != nullptr &&
-        width > 0 && height > 0 && !sfpewPackPboBound()) {
-        g_glFuncs.glReadPixels(x, y, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
-        auto* bytes = static_cast<uint8_t*>(pixels);
-        const size_t count = (size_t)width * (size_t)height * 4u;
-        for (size_t px = 0; px < count; px += 4) std::swap(bytes[px + 0], bytes[px + 2]);
-        return;
-    }
     g_glFuncs.glReadPixels(x, y, width, height, format, type, pixels);
 }
 ORDERED_PASSTHROUGH(glFlush, (), ())

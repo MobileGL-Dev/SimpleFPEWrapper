@@ -2987,19 +2987,19 @@
    "target": "glVertexAttrib1dv"
   },
   "glVertexAttrib1f": {
-   "status": "backend-fallthrough",
+   "status": "resolvable",
    "target": "glVertexAttrib1f"
   },
   "glVertexAttrib1fARB": {
-   "status": "backend-alias",
+   "status": "alias",
    "target": "glVertexAttrib1f"
   },
   "glVertexAttrib1fv": {
-   "status": "backend-fallthrough",
+   "status": "resolvable",
    "target": "glVertexAttrib1fv"
   },
   "glVertexAttrib1fvARB": {
-   "status": "backend-alias",
+   "status": "alias",
    "target": "glVertexAttrib1fv"
   },
   "glVertexAttrib1s": {
@@ -3035,19 +3035,19 @@
    "target": "glVertexAttrib2dv"
   },
   "glVertexAttrib2f": {
-   "status": "backend-fallthrough",
+   "status": "resolvable",
    "target": "glVertexAttrib2f"
   },
   "glVertexAttrib2fARB": {
-   "status": "backend-alias",
+   "status": "alias",
    "target": "glVertexAttrib2f"
   },
   "glVertexAttrib2fv": {
-   "status": "backend-fallthrough",
+   "status": "resolvable",
    "target": "glVertexAttrib2fv"
   },
   "glVertexAttrib2fvARB": {
-   "status": "backend-alias",
+   "status": "alias",
    "target": "glVertexAttrib2fv"
   },
   "glVertexAttrib2s": {
@@ -3083,19 +3083,19 @@
    "target": "glVertexAttrib3dv"
   },
   "glVertexAttrib3f": {
-   "status": "backend-fallthrough",
+   "status": "resolvable",
    "target": "glVertexAttrib3f"
   },
   "glVertexAttrib3fARB": {
-   "status": "backend-alias",
+   "status": "alias",
    "target": "glVertexAttrib3f"
   },
   "glVertexAttrib3fv": {
-   "status": "backend-fallthrough",
+   "status": "resolvable",
    "target": "glVertexAttrib3fv"
   },
   "glVertexAttrib3fvARB": {
-   "status": "backend-alias",
+   "status": "alias",
    "target": "glVertexAttrib3fv"
   },
   "glVertexAttrib3s": {
@@ -3195,19 +3195,19 @@
    "target": "glVertexAttrib4dv"
   },
   "glVertexAttrib4f": {
-   "status": "backend-fallthrough",
+   "status": "resolvable",
    "target": "glVertexAttrib4f"
   },
   "glVertexAttrib4fARB": {
-   "status": "backend-alias",
+   "status": "alias",
    "target": "glVertexAttrib4f"
   },
   "glVertexAttrib4fv": {
-   "status": "backend-fallthrough",
+   "status": "resolvable",
    "target": "glVertexAttrib4fv"
   },
   "glVertexAttrib4fvARB": {
-   "status": "backend-alias",
+   "status": "alias",
    "target": "glVertexAttrib4fv"
   },
   "glVertexAttrib4iv": {

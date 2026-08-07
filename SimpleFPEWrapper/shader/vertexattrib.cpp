@@ -28,14 +28,19 @@ bool validVertexAttribIndex(glstate_t& state, GLuint index) {
     return false;
 }
 
-// GL 2.0 generic attribute variants missing from the GLES backend floor all
-// define the same four-component current value. Plain integer forms are
-// numeric casts; only the explicitly N-prefixed forms normalize.
+// GL 2.0 generic attribute variants all define the same four-component
+// current value. Plain integer forms are numeric casts; only the explicitly
+// N-prefixed forms normalize.
 template <bool Normalized, typename Type, size_t N>
 void mglVertexAttrib(GLuint index, const std::array<Type, N>& value) {
-    auto& state = sfpewVertexDataState();
+    auto& state = g_glstate;
     if (!validVertexAttribIndex(state, index)) return;
     if (!sfpewEnsureBackend() || g_glFuncs.glVertexAttrib4fv == nullptr) return;
+
+    // A current value is NOT immediate-mode vertex data the wrapper collects,
+    // so a run already sitting in the merge batch would be redrawn with this
+    // one instead of the value it was described under (plans/16 M6).
+    sfpewEntryBarrier();
 
     GLfloat expanded[4] = {0.0f, 0.0f, 0.0f, 1.0f};
     for (size_t i = 0; i < N; ++i) {
@@ -100,6 +105,10 @@ void mglVertexAttrib(GLuint index, const std::array<Type, N>& value) {
     SFPEW_DEFINE_ATTRIB_3(SUFFIX, TYPE)                                                           \
     SFPEW_DEFINE_ATTRIB_4(SUFFIX, TYPE)
 
+// The float family reaches the backend unchanged; it is wrapped only for the
+// barrier and the display-list record, both of which the backend's own symbol
+// would skip.
+SFPEW_DEFINE_ATTRIB_FAMILY(f, GLfloat)
 SFPEW_DEFINE_ATTRIB_FAMILY(d, GLdouble)
 SFPEW_DEFINE_ATTRIB_FAMILY(s, GLshort)
 

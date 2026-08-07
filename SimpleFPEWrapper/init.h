@@ -390,6 +390,18 @@ SFPEW_APIENTRY void glVertexAttribIPointer(GLuint index, GLint size, GLenum type
                                            const void* pointer);
 SFPEW_APIENTRY void glEnableVertexAttribArray(GLuint index);
 SFPEW_APIENTRY void glDisableVertexAttribArray(GLuint index);
+// The float family is core GLES too, but it still needs a wrapper entry: a
+// current value written between two glBegin/glEnd runs has to drain the
+// pending batch first (fpe/drawing1x.h), which the backend's own symbol
+// cannot do.
+SFPEW_APIENTRY void glVertexAttrib1f(GLuint index, GLfloat x);
+SFPEW_APIENTRY void glVertexAttrib1fv(GLuint index, const GLfloat* value);
+SFPEW_APIENTRY void glVertexAttrib2f(GLuint index, GLfloat x, GLfloat y);
+SFPEW_APIENTRY void glVertexAttrib2fv(GLuint index, const GLfloat* value);
+SFPEW_APIENTRY void glVertexAttrib3f(GLuint index, GLfloat x, GLfloat y, GLfloat z);
+SFPEW_APIENTRY void glVertexAttrib3fv(GLuint index, const GLfloat* value);
+SFPEW_APIENTRY void glVertexAttrib4f(GLuint index, GLfloat x, GLfloat y, GLfloat z, GLfloat w);
+SFPEW_APIENTRY void glVertexAttrib4fv(GLuint index, const GLfloat* value);
 SFPEW_APIENTRY void glVertexAttrib1d(GLuint index, GLdouble x);
 SFPEW_APIENTRY void glVertexAttrib1dv(GLuint index, const GLdouble* value);
 SFPEW_APIENTRY void glVertexAttrib2d(GLuint index, GLdouble x, GLdouble y);

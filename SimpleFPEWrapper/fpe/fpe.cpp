@@ -805,10 +805,12 @@ client_array_kind_t classifyClientArrays(const vertex_pointer_array_t& raw, GLui
     bool seen = false;
     bool all_zero = true;
     bool all_same_nonzero = true;
+    bool needs_conversion = false;
     GLuint buffer_id = 0;
 
     for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
         if (!((raw.enabled_pointers >> i) & 1u)) continue;
+        if (raw.attributes[i].type == GL_DOUBLE) needs_conversion = true;
         const GLuint binding = getClientArrayBufferBinding(i);
         if (binding != 0) all_zero = false;
         if (!seen) {
@@ -819,6 +821,16 @@ client_array_kind_t classifyClientArrays(const vertex_pointer_array_t& raw, GLui
         }
     }
 
+    // GL 2.1 2.8 allows GL_DOUBLE arrays; GLES rejects the type at
+    // glVertexAttribPointer outright and desktop GL only accepts it by
+    // converting, so the bytes cannot go to the backend as they lie
+    // (plans/16 M4). `mixed` is not only "several data sources" - it is the
+    // kind that means "no single backend binding can express this draw, read
+    // every attribute to the CPU and interleave", which is exactly where the
+    // double->float conversion belongs (gather_mixed_client_arrays). Deciding
+    // it HERE rather than at the three draw sites is deliberate: they all
+    // call this, so none of them can be forgotten.
+    if (needs_conversion) return client_array_kind_t::mixed;
     if (!seen || all_zero) return client_array_kind_t::all_client_memory;
     if (all_same_nonzero) {
         if (out_buffer_id) *out_buffer_id = buffer_id;
@@ -847,6 +859,16 @@ bool gather_client_arrays(const vertex_pointer_array_t& raw, GLint first, GLsize
         const auto& attr = raw.attributes[i];
         if (getClientArrayBufferBinding(i) != 0) return false; // VBO mix: original path
         if (attr.pointer == nullptr || attr.size <= 0 || type_size(attr.type) == 0) return false;
+        // Doubles need a type conversion this gather does not do;
+        // classifyClientArrays routes them to gather_mixed_client_arrays,
+        // which does (plans/16 M4).
+        if (attr.type == GL_DOUBLE) return false;
+        // Defence in depth for the negative stride the gl*Pointer entry
+        // points now reject (plans/16 M1): (size_t)attr.stride turns -8 into
+        // a ~2^64 step and `src + v * src_stride` walks straight out of the
+        // allocation. copyAttributeElements has always checked this; records
+        // reaching the gather need not have come through those entry points.
+        if (attr.stride < 0) return false;
         ++enabled_count;
         element_bytes[i] = (size_t)attr.size * (size_t)type_size(attr.type);
         total_stride += element_bytes[i];
@@ -897,6 +919,39 @@ bool gather_client_arrays(const vertex_pointer_array_t& raw, GLint first, GLsize
     return true;
 }
 
+// Test-only view of the gather's input validation. The gl*Pointer entry
+// points reject a negative stride now (plans/16 M1), which is precisely why
+// the gather's own check is unobservable from outside - no public call can
+// build the record that exercises it. It stays because records reaching the
+// gather need not have come through those entry points, and the regression
+// test drives it here instead of pretending otherwise. Returns 1 when the
+// gather accepted the record (and therefore read `count` vertices out of it).
+SFPEW_APIENTRY int sfpewGatherClientArraysForTest(const void* pointer, int stride, int first,
+                                                  int count) {
+    (void)g_glstate; // the gather reads this context's per-slot buffer bindings
+    vertex_pointer_array_t raw;
+    raw.reset();
+    raw.enabled_pointers = vp_mask(GL_VERTEX_ARRAY) | vp_mask(GL_COLOR_ARRAY);
+    raw.attributes[vp2idx(GL_VERTEX_ARRAY)] = {
+        .size = 3,
+        .usage = GL_VERTEX_ARRAY,
+        .type = GL_FLOAT,
+        .normalized = GL_FALSE,
+        .stride = (GLsizei)stride,
+        .pointer = pointer,
+    };
+    raw.attributes[vp2idx(GL_COLOR_ARRAY)] = {
+        .size = 4,
+        .usage = GL_COLOR_ARRAY,
+        .type = GL_UNSIGNED_BYTE,
+        .normalized = GL_TRUE,
+        .stride = (GLsizei)stride,
+        .pointer = static_cast<const uint8_t*>(pointer) + 3 * sizeof(GLfloat),
+    };
+    vertex_pointer_array_t out;
+    return gather_client_arrays(raw, first, count, &out) ? 1 : 0;
+}
+
 // `mixed`: at least one enabled attribute is buffer-backed and at least one
 // is not (or two disagree on which buffer) - gather_client_arrays above
 // bails outright the moment any binding is nonzero, since its client-pointer
@@ -914,13 +969,22 @@ bool gather_client_arrays(const vertex_pointer_array_t& raw, GLint first, GLsize
 bool gather_mixed_client_arrays(const vertex_pointer_array_t& raw, GLint first, GLsizei count,
                                 vertex_pointer_array_t* out) {
     if (count <= 0 || first < 0) return false;
+    // Two element sizes per attribute: what copyAttributeElements produces
+    // (the array's own type) and what lands in the interleaved result. They
+    // differ for GL_DOUBLE, which is converted to GL_FLOAT on the way in -
+    // this is the wrapper's only double-typed vertex data path, and
+    // classifyClientArrays sends every double array through it (plans/16 M4).
     size_t element_bytes[VERTEX_POINTER_COUNT] = {};
+    size_t source_element_bytes[VERTEX_POINTER_COUNT] = {};
     size_t total_stride = 0;
     for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
         if (!((raw.enabled_pointers >> i) & 1u)) continue;
         const auto& attr = raw.attributes[i];
-        if (attr.size <= 0 || type_size(attr.type) == 0) return false;
-        element_bytes[i] = (size_t)attr.size * (size_t)type_size(attr.type);
+        const GLsizei component_size = type_size(attr.type);
+        if (attr.size <= 0 || component_size == 0 || attr.stride < 0) return false;
+        source_element_bytes[i] = (size_t)attr.size * (size_t)component_size;
+        element_bytes[i] = (size_t)attr.size *
+                           (size_t)(attr.type == GL_DOUBLE ? type_size(GL_FLOAT) : component_size);
         total_stride += element_bytes[i];
     }
     if (total_stride == 0) return false;
@@ -941,9 +1005,25 @@ bool gather_mixed_client_arrays(const vertex_pointer_array_t& raw, GLint first, 
             return false;
         }
         uint8_t* dst = gathered.data() + attribute_offset;
-        for (GLsizei v = 0; v < count; ++v) {
-            std::memcpy(dst + (size_t)v * total_stride,
-                        attribute_scratch.data() + (size_t)v * element_bytes[i], element_bytes[i]);
+        if (attr.type == GL_DOUBLE) {
+            for (GLsizei v = 0; v < count; ++v) {
+                for (GLint c = 0; c < attr.size; ++c) {
+                    const GLfloat value =
+                        readVertexComponent(attribute_scratch.data() +
+                                                (size_t)v * source_element_bytes[i] +
+                                                (size_t)c * sizeof(GLdouble),
+                                            GL_DOUBLE);
+                    std::memcpy(dst + (size_t)v * total_stride + (size_t)c * sizeof(GLfloat),
+                                &value, sizeof value);
+                }
+            }
+            out->attributes[i].type = GL_FLOAT;
+        } else {
+            for (GLsizei v = 0; v < count; ++v) {
+                std::memcpy(dst + (size_t)v * total_stride,
+                            attribute_scratch.data() + (size_t)v * element_bytes[i],
+                            element_bytes[i]);
+            }
         }
         out->attributes[i].pointer = (const void*)attribute_offset;
         out->attributes[i].stride = (GLsizei)total_stride;
@@ -952,6 +1032,30 @@ bool gather_mixed_client_arrays(const vertex_pointer_array_t& raw, GLint first, 
     out->starting_pointer = gathered.data();
     out->stride = (GLsizei)total_stride;
     return true;
+}
+
+// How many bytes of a client-memory layout a draw of `count` vertices may
+// read. GL 2.1 2.8 requires only the LAST row's last attribute byte to
+// exist: an interleaved row with tail padding must not be read out to the
+// end of its stride, because applications are entitled to end the allocation
+// at the byte the last attribute ends on. 64-bit throughout - GLsizei *
+// GLsizei overflowed for large draws and handed the upload a wrapped size.
+// Shared by all three client-memory upload sites (this file's fixed-function
+// commit and user-program draw-arrays, draw_now.cpp's user-program
+// draw-elements) precisely because they drifted: the fix landed on one of
+// them and the other two kept reading a whole stride too far (plans/16 H3).
+int64_t sfpewClientArrayUploadSize(const vertex_pointer_array_t& va, GLsizei count) {
+    if (count <= 0) return 0;
+    int64_t row_tail = 0;
+    for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
+        if (!((va.enabled_pointers >> i) & 1u)) continue;
+        const auto& attr = va.attributes[i];
+        const int64_t tail = (int64_t)(uintptr_t)attr.pointer +
+                             (int64_t)attr.size * (int64_t)type_size(attr.type);
+        row_tail = std::max(row_tail, tail);
+    }
+    if (row_tail <= 0 || row_tail > (int64_t)va.stride) row_tail = (int64_t)va.stride;
+    return (int64_t)(count - 1) * (int64_t)va.stride + row_tail;
 }
 
 int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint previous_array_buffer) {
@@ -988,6 +1092,15 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint p
             vpa = raw_vpa.normalize();
             g_glstate_c.fpe_normalized_valid = true;
             g_glstate_c.fpe_normalized_sizes = live_sizes;
+        }
+        // The generated program is keyed off this layout and no shading
+        // language a backend speaks has a double attribute type. The DATA is
+        // converted further down by gather_mixed_client_arrays, which
+        // classifyClientArrays routes every double array through; this keeps
+        // the program that consumes it declaring the type it will get.
+        for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
+            if (((vpa.enabled_pointers >> i) & 1u) && vpa.attributes[i].type == GL_DOUBLE)
+                vpa.attributes[i].type = GL_FLOAT;
         }
         vpa.generate_compressed_index(g_glstate_c.fpe_state.fpe_draw.current_data.sizes.data);
         // kinda cursed...
@@ -1103,21 +1216,7 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint p
         }
 
         if (client_memory_draw) {
-            // 64-bit size math: GLsizei * GLsizei overflowed for large draws,
-            // handing the upload a negative or wrapped size. The final row is
-            // trimmed to its last attribute byte: reading a full stride past the
-            // last vertex would over-read the client allocation when the row has
-            // tail padding (interleaved layouts with window < stride).
-            int64_t row_tail = 0;
-            for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
-                if (!((vpa.enabled_pointers >> i) & 1u)) continue;
-                const auto& attr = vpa.attributes[i];
-                const int64_t tail = (int64_t)(uintptr_t)attr.pointer +
-                                     (int64_t)attr.size * (int64_t)type_size(attr.type);
-                row_tail = std::max(row_tail, tail);
-            }
-            if (row_tail <= 0 || row_tail > (int64_t)vpa.stride) row_tail = (int64_t)vpa.stride;
-            const int64_t upload_size = (int64_t)(*count - 1) * (int64_t)vpa.stride + row_tail;
+            const int64_t upload_size = sfpewClientArrayUploadSize(vpa, *count);
             const int64_t skip = (int64_t)*first * (int64_t)vpa.stride;
             if (*count <= 0 || upload_size <= 0 ||
                 upload_size > (int64_t)std::numeric_limits<GLsizei>::max() || skip < 0) {
@@ -1170,9 +1269,12 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint p
     if (filled_primitive && polygon_mode == GL_LINE) {
         thread_local std::vector<uint32_t> wire;
         const auto& edge_array = raw_vpa.attributes[vp2idx(GL_EDGE_FLAG_ARRAY)];
+        // stride < 0 is cast to size_t below and would step ~2^64 bytes per
+        // flag (plans/16 M1); an unreadable edge array means "every edge is a
+        // boundary edge", which is the same fallback a VBO-backed one takes.
         const bool edge_array_live =
             ((raw_vpa.enabled_pointers >> vp2idx(GL_EDGE_FLAG_ARRAY)) & 1u) != 0 &&
-            edge_array.pointer != nullptr &&
+            edge_array.pointer != nullptr && edge_array.stride >= 0 &&
             getClientArrayBufferBinding(vp2idx(GL_EDGE_FLAG_ARRAY)) == 0;
         // Client-memory edge flags can be read where they lie; a VBO-backed
         // array would have to be mapped, which is not worth a stall on a
@@ -1262,6 +1364,10 @@ bool sfpewUserProgramFixedFunctionDrawArrays(GLuint program, GLenum mode, GLint 
     GLint locations[VERTEX_POINTER_COUNT];
     if (!sfpewUserProgramAttribLocations(program, locations)) return false;
     if (!g_glstate.fpe_ready && init_fpe() != 0) return false;
+    // The gathers below rebase `first` into their upload; the app's generic
+    // attribute arrays are not rebased with them, so the mirror has to step
+    // them past whatever was folded away.
+    const GLint raw_first = first;
 
     auto& st = g_glstate.fpe_state;
     if (st.fpe_user_vao == 0) {
@@ -1314,7 +1420,8 @@ bool sfpewUserProgramFixedFunctionDrawArrays(GLuint program, GLenum mode, GLint 
         // untouched - vp.stride is read per-attribute there (shader/
         // userprogram.cpp), so it needs no struct-level stride of its own.
         sfpewBackendBindAttributeBuffer(single_buffer_id, backend_state.holds_save);
-        sfpewSendUserProgramAttributes(locations, raw_vpa, 0);
+        sfpewSendUserProgramAttributes(locations, raw_vpa, 0,
+                                       {true, raw_first - first, single_buffer_id});
     } else {
         vertex_pointer_array_t vpa;
         if (array_kind == client_array_kind_t::mixed) {
@@ -1349,7 +1456,7 @@ bool sfpewUserProgramFixedFunctionDrawArrays(GLuint program, GLenum mode, GLint 
                                             : (GLuint)logical_array_buffer;
         sfpewBackendBindAttributeBuffer(attribute_buffer, backend_state.holds_save);
         if (client_memory_draw) {
-            const int64_t upload_size = (int64_t)count * (int64_t)vpa.stride;
+            const int64_t upload_size = sfpewClientArrayUploadSize(vpa, count);
             const int64_t skip = (int64_t)first * (int64_t)vpa.stride;
             if (upload_size <= 0 || upload_size > (int64_t)std::numeric_limits<GLsizei>::max() ||
                 skip < 0) {
@@ -1362,7 +1469,8 @@ bool sfpewUserProgramFixedFunctionDrawArrays(GLuint program, GLenum mode, GLint 
             first = 0;
         }
 
-        sfpewSendUserProgramAttributes(locations, vpa, 0);
+        sfpewSendUserProgramAttributes(locations, vpa, 0,
+                                       {true, raw_first - first, attribute_buffer});
     }
     sfpewFeedUserProgramUniforms(program);
 

@@ -84,8 +84,34 @@ client_array_kind_t classifyClientArrays(const vertex_pointer_array_t& raw, GLui
 // replaces is gone).
 bool gather_mixed_client_arrays(const vertex_pointer_array_t& raw, GLint first, GLsizei count,
                                 vertex_pointer_array_t* out);
+
+// Bytes a `count`-vertex draw may read out of a client-memory layout: the
+// last row stops at its last attribute, not at the end of the stride (GL 2.1
+// 2.8). Every site that uploads client vertex data calls this - see its
+// definition in fpe.cpp for why that is not optional.
+int64_t sfpewClientArrayUploadSize(const vertex_pointer_array_t& va, GLsizei count);
+// How the app's OWN generic attribute arrays are to be replayed into
+// fpe_user_vao alongside the fixed-function ones (plans/16 H6).
+//
+// `active` is false for immediate mode: GL 2.1 2.8 has the array commands as
+// the only consumers of vertex arrays, so inside glBegin/glEnd every generic
+// attribute takes its current value and replaying the arrays would be wrong.
+//
+// `base_vertex` is what the fixed-function gather rebased away. When a
+// client-memory gather folds glDrawArrays' `first` into the upload the draw
+// then issues first = 0, but the app's generic arrays were never rebased and
+// still have to be read from element `first` on.
+struct user_program_array_mirror_t {
+    bool active = false;
+    GLint base_vertex = 0;
+    // Restored after the replay, so the call leaves the ARRAY_BUFFER binding
+    // exactly as the caller set it up.
+    GLuint source_buffer = 0;
+};
+
 void sfpewSendUserProgramAttributes(const GLint locations[VERTEX_POINTER_COUNT],
-                                    const vertex_pointer_array_t& va, GLintptr binding_offset);
+                                    const vertex_pointer_array_t& va, GLintptr binding_offset,
+                                    const user_program_array_mirror_t& mirror = {});
 // Full fixed-function-arrays draw through a user program. Returns true
 // when the draw was submitted (or dropped on error); false = caller must
 // fall back to the plain passthrough.

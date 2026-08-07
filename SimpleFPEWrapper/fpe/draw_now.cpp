@@ -226,7 +226,14 @@ void drawArraysNow(GLenum mode, GLint first, GLsizei count, bool forceFixedFunct
                 return;
             }
             const auto& feedback_attr = vertex_array.attributes[slot];
-            if (feedback_attr.pointer == nullptr || feedback_attr.type != GL_FLOAT) return;
+            // The stride is cast to size_t below, so a negative one becomes a
+            // ~2^64 step off the end of the array (plans/16 M1). The
+            // gl*Pointer entry points reject it now; this path reads a raw
+            // client pointer directly, so it checks for itself.
+            if (feedback_attr.pointer == nullptr || feedback_attr.type != GL_FLOAT ||
+                feedback_attr.stride < 0) {
+                return;
+            }
             const GLsizei feedback_stride =
                 feedback_attr.stride != 0
                     ? feedback_attr.stride
@@ -462,7 +469,10 @@ bool userProgramDrawElements(GLuint program, GLenum mode, GLsizei count, GLenum 
         // offsets to sfpewSendUserProgramAttributes untouched (plans/13
         // crash 1, crash 4).
         sfpewBackendBindAttributeBuffer(single_buffer_id, backend_state.holds_save);
-        sfpewSendUserProgramAttributes(locations, raw_vpa, 0);
+        // No base_vertex: an indexed draw's gathers all start at vertex 0 and
+        // the indices reach this function unmodified, so the app's generic
+        // arrays are addressed by exactly the same numbers either way.
+        sfpewSendUserProgramAttributes(locations, raw_vpa, 0, {true, 0, single_buffer_id});
     } else {
         vertex_pointer_array_t vpa;
         if (array_kind == client_array_kind_t::mixed) {
@@ -498,7 +508,7 @@ bool userProgramDrawElements(GLuint program, GLenum mode, GLsizei count, GLenum 
                                             : (GLuint)logical_array_buffer;
         sfpewBackendBindAttributeBuffer(attribute_buffer, backend_state.holds_save);
         if (client_memory_draw) {
-            const int64_t upload_size = (int64_t)vertexCount() * (int64_t)vpa.stride;
+            const int64_t upload_size = sfpewClientArrayUploadSize(vpa, vertexCount());
             if (upload_size <= 0 || upload_size > (int64_t)std::numeric_limits<GLsizei>::max()) {
                 g_glstate.set_error(GL_INVALID_VALUE);
                 return true;
@@ -507,7 +517,7 @@ bool userProgramDrawElements(GLuint program, GLenum mode, GLsizei count, GLenum 
                                    GL_DYNAMIC_DRAW);
         }
 
-        sfpewSendUserProgramAttributes(locations, vpa, 0);
+        sfpewSendUserProgramAttributes(locations, vpa, 0, {true, 0, attribute_buffer});
     }
     sfpewFeedUserProgramUniforms(program);
 

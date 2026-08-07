@@ -11,6 +11,7 @@
 #include "fpe.hpp"
 #include "drawing1x.h"
 #include <algorithm>
+#include <cstring>
 
 #define DEBUG 0
 
@@ -104,6 +105,89 @@ void rememberClientArrayBufferBinding(int index) {
     g_glstate_c.fpe_state.client_array_buffer_bindings[index] = getLogicalArrayBufferBinding();
 }
 
+// Deleting a buffer clears the backend's VAO/binding references to it and
+// returns the NAME to the pool. send_vertex_attributes skips its rebind
+// whenever its cache already names the same buffer, so an object later handed
+// the recycled name would be matched by an entry describing the dead one and
+// never get the bind it needs. list_capture.cpp runs the identical scrub for
+// the buffers the wrapper deletes itself (two sites); worth folding into one
+// shared helper once both files are free to edit.
+void forgetVertexAttributeCache(GLuint buffer) {
+    if (buffer == 0) return;
+    auto& gs = g_glstate_c;
+    if (gs.fpe_vertex_binding_valid && gs.fpe_vertex_binding_buffer == buffer) {
+        gs.fpe_vertex_binding_valid = false;
+    }
+    for (auto& attribute : gs.fpe_vertex_attributes) {
+        if (!attribute.separate_binding && attribute.array_buffer == buffer) {
+            attribute.pointer_valid = false;
+        }
+    }
+}
+
+// The app's generic attribute array declarations, shadowed per VAO so a
+// user-program draw through fpe_user_vao can replay them (plans/16 H6).
+// Every writer below runs downstream of sfpewEntryBarrier(), so the app's own
+// VAO and array buffer are the live ones and the two logical resolves answer
+// about the app's state rather than the wrapper's.
+app_vertex_attrib_arrays_t* appAttribArrays(bool create) {
+    auto& gs = g_glstate_c;
+    const GLuint vao = getLogicalVertexArrayBinding();
+    if (!create) {
+        auto found = gs.app_attrib_arrays.find(vao);
+        return found == gs.app_attrib_arrays.end() ? nullptr : &found->second;
+    }
+    return &gs.app_attrib_arrays[vao];
+}
+
+void recordAppAttribPointer(GLuint index, GLint size, GLenum type, bool normalized, bool integer,
+                            GLsizei stride, const void* pointer) {
+    if (index >= (GLuint)SFPEW_TRACKED_VERTEX_ATTRIBS) return;
+    auto* record = appAttribArrays(true);
+    if (record == nullptr) return;
+    auto& attribute = record->attribs[index];
+    attribute.pointer = pointer;
+    attribute.buffer = getLogicalArrayBufferBinding();
+    attribute.stride = stride;
+    attribute.size = size;
+    attribute.type = type;
+    attribute.normalized = normalized;
+    attribute.integer = integer;
+    attribute.declared = true;
+}
+
+// A deleted buffer's name goes back to the pool, so a shadowed attribute
+// still naming it would replay a live but unrelated object into fpe_user_vao
+// - the H2 disease one level up. GL only resets the CURRENT VAO's references,
+// but a dangling one in any other VAO is undefined to source from anyway, so
+// forgetting the declaration everywhere is both safe and stricter.
+void forgetAppAttribArrayBuffer(GLuint buffer) {
+    if (buffer == 0) return;
+    for (auto& entry : g_glstate_c.app_attrib_arrays) {
+        for (auto& attribute : entry.second.attribs) {
+            if (attribute.declared && attribute.buffer == buffer) {
+                attribute.declared = false;
+                attribute.buffer = 0;
+                attribute.pointer = nullptr;
+            }
+        }
+    }
+}
+
+void recordAppAttribEnable(GLuint index, bool enabled) {
+    if (index >= (GLuint)SFPEW_TRACKED_VERTEX_ATTRIBS) return;
+    // Only an enable creates the record: a disable of something never declared
+    // has nothing to say, and the latch below must not fire for it.
+    auto* record = appAttribArrays(enabled);
+    if (record == nullptr) return;
+    if (enabled) {
+        record->enabled_mask |= 1u << index;
+        g_glstate_c.app_attrib_arrays_used = true;
+    } else {
+        record->enabled_mask &= ~(1u << index);
+    }
+}
+
 } // namespace
 
 void glBindBuffer(GLenum target, GLuint buffer) {
@@ -176,6 +260,8 @@ void glDeleteBuffers(GLsizei n, const GLuint* buffers) {
     auto& state = getLogicalArrayBufferState();
     auto& gs = g_glstate_c;
     for (GLsizei i = 0; i < n; ++i) {
+        forgetVertexAttributeCache(buffers[i]);
+        forgetAppAttribArrayBuffer(buffers[i]);
         if (state.known && buffers[i] == state.binding) state.binding = 0;
         // Deleting the shadowed element binding: let the next draw guard
         // re-query instead of guessing what the driver unbound.
@@ -201,6 +287,20 @@ SFPEW_APIENTRY bool sfpewBufferIsInternalForTest(GLuint buffer) {
 }
 SFPEW_APIENTRY GLuint sfpewLogicalArrayBufferBindingForTest(void) {
     return getLogicalArrayBufferBinding();
+}
+// Whether send_vertex_attributes' skip-the-rebind cache still names this
+// buffer. Name recycling is the driver's business and cannot be forced from a
+// test, so gtest_delete_buffer_attrib_cache asserts the scrub itself.
+SFPEW_APIENTRY bool sfpewVertexAttributeCacheHoldsBufferForTest(GLuint buffer) {
+    const auto& gs = g_glstate_c;
+    if (gs.fpe_vertex_binding_valid && gs.fpe_vertex_binding_buffer == buffer) return true;
+    for (const auto& attribute : gs.fpe_vertex_attributes) {
+        if (attribute.pointer_valid && !attribute.separate_binding &&
+            attribute.array_buffer == buffer) {
+            return true;
+        }
+    }
+    return false;
 }
 
 // --- Buffer and vertex-attribute surface (plans/12) ---------------------
@@ -287,6 +387,7 @@ void glVertexAttribPointer(GLuint index, GLint size, GLenum type, GLboolean norm
         normalized = GL_TRUE;
     }
     g_glFuncs.glVertexAttribPointer(index, size, type, normalized, stride, pointer);
+    recordAppAttribPointer(index, size, type, normalized != GL_FALSE, false, stride, pointer);
 }
 
 void glVertexAttribIPointer(GLuint index, GLint size, GLenum type, GLsizei stride,
@@ -295,6 +396,7 @@ void glVertexAttribIPointer(GLuint index, GLint size, GLenum type, GLsizei strid
     (void)g_glstate;
     sfpewEntryBarrier();
     g_glFuncs.glVertexAttribIPointer(index, size, type, stride, pointer);
+    recordAppAttribPointer(index, size, type, false, true, stride, pointer);
 }
 
 void glEnableVertexAttribArray(GLuint index) {
@@ -302,6 +404,7 @@ void glEnableVertexAttribArray(GLuint index) {
     (void)g_glstate;
     sfpewEntryBarrier();
     g_glFuncs.glEnableVertexAttribArray(index);
+    recordAppAttribEnable(index, true);
 }
 
 void glDisableVertexAttribArray(GLuint index) {
@@ -309,6 +412,7 @@ void glDisableVertexAttribArray(GLuint index) {
     (void)g_glstate;
     sfpewEntryBarrier();
     g_glFuncs.glDisableVertexAttribArray(index);
+    recordAppAttribEnable(index, false);
 }
 
 GLuint sfpewLogicalVertexArrayBinding() { return getLogicalVertexArrayBinding(); }
@@ -335,9 +439,13 @@ void glDeleteVertexArrays(GLsizei n, const GLuint* arrays) {
     g_glFuncs.glDeleteVertexArrays(n, arrays);
     if (n <= 0 || arrays == nullptr) return;
 
+    // The generic-attribute shadow is per VAO; a recycled name must not
+    // inherit the dead object's declarations.
+    auto& gs = g_glstate_c;
+    for (GLsizei i = 0; i < n; ++i) gs.app_attrib_arrays.erase(arrays[i]);
+
     // Deleting the bound VAO reverts the binding to zero, which brings VAO
     // 0's element binding back into scope - unknown until something re-reads.
-    auto& gs = g_glstate_c;
     if (!gs.backend_vao_known) return;
     for (GLsizei i = 0; i < n; ++i) {
         if (static_cast<GLint>(arrays[i]) == gs.backend_vao_binding) {
@@ -366,10 +474,54 @@ bool samePointerSpec(const vertexattribute_t& a, GLint size, GLenum usage, GLenu
     return a.size == size && a.usage == usage && a.type == type && a.normalized == normalized &&
            a.stride == stride && a.pointer == pointer && a.bgra == bgra;
 }
+
+// GL 2.1 section 2.8 gives each array its own legal type set, and they are not
+// nested: GL_UNSIGNED_BYTE is a color type but not a vertex one, GL_BYTE is a
+// secondary-color type but not a color-index one. Spelled out per array rather
+// than shared so a widened set cannot leak from one entry point to another.
+bool isVertexArrayType(GLenum type) {
+    return type == GL_SHORT || type == GL_INT || type == GL_FLOAT || type == GL_DOUBLE;
+}
+bool isColorArrayType(GLenum type) {
+    return type == GL_BYTE || type == GL_UNSIGNED_BYTE || type == GL_SHORT ||
+           type == GL_UNSIGNED_SHORT || type == GL_INT || type == GL_UNSIGNED_INT ||
+           type == GL_FLOAT || type == GL_DOUBLE;
+}
+bool isNormalArrayType(GLenum type) {
+    return type == GL_BYTE || type == GL_SHORT || type == GL_INT || type == GL_FLOAT ||
+           type == GL_DOUBLE;
+}
+bool isIndexArrayType(GLenum type) {
+    return type == GL_UNSIGNED_BYTE || type == GL_SHORT || type == GL_INT || type == GL_FLOAT ||
+           type == GL_DOUBLE;
+}
+
+// All eight pointer commands reject a negative stride the same way. Rejecting
+// it HERE, before any array state is written, is what keeps it out of every
+// consumer at once: gather_client_arrays (fpe.cpp) casts the stored stride to
+// size_t, so a stored -8 became a ~2^64 step walking out of the allocation.
+// (The glEdgeFlagPointer reference page says GL_INVALID_ENUM for this; the
+// spec body and the other seven pages say GL_INVALID_VALUE.)
+bool rejectNegativeStride(glstate_t& gs, GLsizei stride) {
+    if (stride >= 0) return false;
+    gs.set_error(GL_INVALID_VALUE);
+    return true;
+}
 } // namespace
 
 void glVertexPointer(GLint size, GLenum type, GLsizei stride, const void* pointer) {
     auto& gs = g_glstate;
+    // Validation runs before the barrier and before any store: a rejected
+    // pointer command must leave the array exactly as it was (GL 2.1 2.8).
+    if (size < 2 || size > 4) {
+        gs.set_error(GL_INVALID_VALUE);
+        return;
+    }
+    if (!isVertexArrayType(type)) {
+        gs.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    if (rejectNegativeStride(gs, stride)) return;
     sfpewClientStateBarrier();
     // LOG_D("glVertexPointer, size = %d, type = %s, stride = %d, pointer = 0x%x", size, glEnumToString(type), stride,
     // pointer)
@@ -393,6 +545,11 @@ void glVertexPointer(GLint size, GLenum type, GLsizei stride, const void* pointe
 
 void glNormalPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
     auto& gs = g_glstate;
+    if (!isNormalArrayType(type)) {
+        gs.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    if (rejectNegativeStride(gs, stride)) return;
     sfpewClientStateBarrier();
     // LOG_D("glNormalPointer, type = %s, stride = %d, pointer = 0x%x", glEnumToString(type), stride, pointer)
     const auto& cur = gs.fpe_state.vertexpointer_array.attributes[vp2idx(GL_NORMAL_ARRAY)];
@@ -419,6 +576,7 @@ void glNormalPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
 // (edge flags for PolygonMode).
 void glEdgeFlagPointer(GLsizei stride, const GLvoid* pointer) {
     auto& gs = g_glstate;
+    if (rejectNegativeStride(gs, stride)) return;
     sfpewClientStateBarrier();
     gs.fpe_state.vertexpointer_array.attributes[vp2idx(GL_EDGE_FLAG_ARRAY)] = {
         .size = 1,
@@ -438,6 +596,11 @@ void glSecondaryColorPointer(GLint size, GLenum type, GLsizei stride, const GLvo
         gs.set_error(GL_INVALID_VALUE);
         return;
     }
+    if (!isColorArrayType(type)) { // same type set as the primary color array
+        gs.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    if (rejectNegativeStride(gs, stride)) return;
     sfpewClientStateBarrier();
     gs.fpe_state.vertexpointer_array.attributes[vp2idx(GL_SECONDARY_COLOR_ARRAY)] = {
         .size = size,
@@ -457,6 +620,7 @@ void glFogCoordPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
         gs.set_error(GL_INVALID_ENUM);
         return;
     }
+    if (rejectNegativeStride(gs, stride)) return;
     sfpewClientStateBarrier();
     gs.fpe_state.vertexpointer_array.attributes[vp2idx(GL_FOG_COORD_ARRAY)] = {
         .size = 1,
@@ -472,14 +636,25 @@ void glFogCoordPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
 
 void glColorPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* pointer) {
     auto& gs = g_glstate;
-    sfpewClientStateBarrier();
-    // LOG_D("glColorPointer, size = %d, type = %s, stride = %d, pointer = 0x%x", size, glEnumToString(type), stride,
-    // pointer)
     // A GL_BGRA array is four components with a component ORDER, not a
     // component count: everything downstream works with size 4 and the order
     // is applied at the two places that can express it (see vertexattribute_t).
+    // It carries its own type set (GL_ARB_vertex_array_bgra), so it is decided
+    // before the ordinary size/type checks rather than inside them.
     const bool bgra = isBgraArraySize(size, type);
-    if (bgra) size = 4;
+    if (bgra) {
+        size = 4;
+    } else if (size != 3 && size != 4) {
+        gs.set_error(GL_INVALID_VALUE);
+        return;
+    } else if (!isColorArrayType(type)) {
+        gs.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    if (rejectNegativeStride(gs, stride)) return;
+    sfpewClientStateBarrier();
+    // LOG_D("glColorPointer, size = %d, type = %s, stride = %d, pointer = 0x%x", size, glEnumToString(type), stride,
+    // pointer)
     const auto& cur = gs.fpe_state.vertexpointer_array.attributes[vp2idx(GL_COLOR_ARRAY)];
     if (samePointerSpec(cur, size, GL_COLOR_ARRAY, type, GL_TRUE, stride, pointer, bgra)) {
         rememberClientArrayBufferBinding(vp2idx(GL_COLOR_ARRAY));
@@ -501,6 +676,15 @@ void glColorPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* point
 
 void glTexCoordPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* pointer) {
     auto& gs = g_glstate;
+    if (size < 1 || size > 4) {
+        gs.set_error(GL_INVALID_VALUE);
+        return;
+    }
+    if (!isVertexArrayType(type)) { // same type set as the vertex array
+        gs.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    if (rejectNegativeStride(gs, stride)) return;
     sfpewClientStateBarrier();
     // LOG_D("glTexCoordPointer, size = %d, type = %s, stride = %d, pointer = 0x%x", size, glEnumToString(type), stride,
     // pointer) LOG_D("Active texture: %s", glEnumToString(g_glstate.fpe_state.client_active_texture))
@@ -525,6 +709,11 @@ void glTexCoordPointer(GLint size, GLenum type, GLsizei stride, const GLvoid* po
 
 void glIndexPointer(GLenum type, GLsizei stride, const GLvoid* pointer) {
     auto& gs = g_glstate;
+    if (!isIndexArrayType(type)) {
+        gs.set_error(GL_INVALID_ENUM);
+        return;
+    }
+    if (rejectNegativeStride(gs, stride)) return;
     sfpewClientStateBarrier();
     // LOG_D("glIndexPointer, size = %d, type = %s, stride = %d, pointer = 0x%x", glEnumToString(type), stride, pointer)
     gs.fpe_state.vertexpointer_array.attributes[vp2idx(GL_INDEX_ARRAY)] = {
@@ -597,7 +786,8 @@ void glInterleavedArrays(GLenum format, GLsizei stride, const void* pointer) {
     case GL_T2F_C3F_V3F:      l = {2, 3, 0, 3, GL_FLOAT, 0, 2 * F, 0, 5 * F, 8 * F}; break;
     case GL_T2F_N3F_V3F:      l = {2, 0, 3, 3, 0, 0, 0, 2 * F, 5 * F, 8 * F}; break;
     case GL_T2F_C4F_N3F_V3F:  l = {2, 4, 3, 3, GL_FLOAT, 0, 2 * F, 6 * F, 9 * F, 12 * F}; break;
-    case GL_T4F_C4F_N3F_V4F:  l = {4, 4, 3, 4, GL_FLOAT, 0, 4 * F, 8 * F, 11 * F, 14 * F}; break;
+    // 15f, not 14f: the vertex block starts at 11f and is four wide.
+    case GL_T4F_C4F_N3F_V4F:  l = {4, 4, 3, 4, GL_FLOAT, 0, 4 * F, 8 * F, 11 * F, 15 * F}; break;
     default:
         gs.set_error(GL_INVALID_ENUM);
         return;
@@ -639,12 +829,15 @@ void glInterleavedArrays(GLenum format, GLsizei stride, const void* pointer) {
 
 namespace {
 
-// Reads component `c` of element `i` from a client array declaration.
-GLfloat clientArrayComponent(const vertexattribute_t& a, GLint i, GLint c, bool normalized) {
-    const GLsizei tsize = type_size(a.type);
-    const GLsizei stride = a.stride != 0 ? a.stride : a.size * tsize;
-    const uint8_t* p = static_cast<const uint8_t*>(a.pointer) + (size_t)i * stride + (size_t)c * tsize;
-    switch (a.type) {
+// Byte distance between consecutive elements: the declared stride, or the
+// tightly packed element size a stride of zero stands for.
+size_t arrayElementStride(const vertexattribute_t& a) {
+    return a.stride != 0 ? (size_t)a.stride : (size_t)a.size * (size_t)type_size(a.type);
+}
+
+// Reads one component out of an array element that has already been located.
+GLfloat decodeArrayComponent(const uint8_t* p, GLenum type, bool normalized) {
+    switch (type) {
     case GL_BYTE: {
         auto v = *reinterpret_cast<const GLbyte*>(p);
         return normalized ? std::max((GLfloat)v / 127.0f, -1.0f) : (GLfloat)v;
@@ -677,6 +870,99 @@ GLfloat clientArrayComponent(const vertexattribute_t& a, GLint i, GLint c, bool 
     }
 }
 
+// GL_ARRAY_BUFFER borrowed for a readback and handed straight back. Unlike
+// copyAttributeElements (fpe.cpp), which runs inside a wrapper draw scope that
+// re-binds its source anyway, this runs at an application entry point: the
+// binding it finds - the app's, or the wrapper's own while a fixed-function
+// draw is still held - has to be exactly the binding it leaves. Same
+// save-and-restore shape as the cold path in linestipple.cpp, and it reads the
+// backend directly so no wrapper shadow is involved either way.
+class array_buffer_borrow_t {
+public:
+    array_buffer_borrow_t() = default;
+    array_buffer_borrow_t(const array_buffer_borrow_t&) = delete;
+    array_buffer_borrow_t& operator=(const array_buffer_borrow_t&) = delete;
+    ~array_buffer_borrow_t() {
+        if (borrowed) g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, (GLuint)prior);
+    }
+    bool bind(GLuint buffer) {
+        if (g_glFuncs.glBindBuffer == nullptr || g_glFuncs.glGetIntegerv == nullptr) return false;
+        if (!borrowed) {
+            g_glFuncs.glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &prior);
+            borrowed = true;
+        }
+        g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, buffer);
+        return true;
+    }
+
+private:
+    GLint prior = 0;
+    bool borrowed = false;
+};
+
+struct array_element_t {
+    bool present = false;
+    GLint components = 0;
+    GLfloat v[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+};
+
+// Element `i` of one array slot, wherever that array lives. GL 2.1 section 2.8
+// draws no distinction between an array in client memory and one in a buffer
+// object; the wrapper used to skip the buffer case outright, so an indexed
+// immediate-mode primitive over VBO arrays emitted no geometry at all.
+bool readArrayElement(const vertex_pointer_array_t& va, int idx, GLint i, bool normalized,
+                      array_buffer_borrow_t& borrow, array_element_t* out) {
+    if (idx < 0 || idx >= VERTEX_POINTER_COUNT) return false;
+    if (((va.enabled_pointers >> idx) & 1u) == 0) return false;
+    const auto& a = va.attributes[idx];
+    const GLsizei component_size = type_size(a.type);
+    if (a.size <= 0 || component_size <= 0) return false;
+    const GLint components = std::min(a.size, 4);
+
+    // plans/13: which of the two an array is comes from what was bound when
+    // gl*Pointer ran, never from how large the pointer value looks.
+    const GLuint buffer = getClientArrayBufferBinding(idx);
+    uint8_t staging[4 * sizeof(GLdouble)];
+    const uint8_t* element = nullptr;
+    if (buffer == 0) {
+        if (a.pointer == nullptr) return false;
+        element = static_cast<const uint8_t*>(a.pointer) + (size_t)i * arrayElementStride(a);
+    } else {
+        if (g_glFuncs.glMapBufferRange == nullptr || g_glFuncs.glUnmapBuffer == nullptr) {
+            return false;
+        }
+        // A buffer-relative offset of zero is a legal declaration, so the null
+        // check above deliberately does not apply here.
+        const size_t offset = (size_t)reinterpret_cast<uintptr_t>(a.pointer) +
+                              (size_t)i * arrayElementStride(a);
+        const size_t bytes = (size_t)components * (size_t)component_size;
+        if (!borrow.bind(buffer)) return false;
+        void* mapped = g_glFuncs.glMapBufferRange(GL_ARRAY_BUFFER, (GLintptr)offset,
+                                                  (GLsizeiptr)bytes, GL_MAP_READ_BIT);
+        if (mapped == nullptr) return false;
+        std::memcpy(staging, mapped, bytes);
+        // The bytes are already out; an unmap reporting data loss is a
+        // write-map concern and costs this read nothing.
+        g_glFuncs.glUnmapBuffer(GL_ARRAY_BUFFER);
+        element = staging;
+    }
+
+    for (GLint c = 0; c < components; ++c)
+        out->v[c] = decodeArrayComponent(element + (size_t)c * component_size, a.type, normalized);
+    // GL_BGRA is a component ORDER stored as size 4 (vertexattribute_t). The
+    // two array-draw paths apply it in the driver or in the generated shader;
+    // the current-value path has to apply it here, or the same array comes out
+    // with red and blue exchanged depending on how it was drawn.
+    if (a.bgra) {
+        const GLfloat blue = out->v[0];
+        out->v[0] = out->v[2];
+        out->v[2] = blue;
+    }
+    out->components = components;
+    out->present = true;
+    return true;
+}
+
 } // namespace
 
 // glArrayElement: feed element i of every enabled client array through the
@@ -693,9 +979,6 @@ GLfloat clientArrayComponent(const vertexattribute_t& a, GLint i, GLint c, bool 
 // empty (plans/15 15.2). This costs one full entry point per attribute per
 // element; glArrayElement is legacy indexed immediate mode, never a per-frame
 // hot path, and glDrawArrays/glDrawElements do not go through here.
-//
-// Arrays living in VBOs cannot be read from the CPU here; those elements
-// are skipped (logged once per call site would be noise - manifest notes it).
 void glArrayElement(GLint i) {
     auto& gs = g_glstate;
     if (i < 0) {
@@ -703,63 +986,43 @@ void glArrayElement(GLint i) {
         return;
     }
     const auto& va = gs.fpe_state.vertexpointer_array;
-    const auto enabled = [&](GLenum array) { return (va.enabled_pointers & vp_mask(array)) != 0; };
-    // plans/13: which of the two an array is comes from what was bound when
-    // gl*Pointer ran, never from how large the pointer value looks.
-    const auto client_side = [&](int idx) { return getClientArrayBufferBinding(idx) == 0; };
 
-    if (enabled(GL_EDGE_FLAG_ARRAY) && client_side(vp2idx(GL_EDGE_FLAG_ARRAY))) {
-        const auto& a = va.attributes[vp2idx(GL_EDGE_FLAG_ARRAY)];
-        if (a.pointer)
-            glEdgeFlag(clientArrayComponent(a, i, 0, false) != 0.0f ? GL_TRUE : GL_FALSE);
+    // Every enabled array is resolved BEFORE anything is dispatched. A
+    // buffer-backed one is read through GL_ARRAY_BUFFER and the dispatch below
+    // can re-bind it, so the two must not interleave; resolving in one pass
+    // also pays the borrow's save/restore once per element rather than once
+    // per array.
+    array_element_t edge{}, fog{}, secondary{}, color{}, normal{}, vertex{};
+    array_element_t texcoord[MAX_TEX];
+    {
+        array_buffer_borrow_t borrow;
+        readArrayElement(va, vp2idx(GL_EDGE_FLAG_ARRAY), i, false, borrow, &edge);
+        for (int unit = 0; unit < MAX_TEX; ++unit)
+            readArrayElement(va, 7 + unit, i, false, borrow, &texcoord[unit]);
+        readArrayElement(va, vp2idx(GL_FOG_COORD_ARRAY), i, false, borrow, &fog);
+        readArrayElement(va, vp2idx(GL_SECONDARY_COLOR_ARRAY), i, true, borrow, &secondary);
+        readArrayElement(va, vp2idx(GL_COLOR_ARRAY), i, true, borrow, &color);
+        readArrayElement(va, vp2idx(GL_NORMAL_ARRAY), i, true, borrow, &normal);
+        readArrayElement(va, vp2idx(GL_VERTEX_ARRAY), i, false, borrow, &vertex);
     }
+
+    if (edge.present) glEdgeFlag(edge.v[0] != 0.0f ? GL_TRUE : GL_FALSE);
     for (int unit = 0; unit < MAX_TEX; ++unit) {
-        const int idx = 7 + unit;
-        if (!((va.enabled_pointers >> idx) & 1u) || !client_side(idx)) continue;
-        const auto& a = va.attributes[idx];
-        if (!a.pointer) continue;
-        GLfloat uv[4] = {0.0f, 0.0f, 0.0f, 1.0f};
-        for (GLint c = 0; c < a.size && c < 4; ++c) uv[c] = clientArrayComponent(a, i, c, false);
-        glMultiTexCoord4f(GL_TEXTURE0 + unit, uv[0], uv[1], uv[2], uv[3]);
+        const auto& t = texcoord[unit];
+        if (t.present) glMultiTexCoord4f(GL_TEXTURE0 + unit, t.v[0], t.v[1], t.v[2], t.v[3]);
     }
-    if (enabled(GL_FOG_COORD_ARRAY) && client_side(vp2idx(GL_FOG_COORD_ARRAY))) {
-        const auto& a = va.attributes[vp2idx(GL_FOG_COORD_ARRAY)];
-        if (a.pointer) glFogCoordf(clientArrayComponent(a, i, 0, false));
+    if (fog.present) glFogCoordf(fog.v[0]);
+    if (secondary.present) glSecondaryColor3f(secondary.v[0], secondary.v[1], secondary.v[2]);
+    if (color.present) {
+        // Three components keeps the three-component current-color size the
+        // old mglColor<GLfloat, 3> recorded, not a widened four.
+        if (color.components == 3)
+            glColor3f(color.v[0], color.v[1], color.v[2]);
+        else
+            glColor4f(color.v[0], color.v[1], color.v[2], color.v[3]);
     }
-    if (enabled(GL_SECONDARY_COLOR_ARRAY) && client_side(vp2idx(GL_SECONDARY_COLOR_ARRAY))) {
-        const auto& a = va.attributes[vp2idx(GL_SECONDARY_COLOR_ARRAY)];
-        if (a.pointer)
-            glSecondaryColor3f(clientArrayComponent(a, i, 0, true),
-                               clientArrayComponent(a, i, 1, true),
-                               clientArrayComponent(a, i, 2, true));
-    }
-    if (enabled(GL_COLOR_ARRAY) && client_side(vp2idx(GL_COLOR_ARRAY))) {
-        const auto& a = va.attributes[vp2idx(GL_COLOR_ARRAY)];
-        if (a.pointer) {
-            // Three components keeps the three-component current-color size the
-            // old mglColor<GLfloat, 3> recorded, not a widened four.
-            if (a.size == 3)
-                glColor3f(clientArrayComponent(a, i, 0, true), clientArrayComponent(a, i, 1, true),
-                          clientArrayComponent(a, i, 2, true));
-            else
-                glColor4f(clientArrayComponent(a, i, 0, true), clientArrayComponent(a, i, 1, true),
-                          clientArrayComponent(a, i, 2, true), clientArrayComponent(a, i, 3, true));
-        }
-    }
-    if (enabled(GL_NORMAL_ARRAY) && client_side(vp2idx(GL_NORMAL_ARRAY))) {
-        const auto& a = va.attributes[vp2idx(GL_NORMAL_ARRAY)];
-        if (a.pointer)
-            glNormal3f(clientArrayComponent(a, i, 0, true), clientArrayComponent(a, i, 1, true),
-                       clientArrayComponent(a, i, 2, true));
-    }
-    if (enabled(GL_VERTEX_ARRAY) && client_side(vp2idx(GL_VERTEX_ARRAY))) {
-        const auto& a = va.attributes[vp2idx(GL_VERTEX_ARRAY)];
-        if (a.pointer) {
-            GLfloat v[4] = {0.0f, 0.0f, 0.0f, 1.0f};
-            for (GLint c = 0; c < a.size && c < 4; ++c) v[c] = clientArrayComponent(a, i, c, false);
-            glVertex4f(v[0], v[1], v[2], v[3]);
-        }
-    }
+    if (normal.present) glNormal3f(normal.v[0], normal.v[1], normal.v[2]);
+    if (vertex.present) glVertex4f(vertex.v[0], vertex.v[1], vertex.v[2], vertex.v[3]);
 }
 
 bool sfpewUnpackPboBound() {

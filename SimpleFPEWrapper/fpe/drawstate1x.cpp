@@ -28,17 +28,36 @@ void fixed_function_draw_state_t::reset() {
     repacked = false;
 }
 
+// How many floats attribute slot `s` contributes to the interleaved stream.
+// The one answer for both the layout advance() packs to and the repack that
+// rewrites already-collected vertices into a wider one: each used to carry
+// its own hand-written model of the same thing, and they disagreed about the
+// fog coordinate and the secondary color - which land BETWEEN the color and
+// the texture coordinates, so leaving them out of the repack's stride took
+// every vertex from the wrong base.
+static GLint packed_slot_floats(const fixed_function_draw_size_t& sizes, int slot) {
+    const GLint size = sizes.data[slot];
+    if (size <= 0) return 0;
+    switch (slot) {
+    // The color index and the edge flag never reach a shader (edge flags have
+    // their own byte vector), but compile_vertexattrib() sizes every slot it
+    // sees, so one that is sized and not packed would shift every later
+    // attribute.
+    case 3:
+    case 4: return 0;
+    // glFogCoord* is a single float whatever the slot was sized with.
+    case 5: return 1;
+    default: return size;
+    }
+}
+
 void fixed_function_draw_state_t::repack_for_attribute(int slot, GLint requested) {
     GLint& stored = current_data.sizes.data[slot];
-    // Repack every collected vertex from the old layout to the new one.
-    // advance() only ever packs slots 0-2 (vertex/normal/color) and 7+
-    // (texcoords), in ascending slot order.
-    const auto packed_size = [&](int s) -> GLint {
-        const GLint sz = current_data.sizes.data[s];
-        return (s <= 2 || s >= 7) && sz > 0 ? sz : 0;
-    };
+    // Repack every collected vertex from the old layout to the new one, in
+    // the ascending slot order advance() packs in.
     size_t old_stride = 0;
-    for (int s = 0; s < VERTEX_POINTER_COUNT; ++s) old_stride += (size_t)packed_size(s);
+    for (int s = 0; s < VERTEX_POINTER_COUNT; ++s)
+        old_stride += (size_t)packed_slot_floats(current_data.sizes, s);
     if (old_stride == 0 || vb.size() < old_stride * vertex_count) {
         stored = requested;
         return;
@@ -64,7 +83,7 @@ void fixed_function_draw_state_t::repack_for_attribute(int slot, GLint requested
         const GLfloat* src = vb.data() + v * old_stride;
         size_t consumed = 0;
         for (int s = 0; s < VERTEX_POINTER_COUNT; ++s) {
-            const GLint sz = packed_size(s);
+            const GLint sz = packed_slot_floats(current_data.sizes, s);
             if (s == slot) {
                 for (GLint c = 0; c < requested; ++c) {
                     if (c < sz)
@@ -107,16 +126,19 @@ void fixed_function_draw_state_t::rebuild_packed_layout() {
     };
 
     const auto& sizes = current_data.sizes;
-    add(glm::value_ptr(current_data.vertex), sizes.vertex_size);
-    add(glm::value_ptr(current_data.normal), sizes.normal_size);
-    add(glm::value_ptr(current_data.color), sizes.color_size);
-    // Slots 5 and 6. compile_vertexattrib() sizes EVERY slot it sees, so a
-    // slot that is sized but never packed here shifts every later attribute
-    // (fog coord and secondary color both land before the texcoords).
-    add(&current_data.fog_coord, sizes.fog_size > 0 ? 1 : 0);
-    add(glm::value_ptr(current_data.secondary_color), sizes.secondary_color_size);
-    for (GLint i = 0; i < MAX_TEX; ++i) {
-        add(glm::value_ptr(current_data.texcoord[i]), sizes.texcoord_size[i]);
+    for (int slot = 0; slot < VERTEX_POINTER_COUNT; ++slot) {
+        const GLint count = packed_slot_floats(sizes, slot);
+        if (count <= 0) continue;
+        const GLfloat* src = nullptr;
+        switch (slot) {
+        case 0: src = glm::value_ptr(current_data.vertex); break;
+        case 1: src = glm::value_ptr(current_data.normal); break;
+        case 2: src = glm::value_ptr(current_data.color); break;
+        case 5: src = &current_data.fog_coord; break;
+        case 6: src = glm::value_ptr(current_data.secondary_color); break;
+        default: src = glm::value_ptr(current_data.texcoord[slot - 7]); break;
+        }
+        add(src, count);
     }
     packed_layout_sizes = sizes;
     packed_layout_epoch = current_data.sizes_epoch;

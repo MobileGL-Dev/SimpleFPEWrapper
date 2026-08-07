@@ -22,6 +22,8 @@ constexpr size_t kImmediateVboMinCapacity = 16u * 1024u * 1024u;
 constexpr size_t kImmediateVboAlignment = 256u;
 // Index data is a fraction of vertex data, so the element ring is sized down.
 constexpr size_t kElementRingMinCapacity = 4u * 1024u * 1024u;
+// Quarters, one fence slot each; see sfpewUploadToRing.
+constexpr size_t kRingSegments = 4u;
 // Merge window for tiny glBegin/glEnd runs. Runs longer than the vertex limit
 // already amortize their per-draw fixed cost, so they draw directly. The run
 // and total-vertex caps bound both the copy work and how long a draw can sit
@@ -49,6 +51,21 @@ struct stream_ring_t {
     void (*on_replaced)();
 };
 
+// Where an upload lands in the ring and what it has to synchronize to get
+// there: which segments need a completion marker taken before the copy, and
+// which hold data from a previous lap that the copy overwrites and must
+// therefore be waited out first. Pure arithmetic over the ring geometry, and
+// split out for that reason - fences are GPU objects, so this decision is
+// otherwise unobservable, and sfpewRingSyncPlanForTest drives exactly this.
+struct ring_sync_plan_t {
+    size_t offset = 0;
+    bool wrapped = false;
+    // Bit s: ring segment s.
+    unsigned fence_mask = 0;
+    unsigned wait_mask = 0;
+};
+
+static ring_sync_plan_t sfpewRingSyncPlan(size_t capacity, size_t previous_end, size_t size);
 static GLintptr sfpewUploadToRing(const stream_ring_t& ring, const void* data, size_t size);
 
 GLintptr sfpewUploadImmediateVertexData(const void* data, size_t size) {
@@ -84,7 +101,73 @@ GLintptr sfpewUploadElementData(const void* data, size_t size) {
     return sfpewUploadToRing(ring, data, size);
 }
 
+static ring_sync_plan_t sfpewRingSyncPlan(size_t capacity, size_t previous_end, size_t size) {
+    ring_sync_plan_t plan;
+    plan.offset = (previous_end + kImmediateVboAlignment - 1u) & ~(kImmediateVboAlignment - 1u);
+    if (plan.offset + size > capacity) {
+        plan.offset = 0;
+        plan.wrapped = previous_end != 0;
+    }
+
+    const size_t segment_size = capacity / kRingSegments;
+    if (segment_size == 0) return plan;
+    const size_t highest = kRingSegments - 1u;
+    // previous_end is one-past-the-end of the previous upload: derive its
+    // segment from the LAST byte written, or an upload ending exactly on a
+    // quarter boundary would compare equal to the next upload's segment and
+    // skip the fence entirely.
+    const size_t previous_segment =
+        std::min<size_t>(previous_end == 0 ? 0 : (previous_end - 1u) / segment_size, highest);
+    const size_t first_segment = std::min<size_t>(plan.offset / segment_size, highest);
+    const size_t last_segment =
+        size == 0 ? first_segment
+                  : std::min<size_t>((plan.offset + size - 1u) / segment_size, highest);
+
+    // The hot path, and the only one an ordinary small upload takes: it stays
+    // inside the segment the previous one ended in, so it only appends to
+    // bytes written this lap and there is nothing to synchronize. Gating this
+    // on the STARTING segment instead let an upload that began here and ran
+    // on into the segments after it overwrite their previous-lap contents
+    // with no wait at all.
+    if (!plan.wrapped && last_segment == previous_segment) return plan;
+
+    // Segments [0, previous_segment] are exactly the ones written this lap -
+    // the cursor only moves forward until it wraps - and every draw consuming
+    // them has been submitted, since uploads and draws strictly alternate. So
+    // a marker taken now is a correct completion marker for all of them. The
+    // one still being appended to is not finished, so it is marked by a later
+    // upload, the one that leaves it behind.
+    for (size_t seg = 0; seg <= previous_segment; ++seg) {
+        if (!plan.wrapped && seg == previous_segment) continue;
+        plan.fence_mask |= 1u << seg;
+    }
+    // Everything this upload writes over, except that same appended-to
+    // segment: those bytes can still be in flight from the previous lap.
+    for (size_t seg = first_segment; seg <= last_segment; ++seg) {
+        if (!plan.wrapped && seg == previous_segment) continue;
+        plan.wait_mask |= 1u << seg;
+    }
+    return plan;
+}
+
+// Test-only view of the arithmetic above. The ring's synchronization is
+// invisible from outside (fences are GPU objects and the ring is private), so
+// the regression test drives this instead of trying to observe a stall.
+SFPEW_APIENTRY void sfpewRingSyncPlanForTest(unsigned long long capacity,
+                                             unsigned long long previous_end,
+                                             unsigned long long size,
+                                             unsigned long long* offset, unsigned* fence_mask,
+                                             unsigned* wait_mask) {
+    const ring_sync_plan_t plan =
+        sfpewRingSyncPlan((size_t)capacity, (size_t)previous_end, (size_t)size);
+    if (offset != nullptr) *offset = plan.offset;
+    if (fence_mask != nullptr) *fence_mask = plan.fence_mask;
+    if (wait_mask != nullptr) *wait_mask = plan.wait_mask;
+}
+
 static GLintptr sfpewUploadToRing(const stream_ring_t& ring, const void* data, size_t size) {
+    static_assert(sizeof(ring.fences) / sizeof(ring.fences[0]) == kRingSegments,
+                  "one fence slot per ring segment");
     auto& state = g_glstate_c.fpe_state;
     (void)state;
     const auto dropAllFences = [&]() {
@@ -149,41 +232,36 @@ static GLintptr sfpewUploadToRing(const stream_ring_t& ring, const void* data, s
         return 0;
     }
 
-    size_t offset = (ring.offset + kImmediateVboAlignment - 1u) & ~(kImmediateVboAlignment - 1u);
-    if (offset + size > ring.capacity) offset = 0;
+    const ring_sync_plan_t plan = sfpewRingSyncPlan(ring.capacity, ring.offset, size);
+    const size_t offset = plan.offset;
 
     // Segmented synchronization: by the time an upload crosses into a new
     // quarter of the ring, every draw consuming the PREVIOUS quarter has
     // already been submitted (uploads and draws strictly alternate), so a
-    // fence on the old quarter is a correct completion marker. Entering a
+    // fence taken now is a correct completion marker for it. Entering a
     // quarter waits on (and retires) its previous-lap fence. Without sync
     // objects this degrades to the old glFinish at wrap only.
     const bool have_sync = g_glFuncs.glFenceSync != nullptr &&
                            g_glFuncs.glClientWaitSync != nullptr && g_glFuncs.glDeleteSync != nullptr;
-    const size_t segment_size = ring.capacity / 4u;
-    if (have_sync && segment_size != 0) {
-        // ring.offset is one-past-the-end of the previous upload: derive the
-        // previous segment from its LAST byte, or an upload ending exactly on a
-        // quarter boundary would make the next upload's segment compare equal
-        // and skip the fence entirely.
-        const size_t previous_segment =
-            std::min<size_t>(ring.offset == 0 ? 0 : (ring.offset - 1u) / segment_size, 3u);
-        const size_t first_segment = offset / segment_size;
-        const size_t last_segment = std::min<size_t>((offset + size - 1u) / segment_size, 3u);
-        if (first_segment != previous_segment || offset == 0) {
-            auto& old_fence = ring.fences[previous_segment];
-            if (old_fence == nullptr)
-                old_fence = (void*)g_glFuncs.glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
-            for (size_t seg = first_segment; seg <= last_segment; ++seg) {
-                auto& fence = ring.fences[seg];
-                if (fence == nullptr) continue;
-                g_glFuncs.glClientWaitSync((GLsync)fence, GL_SYNC_FLUSH_COMMANDS_BIT,
-                                           1000000000ull /* 1s */);
-                g_glFuncs.glDeleteSync((GLsync)fence);
-                fence = nullptr;
-            }
+    if (have_sync) {
+        // Markers first, waits second, and both in that order for a reason:
+        // a segment this upload overwrites that never got a marker of its own
+        // (a previous upload spanned it in a single step) gets one here, and
+        // the wait below consumes it - so it can never survive to under-cover
+        // the data this upload is about to write over it.
+        for (size_t seg = 0; seg < kRingSegments; ++seg) {
+            if ((plan.fence_mask & (1u << seg)) == 0 || ring.fences[seg] != nullptr) continue;
+            ring.fences[seg] = (void*)g_glFuncs.glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
         }
-    } else if (offset == 0 && ring.offset != 0) {
+        for (size_t seg = 0; seg < kRingSegments; ++seg) {
+            auto& fence = ring.fences[seg];
+            if ((plan.wait_mask & (1u << seg)) == 0 || fence == nullptr) continue;
+            g_glFuncs.glClientWaitSync((GLsync)fence, GL_SYNC_FLUSH_COMMANDS_BIT,
+                                       1000000000ull /* 1s */);
+            g_glFuncs.glDeleteSync((GLsync)fence);
+            fence = nullptr;
+        }
+    } else if (plan.wrapped) {
         if (g_glFuncs.glFinish != nullptr) g_glFuncs.glFinish();
     }
 
@@ -455,6 +533,11 @@ void drawImmediateVertices(GLenum primitive, const GLfloat* vertices, size_t flo
                 static_source != 0
                     ? 0
                     : sfpewUploadImmediateVertexData(vertices, floatCount * sizeof(GLfloat));
+            // No array mirror here on purpose (plans/16 H6): GL 2.1 2.8 makes
+            // the array draw commands the only consumers of vertex arrays, so
+            // a generic attribute inside glBegin/glEnd takes its CURRENT
+            // value. Leaving those locations disabled in fpe_user_vao is what
+            // produces exactly that.
             sfpewSendUserProgramAttributes(user_locations, va, userVertexOffset);
             sfpewFeedUserProgramUniforms((GLuint)user_program);
 
@@ -524,7 +607,16 @@ void drawImmediateVertices(GLenum primitive, const GLfloat* vertices, size_t flo
                            : sfpewUploadImmediateVertexData(vertices,
                                                             floatCount * sizeof(GLfloat));
     gs.send_vertex_attributes(va, source_buffer, vertexOffset);
+    // send_uniforms derives IsPointPrimitive from the COLLECTOR's primitive
+    // (glstate.cpp), which is only still set when glEnd draws its own run
+    // directly. A merged batch and a compiled display-list run are both
+    // submitted after that has been cleared, so the primitive being drawn has
+    // to be presented here or a points draw loses gl_PointCoord replacement,
+    // point smoothing and fade.
+    const GLenum collecting = state.fpe_draw.primitive;
+    state.fpe_draw.primitive = primitive;
     gs.send_uniforms(program);
+    state.fpe_draw.primitive = collecting;
 
     const GLsizei drawCount = static_cast<GLsizei>(vertexCount);
 
@@ -597,8 +689,17 @@ void drawImmediateVertices(GLenum primitive, const GLfloat* vertices, size_t flo
     }
 }
 
+// "This run cannot be merged". NOT GL_NONE, which is 0 - the same value as
+// GL_POINTS, the first legal glBegin mode: spelling it that way made
+// mergeTargetPrimitive's GL_POINTS answer indistinguishable from a refusal,
+// so every points run was rejected outright (and concatenatingTarget carried
+// the same collision, latent only because no batch could ever be a points
+// batch). Points are what particle and sprite passes draw, one small run at a
+// time - exactly the shape merging exists for.
+constexpr GLenum kNotMergeable = 0xFFFFFFFFu;
+
 // What primitive a small glBegin/glEnd run can be rewritten into so that
-// consecutive runs concatenate into one draw. GL_NONE means "not mergeable".
+// consecutive runs concatenate into one draw.
 // The primitives whose runs concatenate as they are, so a run can be built
 // straight into the batch before its vertex count is known. Everything else
 // (strips, fans, loops) has to be rewritten into independent primitives at
@@ -609,34 +710,34 @@ GLenum concatenatingTarget(GLenum primitive) {
     case GL_LINES: return GL_LINES;
     case GL_TRIANGLES: return GL_TRIANGLES;
     case GL_QUADS: return GL_QUADS;
-    default: return GL_NONE;
+    default: return kNotMergeable;
     }
 }
 
 GLenum mergeTargetPrimitive(GLenum primitive, size_t vertexCount) {
     switch (primitive) {
     case GL_TRIANGLES:
-        return vertexCount >= 3 && vertexCount % 3u == 0 ? GL_TRIANGLES : GL_NONE;
+        return vertexCount >= 3 && vertexCount % 3u == 0 ? GL_TRIANGLES : kNotMergeable;
     case GL_TRIANGLE_STRIP:
     case GL_TRIANGLE_FAN:
     case GL_POLYGON:
-        return vertexCount >= 3 ? GL_TRIANGLES : GL_NONE;
+        return vertexCount >= 3 ? GL_TRIANGLES : kNotMergeable;
     case GL_QUADS:
         // Stays GL_QUADS: quads are independent primitives, so runs of them
         // concatenate as-is and the draw path converts the merged batch with
         // its cached index buffer instead of duplicating shared corners here.
-        return vertexCount >= 4 && vertexCount % 4u == 0 ? GL_QUADS : GL_NONE;
+        return vertexCount >= 4 && vertexCount % 4u == 0 ? GL_QUADS : kNotMergeable;
     case GL_QUAD_STRIP:
-        return vertexCount >= 4 && vertexCount % 2u == 0 ? GL_TRIANGLES : GL_NONE;
+        return vertexCount >= 4 && vertexCount % 2u == 0 ? GL_TRIANGLES : kNotMergeable;
     case GL_LINES:
-        return vertexCount >= 2 && vertexCount % 2u == 0 ? GL_LINES : GL_NONE;
+        return vertexCount >= 2 && vertexCount % 2u == 0 ? GL_LINES : kNotMergeable;
     case GL_LINE_STRIP:
     case GL_LINE_LOOP:
-        return vertexCount >= 2 ? GL_LINES : GL_NONE;
+        return vertexCount >= 2 ? GL_LINES : kNotMergeable;
     case GL_POINTS:
-        return GL_POINTS;
+        return vertexCount >= 1 ? GL_POINTS : kNotMergeable;
     default:
-        return GL_NONE;
+        return kNotMergeable;
     }
 }
 
@@ -783,7 +884,7 @@ bool queueImmediateRun(const fixed_function_draw_state_t& draw) {
     if (draw.vertex_count > kImmediateMergeVertexLimit) return false;
 
     const GLenum target = mergeTargetPrimitive(draw.primitive, draw.vertex_count);
-    if (target == GL_NONE) return false;
+    if (target == kNotMergeable) return false;
 
     auto& batch = pendingGlyphBatch;
     const auto& sizes = draw.current_data.sizes;
@@ -1018,8 +1119,10 @@ public:
         // GL: attribute setters executed FROM the list update the current
         // state, and that state persists after glCallList returns. Apply the
         // run's final values for every slot it set.
+        bool sizes_moved = false;
         for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
             if (sizes.data[i] <= 0) continue;
+            sizes_moved = sizes_moved || live.sizes.data[i] != sizes.data[i];
             live.sizes.data[i] = sizes.data[i];
             if (i == 0) live.vertex = finalData.vertex;
             else if (i == 1) live.normal = finalData.normal;
@@ -1028,6 +1131,12 @@ public:
             else if (i == 6) live.secondary_color = finalData.secondary_color;
             else if (i >= 7) live.texcoord[i - 7] = finalData.texcoord[i - 7];
         }
+        // A write THROUGH sizes needs a new stamp (types.h): the packing
+        // layout advance() uses is revalidated against this stamp alone, so
+        // leaving it put makes every FOLLOWING glBegin/glEnd pack to the
+        // caller's old component counts while glEnd declares these. Only a
+        // real change earns one, as everywhere else.
+        if (sizes_moved) live.sizes_epoch = sfpewNextSizesEpoch();
     }
 
     bool appendRun(GLenum otherPrimitive, const fixed_function_draw_size_t& otherSizes,

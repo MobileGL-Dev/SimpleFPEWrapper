@@ -14,6 +14,7 @@
 #include <cstring>
 #include <algorithm>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include "fpe/fpe.hpp"
 #include "fpe/drawing1x.h"
@@ -191,9 +192,47 @@ bool getProxyTextureLevelParameter(GLint level, GLenum pname, GLint& value) {
 } // namespace
 
 namespace {
-// Texture names with GL_GENERATE_MIPMAP enabled (per context via the
-// logical-bindings reset pattern; names are context/share scoped).
-thread_local std::unordered_map<GLuint, bool> generateMipmapTextures;
+// The scratch GL objects this file reuses across calls, plus the texture
+// names GL_GENERATE_MIPMAP is enabled on. All of it is dropped when the
+// current context changes, the same reset proxyTexture2DCache above and
+// textureMetadata() below do: a GL name means nothing outside the context
+// that generated it, and a stale one resolves to whatever the NEW context
+// has under that number - measured, glGetTexImage and the mipmap repair
+// rewriting the color attachment of the app's own framebuffers in a second
+// context (plans/17 P8). The retired context's objects are abandoned rather
+// than deleted, since deleting a name here would delete this context's
+// object. Contexts that share a namespace pay a rebuild they would not have
+// needed; that is the same trade the two caches above already make.
+// Intermediate for repairMipmapChain2D's two-hop blits. Mesa silently DROPS
+// a glBlitFramebuffer whose source and destination are levels of the same
+// texture (llvmpipe: no GL error, no write), and a conservative mobile driver
+// may do the same, so every level is built source level -> scratch ->
+// destination level. Sized for the largest destination level and reallocated
+// only when the chain's size or internal format changes.
+struct mip_scratch_t {
+    GLuint tex = 0;
+    GLsizei w = 0, h = 0;
+    GLint internalformat = 0;
+};
+
+struct texture_scratch_t {
+    EGLContext context = EGL_NO_CONTEXT;
+    std::unordered_map<GLuint, bool> generate_mipmap_textures;
+    mip_scratch_t mip;
+    GLuint blit_fbos[2] = {0, 0}; // the two framebuffers that repair blits through
+    GLuint read_fbo = 0;          // glGetTexImage's readback framebuffer
+};
+
+thread_local texture_scratch_t textureScratchStorage;
+
+texture_scratch_t& textureScratch() {
+    const EGLContext context = (EGLContext)glstate_t::cached_context();
+    if (textureScratchStorage.context != context) {
+        textureScratchStorage = {};
+        textureScratchStorage.context = context;
+    }
+    return textureScratchStorage;
+}
 } // namespace
 
 namespace {
@@ -226,6 +265,14 @@ struct texture_metadata_cache_t {
     // them (see textureMetadataTarget() below, the same face-collapsing
     // rule swizzleTargetFor() applies for GL_TEXTURE_SWIZZLE_RGBA).
     std::unordered_map<uint64_t, std::unordered_map<GLint, texture_level_t>> levels;
+    // Texture objects whose GL_TEXTURE_SWIZZLE_RGBA the WRAPPER wrote, for
+    // the legacy-internalformat emulation or GL_DEPTH_TEXTURE_MODE. Same key
+    // as .levels. Re-specifying such an object with a format that needs no
+    // swizzle has to take that swizzle back off (plans/17 P17), and tracking
+    // which ones the wrapper imposed is what keeps the reset off a swizzle
+    // the app set for itself - image specification does not touch texture
+    // parameter state in GL.
+    std::unordered_set<uint64_t> wrapper_swizzled;
 };
 
 // Collapses a cube face target to GL_TEXTURE_CUBE_MAP and a GL_TEXTURE_1D
@@ -286,6 +333,17 @@ const texture_level_t* findTextureLevel(GLuint texture, GLenum target, GLint lev
     const auto level_it = texture_it->second.find(level);
     return level_it == texture_it->second.end() ? nullptr : &level_it->second;
 }
+
+void rememberWrapperSwizzle(GLuint texture, GLenum target) {
+    if (texture != 0) textureMetadata().wrapper_swizzled.insert(textureMetadataKey(texture, target));
+}
+
+// Whether the wrapper had imposed a swizzle on this object, forgetting it in
+// the same breath: every caller is about to replace or drop it.
+bool takeWrapperSwizzle(GLuint texture, GLenum target) {
+    if (texture == 0) return false;
+    return textureMetadata().wrapper_swizzled.erase(textureMetadataKey(texture, target)) != 0;
+}
 } // namespace
 
 void sfpewRememberTextureSize(GLuint texture, GLsizei width, GLsizei height) {
@@ -299,15 +357,31 @@ void sfpewRememberTextureSize(GLuint texture, GLsizei width, GLsizei height) {
 void sfpewForgetTextureMetadata(GLuint texture) {
     auto& metadata = textureMetadata();
     metadata.sizes.erase(texture);
-    metadata.levels.erase(texture);
+    // .levels and .wrapper_swizzled are keyed on (name, target), so one name
+    // can hold an entry per target it was ever used with - erasing by the
+    // bare name matched none of them and left a recycled name answering with
+    // the deleted texture's levels.
+    for (auto it = metadata.levels.begin(); it != metadata.levels.end();) {
+        if ((it->first >> 32) == texture)
+            it = metadata.levels.erase(it);
+        else
+            ++it;
+    }
+    for (auto it = metadata.wrapper_swizzled.begin(); it != metadata.wrapper_swizzled.end();) {
+        if ((*it >> 32) == texture)
+            it = metadata.wrapper_swizzled.erase(it);
+        else
+            ++it;
+    }
 }
 
 void sfpewSetGenerateMipmap(GLenum, GLuint texture, bool enable) {
     if (texture == 0) return;
+    auto& textures = textureScratch().generate_mipmap_textures;
     if (enable)
-        generateMipmapTextures[texture] = true;
+        textures[texture] = true;
     else
-        generateMipmapTextures.erase(texture);
+        textures.erase(texture);
 }
 
 namespace {
@@ -342,18 +416,6 @@ int manualMipmapRepairMode() {
 // any level this repair cannot reach - stopping early is never worse than
 // the plain call. Depth/integer chains fail the completeness or blit checks
 // on the first level and fall through to that intact result.
-// Scratch for the two-hop blits below. Mesa silently DROPS a
-// glBlitFramebuffer whose source and destination are levels of the same
-// texture (llvmpipe: no GL error, no write), and a conservative mobile
-// driver may do the same, so every level is built source level -> scratch
-// -> destination level. Sized for the largest destination level and
-// reallocated only when the chain's size or internal format changes.
-struct mip_scratch_t {
-    GLuint tex = 0;
-    GLsizei w = 0, h = 0;
-    GLint internalformat = 0;
-};
-thread_local mip_scratch_t mipScratch;
 
 // glTexStorage2D wants a SIZED internal format; legacy chains report the
 // unsized names (or the GL 1.x component counts).
@@ -371,7 +433,7 @@ bool ensureMipScratch(GLsizei w, GLsizei h, GLint internalformat) {
     if (g_glFuncs.glTexStorage2D == nullptr || g_glFuncs.glGenTextures == nullptr ||
         g_glFuncs.glDeleteTextures == nullptr || g_glFuncs.glBindTexture == nullptr)
         return false;
-    auto& s = mipScratch;
+    auto& s = textureScratch().mip;
     if (s.tex != 0 && s.w == w && s.h == h && s.internalformat == internalformat) return true;
     if (s.tex != 0) {
         g_glFuncs.glDeleteTextures(1, &s.tex);
@@ -440,7 +502,8 @@ void repairMipmapChain2D() {
         g_glFuncs.glIsEnabled != nullptr && g_glFuncs.glIsEnabled(GL_SCISSOR_TEST) == GL_TRUE;
     if (scissor && g_glFuncs.glDisable != nullptr) g_glFuncs.glDisable(GL_SCISSOR_TEST);
 
-    static thread_local GLuint blit_fbos[2] = {0, 0};
+    auto& scratch = textureScratch();
+    GLuint* const blit_fbos = scratch.blit_fbos;
     if (blit_fbos[0] == 0) g_glFuncs.glGenFramebuffers(2, blit_fbos);
     if (blit_fbos[0] != 0 && blit_fbos[1] != 0) {
         // Fresh FBOs read from and draw to COLOR_ATTACHMENT0 by default.
@@ -453,7 +516,7 @@ void repairMipmapChain2D() {
             // Hop 1: previous level, downsampled into the scratch corner.
             g_glFuncs.glFramebufferTexture2D(0x8CA8, 0x8CE0 /* GL_COLOR_ATTACHMENT0 */,
                                              GL_TEXTURE_2D, texture, level - 1);
-            g_glFuncs.glFramebufferTexture2D(0x8CA9, 0x8CE0, GL_TEXTURE_2D, mipScratch.tex, 0);
+            g_glFuncs.glFramebufferTexture2D(0x8CA9, 0x8CE0, GL_TEXTURE_2D, scratch.mip.tex, 0);
             if (g_glFuncs.glCheckFramebufferStatus(0x8CA8) != GL_FRAMEBUFFER_COMPLETE ||
                 g_glFuncs.glCheckFramebufferStatus(0x8CA9) != GL_FRAMEBUFFER_COMPLETE)
                 break;
@@ -461,7 +524,7 @@ void repairMipmapChain2D() {
                                         GL_LINEAR);
             if (g_glFuncs.glGetError() != GL_NO_ERROR) break;
             // Hop 2: scratch corner into the destination level, 1:1.
-            g_glFuncs.glFramebufferTexture2D(0x8CA8, 0x8CE0, GL_TEXTURE_2D, mipScratch.tex, 0);
+            g_glFuncs.glFramebufferTexture2D(0x8CA8, 0x8CE0, GL_TEXTURE_2D, scratch.mip.tex, 0);
             g_glFuncs.glFramebufferTexture2D(0x8CA9, 0x8CE0, GL_TEXTURE_2D, texture, level);
             if (g_glFuncs.glCheckFramebufferStatus(0x8CA8) != GL_FRAMEBUFFER_COMPLETE ||
                 g_glFuncs.glCheckFramebufferStatus(0x8CA9) != GL_FRAMEBUFFER_COMPLETE)
@@ -486,7 +549,7 @@ void sfpewMaybeGenerateMipmap(GLenum target) {
     if (target == GL_TEXTURE_1D) target = GL_TEXTURE_2D;
     if (target != GL_TEXTURE_2D || g_glFuncs.glGenerateMipmap == nullptr) return;
     const GLuint bound = sfpewLogicalTextureBinding(GL_TEXTURE_2D);
-    if (bound != 0 && generateMipmapTextures.count(bound) != 0) {
+    if (bound != 0 && textureScratch().generate_mipmap_textures.count(bound) != 0) {
         g_glFuncs.glGenerateMipmap(GL_TEXTURE_2D);
         if (manualMipmapRepairMode() != 0) repairMipmapChain2D();
     }
@@ -570,7 +633,122 @@ bool isBlockCompressedFormat(GLenum format) {
     return true;
 }
 
+// A compiled pixel command holds the data as it was AT COMPILE TIME (GL 2.1
+// 4.4.6), so the list owns a copy of the payload. With GL_PIXEL_UNPACK_BUFFER
+// bound `data` is a byte offset into that buffer and not an address at all,
+// and the recorder's pointer capture used to memcpy straight from it
+// (plans/17 P14, SIGSEGV); read the bytes out of the buffer instead. A
+// readback the driver refuses records NOTHING, the same answer
+// fpe/list_capture.cpp gives when it cannot snapshot a draw's vertex data
+// (plans/15) - a list holding an offset it can no longer resolve is worse
+// than a list missing the command.
+bool captureCompressedListPayload(GLsizei imageSize, const GLvoid** data,
+                                  std::vector<uint8_t>* storage) {
+    if (!sfpewEnsureBackend() || g_glFuncs.glGetIntegerv == nullptr) return true;
+    GLint pbo = 0;
+    g_glFuncs.glGetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, &pbo);
+    if (pbo == 0) return true; // client memory: the recorder's own copy is correct
+    if (imageSize <= 0) {
+        *data = nullptr;
+        return true;
+    }
+    if (g_glFuncs.glMapBufferRange == nullptr || g_glFuncs.glUnmapBuffer == nullptr ||
+        g_glFuncs.glGetBufferParameteriv == nullptr) {
+        SFPEW_LOGW("compressed upload: backend cannot map buffers; the unpack-buffer payload "
+                   "cannot be compiled into a display list");
+        return false;
+    }
+    sfpewEntryBarrier();
+    const size_t offset = (size_t)(uintptr_t)*data;
+    GLint buffer_size = 0;
+    g_glFuncs.glGetBufferParameteriv(GL_PIXEL_UNPACK_BUFFER, GL_BUFFER_SIZE, &buffer_size);
+    if (buffer_size <= 0 || offset > (size_t)buffer_size ||
+        (size_t)imageSize > (size_t)buffer_size - offset) {
+        SFPEW_LOGW("compressed upload: unpack buffer %d has no %d bytes at offset %zu; not "
+                   "recording", pbo, imageSize, offset);
+        return false;
+    }
+    const void* mapped = g_glFuncs.glMapBufferRange(GL_PIXEL_UNPACK_BUFFER, (GLintptr)offset,
+                                                    (GLsizeiptr)imageSize, GL_MAP_READ_BIT);
+    if (mapped == nullptr) {
+        while (g_glFuncs.glGetError() != GL_NO_ERROR) {} // eat the failed map's error
+        SFPEW_LOGW("compressed upload: unpack buffer %d refused a READ mapping; not recording",
+                   pbo);
+        return false;
+    }
+    storage->assign((const uint8_t*)mapped, (const uint8_t*)mapped + imageSize);
+    if (g_glFuncs.glUnmapBuffer(GL_PIXEL_UNPACK_BUFFER) == GL_FALSE) {
+        SFPEW_LOGW("compressed upload: unpack buffer %d reported data loss while reading; not "
+                   "recording", pbo);
+        return false;
+    }
+    *data = storage->data();
+    return true;
+}
+
+// The captured payload is client memory by replay time, so an unpack buffer
+// the app happens to have bound at glCallList must not turn it back into an
+// offset. Restored right after: the binding is the app's.
+struct unpack_buffer_release_t {
+    GLint pbo = 0;
+    unpack_buffer_release_t() {
+        if (g_glFuncs.glGetIntegerv == nullptr || g_glFuncs.glBindBuffer == nullptr) return;
+        g_glFuncs.glGetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, &pbo);
+        if (pbo != 0) g_glFuncs.glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+    }
+    ~unpack_buffer_release_t() {
+        if (pbo != 0) g_glFuncs.glBindBuffer(GL_PIXEL_UNPACK_BUFFER, (GLuint)pbo);
+    }
+};
+
+void replayCompressedTexImage1D(GLenum target, GLint level, GLenum internalformat, GLsizei width,
+                                GLint border, GLsizei imageSize, const GLvoid* data) {
+    if (!sfpewEnsureBackend()) return;
+    unpack_buffer_release_t released;
+    SELF_CALL(glCompressedTexImage1D, target, level, internalformat, width, border, imageSize, data)
+}
+
+void replayCompressedTexSubImage1D(GLenum target, GLint level, GLint xoffset, GLsizei width,
+                                   GLenum format, GLsizei imageSize, const GLvoid* data) {
+    if (!sfpewEnsureBackend()) return;
+    unpack_buffer_release_t released;
+    SELF_CALL(glCompressedTexSubImage1D, target, level, xoffset, width, format, imageSize, data)
+}
+
+void replayCompressedTexImage2D(GLenum target, GLint level, GLenum internalformat, GLsizei width,
+                                GLsizei height, GLint border, GLsizei imageSize,
+                                const GLvoid* data) {
+    if (!sfpewEnsureBackend()) return;
+    unpack_buffer_release_t released;
+    SELF_CALL(glCompressedTexImage2D, target, level, internalformat, width, height, border,
+              imageSize, data)
+}
+
+void replayCompressedTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset,
+                                   GLsizei width, GLsizei height, GLenum format, GLsizei imageSize,
+                                   const GLvoid* data) {
+    if (!sfpewEnsureBackend()) return;
+    unpack_buffer_release_t released;
+    SELF_CALL(glCompressedTexSubImage2D, target, level, xoffset, yoffset, width, height, format,
+              imageSize, data)
+}
+
 } // namespace
+
+// LIST_RECORD's gate and its record-then-maybe-return, with the two things
+// the compressed family needs on top: the recorded payload comes from
+// captureCompressedListPayload above, and the command replays through the
+// trampolines that release the unpack binding.
+#define SFPEW_RECORD_COMPRESSED(replay, dataIndex, ...)                                            \
+    std::vector<uint8_t> sfpew_payload;                                                            \
+    const GLvoid* sfpew_data = data;                                                               \
+    if (!disableRecording && DisplayListManager::shouldRecord()) {                                 \
+        if (captureCompressedListPayload(imageSize, &sfpew_data, &sfpew_payload)) {                \
+            displayListManager.record<replay>(                                                     \
+                {{dataIndex, static_cast<size_t>(imageSize > 0 ? imageSize : 0)}}, __VA_ARGS__);   \
+        }                                                                                          \
+        if (DisplayListManager::shouldFinish()) return;                                            \
+    }
 
 void glCopyTexImage1D(GLenum target, GLint level, GLenum internalformat, GLint x, GLint y,
                       GLsizei width, GLint border) {
@@ -694,9 +872,8 @@ void glCompressedTexImage1D(GLenum target, GLint level, GLenum internalformat, G
         gs.set_error(GL_INVALID_ENUM);
         return;
     }
-    LIST_RECORD(glCompressedTexImage1D,
-                {{6, static_cast<size_t>(imageSize > 0 ? imageSize : 0)}}, target, level,
-                internalformat, width, border, imageSize, data)
+    SFPEW_RECORD_COMPRESSED(replayCompressedTexImage1D, 6, target, level, internalformat, width,
+                            border, imageSize, sfpew_data)
     sfpewEntryBarrier();
     if (target == GL_PROXY_TEXTURE_1D) return;
 
@@ -729,9 +906,8 @@ void glCompressedTexSubImage1D(GLenum target, GLint level, GLint xoffset, GLsize
         gs.set_error(GL_INVALID_ENUM);
         return;
     }
-    LIST_RECORD(glCompressedTexSubImage1D,
-                {{6, static_cast<size_t>(imageSize > 0 ? imageSize : 0)}}, target, level,
-                xoffset, width, format, imageSize, data)
+    SFPEW_RECORD_COMPRESSED(replayCompressedTexSubImage1D, 6, target, level, xoffset, width, format,
+                            imageSize, sfpew_data)
     sfpewEntryBarrier();
     if (isBlockCompressedFormat(format)) {
         gs.set_error(GL_INVALID_OPERATION);
@@ -796,9 +972,8 @@ void glCompressedTexImage2D(GLenum target, GLint level, GLenum internalformat, G
         gs.set_error(GL_INVALID_ENUM);
         return;
     }
-    LIST_RECORD(glCompressedTexImage2D,
-                {{7, static_cast<size_t>(imageSize > 0 ? imageSize : 0)}}, target, level,
-                internalformat, width, height, border, imageSize, data)
+    SFPEW_RECORD_COMPRESSED(replayCompressedTexImage2D, 7, target, level, internalformat, width,
+                            height, border, imageSize, sfpew_data)
     sfpewEntryBarrier();
     // Unlike GL_PROXY_TEXTURE_1D (an emulated target with no backend storage
     // to test at all), GL_PROXY_TEXTURE_2D is real on desktop but absent from
@@ -833,15 +1008,16 @@ void glCompressedTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint 
         gs.set_error(GL_INVALID_ENUM);
         return;
     }
-    LIST_RECORD(glCompressedTexSubImage2D,
-                {{8, static_cast<size_t>(imageSize > 0 ? imageSize : 0)}}, target, level,
-                xoffset, yoffset, width, height, format, imageSize, data)
+    SFPEW_RECORD_COMPRESSED(replayCompressedTexSubImage2D, 8, target, level, xoffset, yoffset,
+                            width, height, format, imageSize, sfpew_data)
     sfpewEntryBarrier();
     if (!sfpewEnsureBackend() || g_glFuncs.glCompressedTexSubImage2D == nullptr) return;
     g_glFuncs.glCompressedTexSubImage2D(target, level, xoffset, yoffset, width, height, format,
                                         imageSize, data);
     sfpewMaybeGenerateMipmap(target);
 }
+
+#undef SFPEW_RECORD_COMPRESSED
 
 namespace {
 
@@ -986,6 +1162,7 @@ void sfpewApplyDepthTextureModeSwizzle(GLenum target, GLuint texture) {
     GLint swizzle[4];
     depthTextureModeSwizzle(depthTextureMode(texture), swizzle);
     g_glFuncs.glTexParameteriv(swizzleTargetFor(target), GL_TEXTURE_SWIZZLE_RGBA, swizzle);
+    rememberWrapperSwizzle(texture, target);
 }
 
 // Reorder a GL_BGRA upload into tightly packed RGBA bytes, reading the source
@@ -1218,16 +1395,19 @@ void glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei widt
             else if (format == GL_LUMINANCE_ALPHA) upload_format = GL_RG;
             g_glFuncs.glTexImage2D(target, level, mapping.internalformat, width, height, border,
                                    upload_format, type, pixels);
+            const GLuint bound = sfpewLogicalTextureBinding(textureMetadataTarget(target));
             // defects-plan-2.md 2.7: glTexImage2D also uploads cube faces -
             // these fell out of texture_metadata_cache_t entirely before,
             // same gap as glGetTexImage's 3D/cube case (defects-plan.md 1.2).
             if (target == GL_TEXTURE_2D ||
                 (target >= GL_TEXTURE_CUBE_MAP_POSITIVE_X && target <= GL_TEXTURE_CUBE_MAP_NEGATIVE_Z)) {
-                rememberTextureLevel(sfpewLogicalTextureBinding(textureMetadataTarget(target)), target,
-                                     level, width, height, internalformat, border, false, 0);
+                rememberTextureLevel(bound, target, level, width, height, internalformat, border,
+                                     false, 0);
             }
-            if (g_glFuncs.glTexParameteriv != nullptr)
+            if (g_glFuncs.glTexParameteriv != nullptr) {
                 g_glFuncs.glTexParameteriv(swizzleTargetFor(target), GL_TEXTURE_SWIZZLE_RGBA, mapping.swizzle);
+                rememberWrapperSwizzle(bound, target);
+            }
             sfpewMaybeGenerateMipmap(target);
             return;
         }
@@ -1235,13 +1415,24 @@ void glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei widt
         g_glFuncs.glTexImage2D(target, level, internalformat, width, height, border, format, type, pixels);
         if (target == GL_TEXTURE_2D ||
             (target >= GL_TEXTURE_CUBE_MAP_POSITIVE_X && target <= GL_TEXTURE_CUBE_MAP_NEGATIVE_Z)) {
-            rememberTextureLevel(sfpewLogicalTextureBinding(textureMetadataTarget(target)), target, level,
-                                 width, height, internalformat, border, false, 0);
+            const GLuint bound = sfpewLogicalTextureBinding(textureMetadataTarget(target));
+            rememberTextureLevel(bound, target, level, width, height, internalformat, border, false, 0);
             // GL_DEPTH_COMPONENT/16/24/32F pass straight through above (no
             // legacy-format rewrite exists for them); they still need the
             // GL_DEPTH_TEXTURE_MODE swizzle applied post-upload.
             if (level == 0 && isDepthTextureInternalFormat(internalformat))
-                sfpewApplyDepthTextureModeSwizzle(target, sfpewLogicalTextureBinding(textureMetadataTarget(target)));
+                sfpewApplyDepthTextureModeSwizzle(target, bound);
+            // plans/17 P17: this format needs no swizzle, but the object may
+            // still carry one from the legacy internalformat (or depth mode)
+            // it was defined with before - it would silently rewrite every
+            // sample of the image just uploaded. Only a swizzle the wrapper
+            // imposed is taken back; the app's own is its business.
+            else if (level == 0 && g_glFuncs.glTexParameteriv != nullptr &&
+                     takeWrapperSwizzle(bound, target)) {
+                static const GLint identity[4] = {GL_RED, GL_GREEN, GL_BLUE, GL_ALPHA};
+                g_glFuncs.glTexParameteriv(swizzleTargetFor(target), GL_TEXTURE_SWIZZLE_RGBA,
+                                           identity);
+            }
         }
         sfpewMaybeGenerateMipmap(target);
         return;
@@ -1352,7 +1543,7 @@ void glGetTexImage(GLenum target, GLint level, GLenum format, GLenum type, GLvoi
     GLint prev_read = 0, prev_draw = 0;
     g_glFuncs.glGetIntegerv(0x8CAA /* GL_READ_FRAMEBUFFER_BINDING */, &prev_read);
     g_glFuncs.glGetIntegerv(0x8CA6 /* GL_DRAW_FRAMEBUFFER_BINDING */, &prev_draw);
-    static thread_local GLuint scratch_fbo = 0;
+    GLuint& scratch_fbo = textureScratch().read_fbo;
     if (scratch_fbo == 0) g_glFuncs.glGenFramebuffers(1, &scratch_fbo);
     g_glFuncs.glBindFramebuffer(0x8CA8 /* GL_READ_FRAMEBUFFER */, scratch_fbo);
     g_glFuncs.glFramebufferTexture2D(0x8CA8, 0x8CE0 /* GL_COLOR_ATTACHMENT0 */, GL_TEXTURE_2D,

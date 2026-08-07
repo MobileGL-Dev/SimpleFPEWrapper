@@ -345,8 +345,11 @@ if(NOT ANDROID)
                                        secondary_color vertex_attrib_variants point_parameters
                                        texture_1d_copy drawpixels_formats copypixels_depth
                                        feedback_payloads selection_vbo pixel_maps
+                                       readpixels_formats
                                        imaging_color_table imaging_convolution
                                        imaging_histogram_minmax imaging_pipeline
+                                       imaging_base_format imaging_color_matrix
+                                       imaging_convolution_select
                                        pushattrib_depth_stencil_scissor getteximage_3d_cube
                                        color_sum logicop line_stipple texture_3d_cube
                                        read_buffer point_sprite texgen_cube
@@ -366,7 +369,11 @@ if(NOT ANDROID)
                                        delete_buffer_attrib_cache
                                        user_program_upload_extent double_arrays
                                        gather_stride_guard
-                                       user_program_generic_arrays)
+                                       bitmap_unpack pixel_private_upload
+                                       pixel_rect_rules
+                                       user_program_generic_arrays
+                                       texture_legacy_swizzle compressed_dlist_pbo
+                                       texture_scratch_context)
                                 sfpew_add_gtest(sfpew_${suite}_test SOURCES tests/gtest_${suite}.cc
                                                 LIBRARIES ${SFPEW_TEST_EGL})
                         endforeach()

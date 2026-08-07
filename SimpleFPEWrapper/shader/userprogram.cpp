@@ -13,6 +13,7 @@
 // with cheap change detection.
 
 #include "../init.h"
+#include "../log.h"
 #include "../fpe/fpe.hpp"
 #include "../fpe/transformation.h"
 
@@ -139,6 +140,99 @@ void resolve(GLuint program, user_program_uniforms_t& u) {
                 u.light_const_atten[i] >= 0 || u.light_spot_direction[i] >= 0;
 }
 
+// Bytes one element of an application-declared array occupies, for stepping
+// past base_vertex rows when the array has no explicit stride. The packed
+// 10/10/10/2 types are one 32-bit word whatever the declared size says.
+size_t appAttribElementBytes(const app_vertex_attrib_array_t& attribute) {
+    if (attribute.type == GL_UNSIGNED_INT_2_10_10_10_REV ||
+        attribute.type == GL_INT_2_10_10_10_REV) {
+        return 4u;
+    }
+    const GLsizei component = type_size(attribute.type);
+    if (component <= 0) return 0u;
+    const GLint components = attribute.size == (GLint)GL_BGRA ? 4 : attribute.size;
+    if (components <= 0) return 0u;
+    return static_cast<size_t>(component) * static_cast<size_t>(components);
+}
+
+// Replays the app's own generic attribute arrays into fpe_user_vao. Returns
+// the mask of locations it enabled, which the caller folds into its own so
+// the stale sweep treats them like any other.
+//
+// Locations the fixed-function attributes already claimed are skipped: the
+// linker cannot assign two active attributes the same location, so this only
+// fires if a program somehow declares both, and in that case the
+// fixed-function feed is the one this whole path exists for.
+uint64_t mirrorAppAttribArrays(const GLint locations[VERTEX_POINTER_COUNT],
+                               const user_program_array_mirror_t& mirror) {
+    auto& gs = g_glstate_c;
+    if (!gs.app_attrib_arrays_used) return 0;
+    const auto found = gs.app_attrib_arrays.find(sfpewLogicalVertexArrayBinding());
+    if (found == gs.app_attrib_arrays.end() || found->second.enabled_mask == 0) return 0;
+    const auto& record = found->second;
+
+    uint64_t claimed = 0;
+    for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
+        if (locations[i] >= 0 && locations[i] < 64) claimed |= 1ull << locations[i];
+    }
+
+    auto& st = gs.fpe_state;
+    uint64_t enabled_now = 0;
+    GLuint bound_buffer = mirror.source_buffer;
+    for (int index = 0; index < SFPEW_TRACKED_VERTEX_ATTRIBS; ++index) {
+        if (((record.enabled_mask >> index) & 1u) == 0u) continue;
+        if ((claimed >> index) & 1ull) continue;
+        const auto& attribute = record.attribs[index];
+        if (!attribute.declared) continue;
+        // Falling back to the float form would silently convert what the
+        // shader declared as an integer input, which is worse than the
+        // constant. Unreachable in practice: the recording entry point
+        // returns early without this same pointer.
+        if (attribute.integer && g_glFuncs.glVertexAttribIPointer == nullptr) continue;
+        if (attribute.buffer == 0) {
+            // A client-memory generic array cannot be replayed: GLES 3 and
+            // desktop core both reject a client pointer while a VAO is bound,
+            // and re-uploading it needs a vertex extent this call does not
+            // have. Said once - a renderer built this way does it every frame.
+            static bool warned = false;
+            if (!warned) {
+                warned = true;
+                SFPEW_LOGW("generic vertex attribute array %d is client memory; a user program "
+                           "fed by the fixed-function arrays cannot consume it and will read the "
+                           "constant current value instead", index);
+            }
+            continue;
+        }
+        const void* pointer = attribute.pointer;
+        if (mirror.base_vertex > 0) {
+            const size_t step = attribute.stride > 0 ? static_cast<size_t>(attribute.stride)
+                                                     : appAttribElementBytes(attribute);
+            if (step == 0) continue; // unusable declaration; leave the constant
+            pointer = reinterpret_cast<const void*>(reinterpret_cast<uintptr_t>(pointer) +
+                                                    static_cast<uintptr_t>(mirror.base_vertex) *
+                                                        step);
+        }
+        if (bound_buffer != attribute.buffer) {
+            g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, attribute.buffer);
+            bound_buffer = attribute.buffer;
+        }
+        if (attribute.integer) {
+            g_glFuncs.glVertexAttribIPointer((GLuint)index, attribute.size, attribute.type,
+                                             attribute.stride, pointer);
+        } else {
+            g_glFuncs.glVertexAttribPointer((GLuint)index, attribute.size, attribute.type,
+                                            (GLboolean)(attribute.normalized ? GL_TRUE : GL_FALSE),
+                                            attribute.stride, pointer);
+        }
+        if (((st.fpe_user_vao_enabled >> index) & 1ull) == 0ull)
+            g_glFuncs.glEnableVertexAttribArray((GLuint)index);
+        enabled_now |= 1ull << index;
+    }
+    if (bound_buffer != mirror.source_buffer)
+        g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, mirror.source_buffer);
+    return enabled_now;
+}
+
 } // namespace
 
 void sfpewForgetUserProgram(GLuint program) {
@@ -232,7 +326,8 @@ bool sfpewUserProgramAttribLocations(GLuint program, GLint out_locations[VERTEX_
 // locations. Caller has fpe_user_vao + the source buffer bound; the mask
 // in fpe_state tracks which locations stay enabled between draws.
 void sfpewSendUserProgramAttributes(const GLint locations[VERTEX_POINTER_COUNT],
-                                    const vertex_pointer_array_t& va, GLintptr binding_offset) {
+                                    const vertex_pointer_array_t& va, GLintptr binding_offset,
+                                    const user_program_array_mirror_t& mirror) {
     auto& st = g_glstate.fpe_state;
     const auto& cur = st.fpe_draw.current_data;
     uint64_t enabled_now = 0;
@@ -291,6 +386,12 @@ void sfpewSendUserProgramAttributes(const GLint locations[VERTEX_POINTER_COUNT],
             break;
         }
     }
+    // The app's own generic attribute arrays live in ITS vao, which this one
+    // replaced; without replaying them the shader reads the constant current
+    // value for every input the fixed-function slots do not cover (plans/16
+    // H6, the OptiFine mc_Entity shape).
+    if (mirror.active) enabled_now |= mirrorAppAttribArrays(locations, mirror);
+
     // Disable locations left over from a previous layout in this VAO.
     uint64_t stale = st.fpe_user_vao_enabled & ~enabled_now;
     for (int loc = 0; loc < 64; ++loc) {

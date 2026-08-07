@@ -796,6 +796,43 @@ struct vertex_attribute_cache_entry_t {
     const void* pointer = nullptr;
 };
 
+// One application-declared GENERIC vertex attribute array, as
+// glVertexAttrib(I)Pointer left it (plans/16 H6). Not to be confused with
+// vertex_attribute_cache_entry_t above, which describes what the wrapper last
+// pushed into ITS OWN fpe_vao.
+//
+// The wrapper needs this because a user-program draw fed by the fixed-function
+// arrays swaps in fpe_user_vao, where the app's declarations - which live in
+// the app's vertex array object - simply do not exist. Replaying them is the
+// only way the shader sees per-vertex data instead of the constant current
+// value (the OptiFine mc_Entity shape).
+struct app_vertex_attrib_array_t {
+    const void* pointer = nullptr;
+    // GL_ARRAY_BUFFER at the time of the pointer call; that binding is what
+    // the VAO captures, not whatever is bound when the draw happens.
+    GLuint buffer = 0;
+    GLsizei stride = 0;
+    GLint size = 4;
+    GLenum type = GL_FLOAT;
+    bool normalized = false;
+    bool integer = false; // glVertexAttribIPointer: no float conversion
+    bool declared = false;
+};
+
+// GL 2.1 and GLES 3 both floor GL_MAX_VERTEX_ATTRIBS at 16, and no backend
+// this wrapper targets reports more than 32. Indices past this are left to
+// the backend untracked rather than growing per-VAO storage for a case that
+// does not occur.
+constexpr int SFPEW_TRACKED_VERTEX_ATTRIBS = 32;
+
+// Per vertex array object, because that is where the state lives. Legacy
+// LWJGL2 frontends use VAO 0 throughout, so this map holds one entry in the
+// case that matters.
+struct app_vertex_attrib_arrays_t {
+    app_vertex_attrib_array_t attribs[SFPEW_TRACKED_VERTEX_ATTRIBS];
+    uint32_t enabled_mask = 0;
+};
+
 struct program_vertex_signature_t {
     GLint size = 0;
     GLenum usage = 0;
@@ -1026,6 +1063,14 @@ struct glstate_t {
     GLint backend_vao0_element_binding = 0;
     bool backend_vao0_element_known = false;
     unsigned backend_shadow_heal_counter = 0;
+
+    // The app's own generic attribute arrays, keyed by VAO (plans/16 H6).
+    // app_attrib_arrays_used latches on the first glEnableVertexAttribArray
+    // and is never cleared: a purely fixed-function frontend then pays one
+    // bool test per draw instead of a hash lookup, and a frontend that does
+    // use them has already paid for the lookup by being that shape.
+    unordered_map<GLuint, app_vertex_attrib_arrays_t> app_attrib_arrays;
+    bool app_attrib_arrays_used = false;
 
     // Deferred restore of the app's draw state (plans/12).
     //

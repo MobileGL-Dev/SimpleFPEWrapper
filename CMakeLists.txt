@@ -304,7 +304,7 @@ if(NOT ANDROID)
                 # Migrated suites. Each file is one area of behavior; the
                 # backend a case needs is chosen by its fixture. These need no
                 # driver at all - the wrapper's own bookkeeping.
-                foreach(suite load error display_list_cpu)
+                foreach(suite load error display_list_cpu ring_segment_sync)
                         sfpew_add_gtest(sfpew_${suite}_test SOURCES tests/gtest_${suite}.cc)
                 endforeach()
 
@@ -357,7 +357,16 @@ if(NOT ANDROID)
                                        texture_env_crossbar multitexture_unit_validation
                                        client_state_validation client_buffer_classification
                                        arrayelement_dlist drawelements_dlist
-                                       display_list_indexed_multidraw)
+                                       immediate_layout_epoch midprim_repack points_merge
+                                       vertexattrib_ordering
+                                       display_list_indexed_multidraw
+                                       map_buffer_barrier binding_query_barrier
+                                       pointer_validation interleaved_arrays
+                                       arrayelement_vbo arrayelement_bgra
+                                       delete_buffer_attrib_cache
+                                       user_program_upload_extent double_arrays
+                                       gather_stride_guard
+                                       user_program_generic_arrays)
                                 sfpew_add_gtest(sfpew_${suite}_test SOURCES tests/gtest_${suite}.cc
                                                 LIBRARIES ${SFPEW_TEST_EGL})
                         endforeach()

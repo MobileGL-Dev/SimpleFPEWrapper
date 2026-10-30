@@ -425,9 +425,20 @@ void glReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format
     if (sfpewFullColorReadPixels(x, y, width, height, format, type, pixels, !raw)) return;
     if (sfpewDepthPixelTransferReadPixels(x, y, width, height, format, type, pixels)) return;
     g_glFuncs.glReadPixels(x, y, width, height, format, type, pixels);
+    // A read into client memory waits for every draw before it; one into a
+    // pack buffer does not.
+    GLint pack_buffer = 0;
+    if (g_glFuncs.glGetIntegerv != nullptr)
+        g_glFuncs.glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING, &pack_buffer);
+    if (pack_buffer == 0) sfpewNoteGpuIdle();
 }
 ORDERED_PASSTHROUGH(glFlush, (), ())
-ORDERED_PASSTHROUGH(glFinish, (), ())
+void glFinish() {
+    if (!sfpewEnsureBackend()) return;
+    sfpewEntryBarrier();
+    if (g_glFuncs.glFinish != nullptr) g_glFuncs.glFinish();
+    sfpewNoteGpuIdle();
+}
 
 ORDERED_PASSTHROUGH(glBindFramebuffer, (GLenum target, GLuint framebuffer), (target, framebuffer))
 void glUseProgram(GLuint program) {

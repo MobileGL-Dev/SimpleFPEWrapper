@@ -1761,11 +1761,13 @@ void add_fs_uniforms(const fixed_function_state_t& state, [[maybe_unused]] scrat
         fs += mg_fog_uniforms;
     }
 
-    // Alpha test is uniform-driven (0 = off/GL_ALWAYS): declared in every
-    // program so GL_ALPHA_TEST toggles and glAlphaFunc changes never mint a
-    // new program. The branch below is uniform-coherent, which drivers
+    // Alpha test is uniform-driven (0 = off/GL_ALPHA_TEST disabled or
+    // GL_ALWAYS): declared in every program generated once the context has
+    // used it, so GL_ALPHA_TEST toggles and glAlphaFunc changes never mint a
+    // new program. Before that first use no program needs it (see
+    // alpha_test_seen). The branch below is uniform-coherent, which drivers
     // specialize.
-    fs += mg_alpharef_uniform;
+    if (state.alpha_test_seen || state.fpe_bools.alpha_test_enable) fs += mg_alpharef_uniform;
 }
 
 void add_fs_inout(const fixed_function_state_t& state, scratch_t& scratch, std::string& fs) {
@@ -2034,18 +2036,20 @@ void add_fs_body(const fixed_function_state_t& state, scratch_t& scratch, std::s
 
     // Alpha test: uniform-selected comparison, GL_NEVER..GL_GEQUAL encoded
     // as 1..7 (send_uniforms), 0 covers both disabled and GL_ALWAYS.
-    fs += "    // Alpha Test (uniform-driven)\n"
-          "    if (alphafunc != 0) {\n"
-          "        bool alphapass;\n"
-          "        if      (alphafunc == 1) alphapass = false;\n"
-          "        else if (alphafunc == 2) alphapass = color.a < alpharef;\n"
-          "        else if (alphafunc == 3) alphapass = abs(color.a - alpharef) <= 0.00001;\n"
-          "        else if (alphafunc == 4) alphapass = color.a <= alpharef;\n"
-          "        else if (alphafunc == 5) alphapass = color.a > alpharef;\n"
-          "        else if (alphafunc == 6) alphapass = abs(color.a - alpharef) > 0.00001;\n"
-          "        else                     alphapass = color.a >= alpharef;\n"
-          "        if (!alphapass) discard;\n"
-          "    }\n";
+    if (state.alpha_test_seen || state.fpe_bools.alpha_test_enable) {
+        fs += "    // Alpha Test (uniform-driven)\n"
+              "    if (alphafunc != 0) {\n"
+              "        bool alphapass;\n"
+              "        if      (alphafunc == 1) alphapass = false;\n"
+              "        else if (alphafunc == 2) alphapass = color.a < alpharef;\n"
+              "        else if (alphafunc == 3) alphapass = abs(color.a - alpharef) <= 0.00001;\n"
+              "        else if (alphafunc == 4) alphapass = color.a <= alpharef;\n"
+              "        else if (alphafunc == 5) alphapass = color.a > alpharef;\n"
+              "        else if (alphafunc == 6) alphapass = abs(color.a - alpharef) > 0.00001;\n"
+              "        else                     alphapass = color.a >= alpharef;\n"
+              "        if (!alphapass) discard;\n"
+              "    }\n";
+    }
 
     // Fog calculation
     if (state.fpe_bools.fog_enable) {

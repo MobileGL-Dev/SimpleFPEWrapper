@@ -156,32 +156,45 @@ bool framebufferBits(GLenum pname, GLdouble* out) {
 // `enable` marks the subset glIsEnabled may answer for: a capability, not
 // just any state that happens to be 0 or 1. Without it glIsEnabled(GL_FOG_MODE)
 // would return a value where the spec wants GL_INVALID_ENUM.
-bool fixedFunctionState(GLenum pname, GLdouble* values, int* count, bool* color, bool* enable) {
+//
+// T is the type the caller wants: GLdouble for the integer, boolean and
+// double getters (which convert from the widest type), GLfloat for
+// glGetFloatv, which then writes straight into the caller's buffer instead
+// of staging sixteen doubles and narrowing them one by one - every source
+// value here is a float or an integer, so narrowing at the source rounds
+// exactly once, the same as narrowing a double would. Only `count` values
+// are ever written, and nothing is written when the answer is false.
+template <class T>
+bool fixedFunctionState(GLenum pname, T* values, int* count, bool* color, bool* enable) {
     auto& gs = g_glstate;
     const auto& ff = gs.fpe_state;
     const auto& bools = ff.fpe_bools;
     const auto& uni = gs.fpe_uniform;
     const auto& current = ff.fpe_draw.current_data;
     const auto& arrays = ff.vertexpointer_array;
-    const int unit =
-        std::clamp(static_cast<int>(sfpewLogicalActiveTexture() - GL_TEXTURE0), 0, MAX_TEX - 1);
+    // Only the per-unit arms ask for the active unit, so it is read on
+    // demand: most queries (matrices, lighting, pixel store) never touch one.
+    const auto unit = []() {
+        return std::clamp(static_cast<int>(sfpewLogicalActiveTexture() - GL_TEXTURE0), 0,
+                          MAX_TEX - 1);
+    };
 
     *count = 1;
     *color = false;
     *enable = false;
 
     const auto scalar = [&](GLdouble value) {
-        values[0] = value;
+        values[0] = static_cast<T>(value);
         return true;
     };
     // A capability: same value, but also legal to ask glIsEnabled about.
     const auto capability = [&](bool on) {
         *enable = true;
-        values[0] = on ? 1 : 0;
+        values[0] = on ? T(1) : T(0);
         return true;
     };
     const auto vector = [&](const GLfloat* source, int n) {
-        for (int i = 0; i < n; ++i) values[i] = source[i];
+        for (int i = 0; i < n; ++i) values[i] = static_cast<T>(source[i]);
         *count = n;
         return true;
     };
@@ -191,9 +204,13 @@ bool fixedFunctionState(GLenum pname, GLdouble* values, int* count, bool* color,
         *color = true;
         return vector(source, n);
     };
-    const auto matrix = [&](const glm::mat4& m, bool transpose) {
+    const auto matrix = [&](const glm::mat4& m, bool transpose) __attribute__((always_inline)) {
         const GLfloat* source = glm::value_ptr(m);
-        for (int i = 0; i < 16; ++i) values[i] = transpose ? source[(i % 4) * 4 + i / 4] : source[i];
+        if (transpose) {
+            for (int i = 0; i < 16; ++i) values[i] = static_cast<T>(source[(i % 4) * 4 + i / 4]);
+        } else {
+            for (int i = 0; i < 16; ++i) values[i] = static_cast<T>(source[i]);
+        }
         *count = 16;
         return true;
     };
@@ -223,11 +240,18 @@ bool fixedFunctionState(GLenum pname, GLdouble* values, int* count, bool* color,
     };
 
     // The evaluator maps and their grid live in evaluators.cpp. Everything
-    // it answers except the grid is a capability.
-    if (sfpewEvaluatorStateQuery(pname, values, count)) {
-        *enable = pname != GL_MAP1_GRID_DOMAIN && pname != GL_MAP1_GRID_SEGMENTS &&
-                  pname != GL_MAP2_GRID_DOMAIN && pname != GL_MAP2_GRID_SEGMENTS;
-        return true;
+    // it answers except the grid is a capability. All of its pnames sit in
+    // GL_AUTO_NORMAL..GL_MAP2_GRID_SEGMENTS, so nothing else pays for the
+    // per-context lookup it starts with; it answers at most four values.
+    if (pname >= GL_AUTO_NORMAL && pname <= GL_MAP2_GRID_SEGMENTS) {
+        GLdouble staged[4] = {};
+        if (sfpewEvaluatorStateQuery(pname, staged, count)) {
+            for (int i = 0; i < *count; ++i) values[i] = static_cast<T>(staged[i]);
+            *enable = pname != GL_MAP1_GRID_DOMAIN && pname != GL_MAP1_GRID_SEGMENTS &&
+                      pname != GL_MAP2_GRID_DOMAIN && pname != GL_MAP2_GRID_SEGMENTS;
+            return true;
+        }
+        *count = 1;
     }
 
     // Lights and clip planes are ranges, not single enums.
@@ -246,16 +270,16 @@ bool fixedFunctionState(GLenum pname, GLdouble* values, int* count, bool* color,
     case GL_RESCALE_NORMAL: return capability(bools.rescale_normal_enable);
     case GL_POLYGON_STIPPLE: return capability(bools.polygon_stipple_enable);
     case GL_LINE_STIPPLE: return capability(bools.line_stipple_enable);
-    case GL_TEXTURE_2D: return capability(bools.texture_2d_enable[unit]);
+    case GL_TEXTURE_2D: return capability(bools.texture_2d_enable[unit()]);
     // 1D textures are carried on 2D storage here, so they share the enable.
-    case GL_TEXTURE_1D: return capability(bools.texture_2d_enable[unit]);
-    case GL_TEXTURE_GEN_S: return capability(bools.texture_gen_enable[unit][0]);
-    case GL_TEXTURE_GEN_T: return capability(bools.texture_gen_enable[unit][1]);
-    case GL_TEXTURE_GEN_R: return capability(bools.texture_gen_enable[unit][2]);
-    case GL_TEXTURE_GEN_Q: return capability(bools.texture_gen_enable[unit][3]);
+    case GL_TEXTURE_1D: return capability(bools.texture_2d_enable[unit()]);
+    case GL_TEXTURE_GEN_S: return capability(bools.texture_gen_enable[unit()][0]);
+    case GL_TEXTURE_GEN_T: return capability(bools.texture_gen_enable[unit()][1]);
+    case GL_TEXTURE_GEN_R: return capability(bools.texture_gen_enable[unit()][2]);
+    case GL_TEXTURE_GEN_Q: return capability(bools.texture_gen_enable[unit()][3]);
     // defects-plan.md 1.7.
-    case GL_TEXTURE_3D: return capability(bools.texture_3d_enable[unit]);
-    case GL_TEXTURE_CUBE_MAP: return capability(bools.texture_cube_enable[unit]);
+    case GL_TEXTURE_3D: return capability(bools.texture_3d_enable[unit()]);
+    case GL_TEXTURE_CUBE_MAP: return capability(bools.texture_cube_enable[unit()]);
     // defects-plan-2.md 2.2/2.4: both have a real rendering effect now (see
     // fpe_shadergen.cpp), unlike GL_LINE_SMOOTH/GL_POLYGON_SMOOTH below.
     case GL_POINT_SPRITE: return capability(bools.point_sprite_enable);
@@ -300,7 +324,7 @@ bool fixedFunctionState(GLenum pname, GLdouble* values, int* count, bool* color,
     case GL_CURRENT_COLOR: return signal(glm::value_ptr(current.color), 4);
     case GL_CURRENT_NORMAL: return signal(glm::value_ptr(current.normal), 3);
     case GL_CURRENT_SECONDARY_COLOR: return signal(glm::value_ptr(current.secondary_color), 4);
-    case GL_CURRENT_TEXTURE_COORDS: return vector(glm::value_ptr(current.texcoord[unit]), 4);
+    case GL_CURRENT_TEXTURE_COORDS: return vector(glm::value_ptr(current.texcoord[unit()]), 4);
     case GL_CURRENT_FOG_COORD: return scalar(current.fog_coord);
     case GL_EDGE_FLAG: return scalar(current.edge_flag ? 1 : 0);
     case GL_CURRENT_RASTER_POSITION: return vector(glm::value_ptr(uni.raster_position), 4);
@@ -342,8 +366,8 @@ bool fixedFunctionState(GLenum pname, GLdouble* values, int* count, bool* color,
     case GL_LINE_STIPPLE_PATTERN: return scalar(uni.line_stipple_pattern);
     case GL_LINE_STIPPLE_REPEAT: return scalar(uni.line_stipple_factor);
     case GL_POLYGON_MODE:
-        values[0] = uni.polygon_mode_front;
-        values[1] = uni.polygon_mode_back;
+        values[0] = static_cast<T>(uni.polygon_mode_front);
+        values[1] = static_cast<T>(uni.polygon_mode_back);
         *count = 2;
         return true;
     case GL_POINT_SIZE_MIN: return scalar(uni.point_size_min);
@@ -421,9 +445,9 @@ bool fixedFunctionState(GLenum pname, GLdouble* values, int* count, bool* color,
         return matrix(m, transpose);
     }
     case GL_TEXTURE_MATRIX:
-        return matrix(uni.transformation.texture_matrices[unit], false);
+        return matrix(uni.transformation.texture_matrices[unit()], false);
     case GL_TRANSPOSE_TEXTURE_MATRIX:
-        return matrix(uni.transformation.texture_matrices[unit], true);
+        return matrix(uni.transformation.texture_matrices[unit()], true);
     case GL_COLOR_MATRIX:
         return matrix(uni.transformation.matrices[matrix_idx(GL_COLOR)], false);
     case GL_TRANSPOSE_COLOR_MATRIX:
@@ -434,7 +458,7 @@ bool fixedFunctionState(GLenum pname, GLdouble* values, int* count, bool* color,
     case GL_PROJECTION_STACK_DEPTH:
         return scalar(uni.transformation.matrices_stack[matrix_idx(GL_PROJECTION)].size() + 1);
     case GL_TEXTURE_STACK_DEPTH:
-        return scalar(uni.transformation.texture_matrices_stack[unit].size() + 1);
+        return scalar(uni.transformation.texture_matrices_stack[unit()].size() + 1);
     case GL_COLOR_MATRIX_STACK_DEPTH:
         return scalar(uni.transformation.matrices_stack[matrix_idx(GL_COLOR)].size() + 1);
     case GL_MAX_MODELVIEW_STACK_DEPTH: return scalar(MAX_MODELVIEW_STACK_DEPTH);
@@ -601,8 +625,11 @@ bool fixedFunctionState(GLenum pname, GLdouble* values, int* count, bool* color,
     case GL_BLUE_BITS:
     case GL_ALPHA_BITS:
     case GL_DEPTH_BITS:
-    case GL_STENCIL_BITS:
-        return framebufferBits(pname, values);
+    case GL_STENCIL_BITS: {
+        GLdouble bits = 0;
+        framebufferBits(pname, &bits);
+        return scalar(bits);
+    }
     case GL_RGBA_MODE: return scalar(1);
     case GL_INDEX_MODE: return scalar(0);
     case GL_STEREO: return scalar(0);
@@ -825,15 +852,12 @@ void glGetIntegerv(GLenum pname, GLint* params) {
 
 void glGetFloatv(GLenum pname, GLfloat* params) {
     if (!params) return;
-    // The fixed-function table answers in doubles; float is a narrowing of
-    // the same values, and integers in it (enums, counts) become floats.
-    GLdouble values[16] = {};
+    // The fixed-function table answers in floats directly into params:
+    // float is a narrowing of the same values, and integers in it (enums,
+    // counts) become floats.
     int count = 0;
     bool color = false, enable = false;
-    if (fixedFunctionState(pname, values, &count, &color, &enable)) {
-        for (int i = 0; i < count; ++i) params[i] = static_cast<GLfloat>(values[i]);
-        return;
-    }
+    if (fixedFunctionState<GLfloat>(pname, params, &count, &color, &enable)) return;
     if (isWrapperIntegerPname(pname)) {
         GLint value = 0;
         glGetIntegerv(pname, &value);

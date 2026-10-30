@@ -182,6 +182,29 @@ bool sfpewBackendLacksMultiDrawArrays() {
     return cached != 0;
 }
 
+// Whether the GPU renders in immediate mode (draws execute as submitted)
+// rather than binning a whole frame into tiles first. Desktop drivers buffer
+// commands and only hand them to the GPU when a buffer fills or something
+// flushes, so a few large draws issued right after the GPU went idle can sit
+// in the driver while it waits; a flush there gets it working sooner. On a
+// tiler the same flush would end the render pass mid-frame and cost a tile
+// store and reload, so only the desktop vendors are recognized. Unknown and
+// unanswerable both say no, and the latter is not cached.
+bool sfpewBackendIsImmediateModeRenderer() {
+    static int cached = -1;
+    if (cached < 0) {
+        const GLubyte* raw =
+            g_glFuncs.glGetString != nullptr ? g_glFuncs.glGetString(GL_VENDOR) : nullptr;
+        if (raw == nullptr) return false;
+        const char* vendor = (const char*)raw;
+        cached = (std::strstr(vendor, "NVIDIA") != nullptr || std::strstr(vendor, "AMD") != nullptr ||
+                  std::strstr(vendor, "ATI") != nullptr || std::strstr(vendor, "Intel") != nullptr)
+                     ? 1
+                     : 0;
+    }
+    return cached != 0;
+}
+
 bool sfpewBackendTakesBgra() {
     static int cached = -1;
     if (cached < 0) {

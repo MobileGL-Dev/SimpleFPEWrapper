@@ -19,6 +19,9 @@
 #include <vector>
 
 void flushPendingImmediateDraws();
+// The GPU has just run dry (glFinish, a swap, a synchronous readback): the
+// next immediate-mode batch draws early and is handed to it at once.
+void sfpewNoteGpuIdle();
 
 // Puts the app's program/VAO/buffers back if a fixed-function draw left the
 // wrapper's own bound (plans/12). One branch when nothing is held.

@@ -104,8 +104,31 @@ void fixed_function_draw_state_t::repack_for_attribute(int slot, GLint requested
     current_data.sizes_epoch = sfpewNextSizesEpoch();
 }
 
+void sfpewGrowVertexBuffer(sfpew_vertex_buffer_t& out, size_t needed) {
+    out.reserve(std::max(out.capacity() * 2, needed));
+}
+
+void fixed_function_draw_state_t::prepare_advance() {
+    // vertex_count already counts the vertex being added.
+    if (!edge_flags.empty()) {
+        edge_flags.push_back(current_data.edge_flag);
+    } else if (current_data.edge_flag == 0) {
+        // The first cleared flag backfills the run's history and switches
+        // tracking on.
+        edge_flags.assign(vertex_count - 1u, 1u);
+        edge_flags.push_back(0u);
+    }
+    if (packed_chunk_count < 0 || packed_layout_epoch != current_data.sizes_epoch)
+        rebuild_packed_layout();
+}
+
 void fixed_function_draw_state_t::rebuild_packed_layout() {
-    packed_span_count = 0;
+    struct span_t {
+        uint16_t src_offset; // in floats, from the start of current_data
+        uint16_t count;
+    };
+    span_t spans[VERTEX_POINTER_COUNT];
+    int span_count = 0;
     packed_floats = 0;
     const auto* base = reinterpret_cast<const GLfloat*>(&current_data);
     const auto add = [&](const GLfloat* src, GLint count) {
@@ -113,15 +136,15 @@ void fixed_function_draw_state_t::rebuild_packed_layout() {
         const auto offset = static_cast<uint16_t>(src - base);
         // Merge with the previous span when the source is contiguous; the
         // destination always is.
-        if (packed_span_count > 0) {
-            auto& last = packed_spans[packed_span_count - 1];
+        if (span_count > 0) {
+            auto& last = spans[span_count - 1];
             if (last.src_offset + last.count == offset) {
                 last.count = static_cast<uint16_t>(last.count + count);
                 packed_floats += static_cast<size_t>(count);
                 return;
             }
         }
-        packed_spans[packed_span_count++] = {offset, static_cast<uint16_t>(count)};
+        spans[span_count++] = {offset, static_cast<uint16_t>(count)};
         packed_floats += static_cast<size_t>(count);
     };
 
@@ -139,6 +162,18 @@ void fixed_function_draw_state_t::rebuild_packed_layout() {
         default: src = glm::value_ptr(current_data.texcoord[slot - 7]); break;
         }
         add(src, count);
+    }
+
+    // Spans to four-float moves. A merged span is made of slots of at most
+    // four floats each, so it never needs more moves than it has slots.
+    packed_chunk_count = 0;
+    uint16_t dst = 0;
+    for (int s = 0; s < span_count; ++s) {
+        for (uint16_t c = 0; c < spans[s].count; c += 4) {
+            packed_chunks[packed_chunk_count++] = {static_cast<uint16_t>(spans[s].src_offset + c),
+                                                   static_cast<uint16_t>(dst + c)};
+        }
+        dst = static_cast<uint16_t>(dst + spans[s].count);
     }
     packed_layout_sizes = sizes;
     packed_layout_epoch = current_data.sizes_epoch;

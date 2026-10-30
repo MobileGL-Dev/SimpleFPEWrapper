@@ -35,6 +35,10 @@ bool sfpewBackendIsES();
 // GLES-backed translation layers (MobileGlues) that only pretend to.
 // Conservative: unknown answers "no", and the wrapper converts.
 bool sfpewBackendTakesBgra();
+// True for desktop-class GPUs that render in immediate mode (NVIDIA, AMD,
+// Intel), where an explicit flush right after the GPU went idle starts it
+// sooner. False for tilers and anything unrecognized.
+bool sfpewBackendIsImmediateModeRenderer();
 // True when glMultiDrawArrays must not be called on this backend: MobileGlues
 // up to V1.3.5 has no implementation and the call silently draws nothing.
 bool sfpewBackendLacksMultiDrawArrays();

@@ -29,12 +29,12 @@
 // Externally visible so the resolve's fast path can be inlined into every
 // exported entry point (see sfpewResolveState in types.h): the call to
 // get_instance was measured at 48% of a glGet, and every entry pays it.
-thread_local SFPEW_TLS_HOT void* g_authoritative_context = nullptr;
-thread_local SFPEW_TLS_HOT bool g_authoritative_context_known = false;
-thread_local SFPEW_TLS_HOT unsigned g_context_reconcile_counter = 0;
+SFPEW_TLS_HOT void* g_authoritative_context = nullptr;
+SFPEW_TLS_HOT bool g_authoritative_context_known = false;
+SFPEW_TLS_HOT unsigned g_context_reconcile_counter = 0;
 // Starts tight so a bypassing app is caught early, then backs off.
-thread_local SFPEW_TLS_HOT unsigned g_context_reconcile_interval = 64u;
-thread_local SFPEW_TLS_HOT unsigned g_resolve_budget = 0u;
+SFPEW_TLS_HOT unsigned g_context_reconcile_interval = 64u;
+SFPEW_TLS_HOT unsigned g_resolve_budget = 0u;
 bool g_sfpew_relaxed_context = [] {
     const char* value = getenv("SFPEW_RELAXED_CONTEXT");
     return value != nullptr && value[0] != '\0' && value[0] != '0';
@@ -83,8 +83,8 @@ EGLContext sfpewCurrentContext() { return sfpewCurrentContextInline(); }
 // get_instance() / current() / current_vertex_data() / cached_context(), and
 // by the inlined resolver in types.h. Declared there; see the note on the
 // initial-exec model beside those declarations.
-thread_local SFPEW_TLS_HOT void* tls_snapshot_context = (void*)(intptr_t)-1;
-thread_local SFPEW_TLS_HOT glstate_t* tls_snapshot_state = nullptr;
+SFPEW_TLS_HOT void* tls_snapshot_context = (void*)(intptr_t)-1;
+SFPEW_TLS_HOT glstate_t* tls_snapshot_state = nullptr;
 namespace {
 
 // SFPEW_RELAXED_CONTEXT=1: the app promises each thread uses at most one

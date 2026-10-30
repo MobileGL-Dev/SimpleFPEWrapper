@@ -16,7 +16,9 @@
 #include <unordered_set>
 #include <vector>
 #include <memory>
+#include <algorithm>
 #include <cstddef>
+#include <cstring>
 #include <type_traits>
 #include "fpe_shadergen.h"
 #include "vertexpointer_utils.h"
@@ -28,18 +30,26 @@
 // glibc's ~1.6 KB static-TLS surplus process-wide, and a host that has
 // already spent it could then fail to dlopen this library at all. These few
 // are a rounding error against that budget.
-#define SFPEW_TLS_HOT __attribute__((tls_model("initial-exec")))
+//
+// __thread rather than thread_local: an `extern thread_local` may have a
+// dynamic initializer in some other translation unit, so every access from
+// outside the defining one first tests the weak TLS-init hook - three tests
+// and branches inside the inlined resolver, a fifth of a glGetFloatv. These
+// are all constant-initialized pointers and integers, which is exactly what
+// __thread guarantees (GCC and Clang both accept the pointer sentinel below,
+// which constinit would reject as a reinterpret_cast).
+#define SFPEW_TLS_HOT __thread __attribute__((tls_model("initial-exec")))
 
 struct glstate_t;
 
 // Snapshot of the last strict resolve on this thread.
-extern thread_local SFPEW_TLS_HOT void* tls_snapshot_context;
-extern thread_local SFPEW_TLS_HOT glstate_t* tls_snapshot_state;
+extern SFPEW_TLS_HOT void* tls_snapshot_context;
+extern SFPEW_TLS_HOT glstate_t* tls_snapshot_state;
 // The context the wrapper's own eglMakeCurrent recorded, and how many
 // resolves have trusted it since it was last reconciled against libEGL.
-extern thread_local SFPEW_TLS_HOT void* g_authoritative_context;
-extern thread_local SFPEW_TLS_HOT bool g_authoritative_context_known;
-extern thread_local SFPEW_TLS_HOT unsigned g_context_reconcile_counter;
+extern SFPEW_TLS_HOT void* g_authoritative_context;
+extern SFPEW_TLS_HOT bool g_authoritative_context_known;
+extern SFPEW_TLS_HOT unsigned g_context_reconcile_counter;
 // How many resolves may trust the recorded context before it is re-read from
 // libEGL. Adaptive: doubles while reconciliation keeps confirming the value,
 // and drops back to a tight interval the moment one finds a different one.
@@ -51,10 +61,10 @@ extern thread_local SFPEW_TLS_HOT unsigned g_context_reconcile_counter;
 // empty glBegin/glEnd pair cost 878ns, essentially all of it that query.
 // Both cases now carry the same bounded staleness, which is what the lazy
 // context model documents.
-extern thread_local SFPEW_TLS_HOT unsigned g_context_reconcile_interval;
+extern SFPEW_TLS_HOT unsigned g_context_reconcile_interval;
 // Entry points that may still use the snapshot before it must be
 // re-established. Zero forces the out-of-line resolve; see sfpewResolveState.
-extern thread_local SFPEW_TLS_HOT unsigned g_resolve_budget;
+extern SFPEW_TLS_HOT unsigned g_resolve_budget;
 // SFPEW_RELAXED_CONTEXT=1: each thread promises to use one context forever.
 extern bool g_sfpew_relaxed_context;
 // Reconciles against libEGL and resets the counter. Out of line: it is the
@@ -330,7 +340,7 @@ struct fixed_function_draw_data_t {
 // copied again at glEnd - that copy measured 36ns of a 174ns four-vertex
 // batch. Thread-local because at most one Begin/End can be open per thread.
 struct fixed_function_draw_state_t;
-extern thread_local SFPEW_TLS_HOT sfpew_vertex_buffer_t* g_immediate_collect;
+extern SFPEW_TLS_HOT sfpew_vertex_buffer_t* g_immediate_collect;
 // Undo direct collection: move the run collected so far back into the state's
 // own vb, truncate the batch to where the run started, and stop collecting.
 // Called when something mid-run makes the run unmergeable after all.
@@ -380,12 +390,17 @@ struct fixed_function_draw_state_t {
     // whenever the sizes snapshot below stops matching current_data.sizes
     // (a 92-byte compare), which also catches wholesale sizes overwrites
     // (attrib-stack restore, immediate-draw guard) without hooks.
-    struct packed_span_t {
-        uint16_t src_offset; // in floats, from the start of current_data
-        uint16_t count;
+    //
+    // The plan is a flat list of four-float moves, each from a float offset
+    // in current_data to a float offset in the packed vertex. Contiguous
+    // attributes share moves, so a span of n floats costs ceil(n/4) of them
+    // and the whole list never exceeds one per packed slot.
+    struct packed_chunk_t {
+        uint16_t src; // in floats, from the start of current_data
+        uint16_t dst; // in floats, from the start of the packed vertex
     };
-    packed_span_t packed_spans[VERTEX_POINTER_COUNT];
-    int packed_span_count = -1; // -1: never built
+    packed_chunk_t packed_chunks[VERTEX_POINTER_COUNT];
+    int packed_chunk_count = -1; // -1: never built
     size_t packed_floats = 0;
     fixed_function_draw_size_t packed_layout_sizes;
     // The current_data.sizes_epoch the spans above were built for. 0 never
@@ -411,6 +426,8 @@ struct fixed_function_draw_state_t {
     inline void advance();
 
     void rebuild_packed_layout();
+    // advance()'s rare half: edge-flag tracking and a stale copy plan.
+    void prepare_advance();
     // The mid-primitive attribute introduction, which has to repack every
     // vertex collected so far. Cold by construction.
     void repack_for_attribute(int slot, GLint requested);
@@ -429,6 +446,15 @@ struct fixed_function_draw_state_t {
 struct fixed_function_state_t {
     GLenum client_active_texture = GL_TEXTURE0;      // glClientActiveTexture, specifies active texcood
     GLenum alpha_func = GL_ALWAYS;                   // glAlphaFunc
+    // Latched by program_hash() the first time a draw sees GL_ALPHA_TEST on,
+    // and never cleared by it. The alpha test itself rides uniforms, so a
+    // program that has it can be toggled freely; this only decides whether
+    // generated programs carry the test at all. Until a context has used
+    // it they do not, and they compile measurably faster without it (the
+    // seven-way comparison was a third of a small program's compile time on
+    // NVIDIA). A wholesale restore that clears it costs at most one extra
+    // program variant: the latch runs on every draw before the key is built.
+    bool alpha_test_seen = false;
     color_buffer_state_t color_buffer;                // blend / masks (for attrib stack)
     // glLogicOp: stored so GL_LOGIC_OP_MODE reads back exactly what was set,
     // but GL_COLOR_LOGIC_OP/GL_INDEX_LOGIC_OP never actually enable per
@@ -1091,6 +1117,16 @@ struct glstate_t {
         GLint element_array_buffer = -1;
     } deferred_draw;
 
+    // Set at a point the GPU is known to have run dry (glFinish, a swap, a
+    // synchronous readback) on an immediate-mode renderer; 0 otherwise.
+    // While set, the pending immediate batch draws after this many runs
+    // instead of the usual cap and is followed by one glFlush. Merged
+    // batches are few and large, and a desktop driver holds them until its
+    // command buffer fills, so the first batch after a sync point used to
+    // reach the GPU only at the next one - leaving it idle for however long
+    // the CPU spent building that batch.
+    unsigned idle_kick_runs = 0;
+
     // Deferring the restore only removes half the per-draw driver calls; the
     // other half is the next draw re-binding what is already bound. This says
     // "the immediate-draw program/VAO/ring buffer are live on the backend, for
@@ -1157,9 +1193,15 @@ struct glstate_t {
     // always current before the hash/cache key is built from them.
     void resync_texture_shadow_sample();
 
-    program_key_t program_hash();
+    program_key_t program_hash() { return program_hash(fpe_state.normalized_vpa); }
+    // The same key for an explicit normalized layout: the immediate-mode path
+    // builds its own and never installs it over the application's.
+    program_key_t program_hash(const vertex_pointer_array_t& va);
 
-    program_t& get_or_generate_program(const program_key_t& key);
+    // `layout`: the normalized layout the key was built from, when it is not
+    // fpe_state.normalized_vpa (the generator reads it on a miss).
+    program_t& get_or_generate_program(const program_key_t& key,
+                                       const vertex_pointer_array_t* layout = nullptr);
 
     bool get_vao(const program_key_t& key, GLuint* vao);
 
@@ -1220,44 +1262,46 @@ inline void fixed_function_draw_state_t::set_attribute_size(int slot, GLint requ
     repack_for_attribute(slot, requested);
 }
 
+// Grows a collection buffer to at least `needed` floats of capacity,
+// doubling so a run pays for it logarithmically. Out of line: it keeps the
+// per-vertex path a leaf.
+void sfpewGrowVertexBuffer(sfpew_vertex_buffer_t& out, size_t needed);
+
 // Put one vertex into vb, from the current draw state.
 inline void fixed_function_draw_state_t::advance() {
     ++vertex_count;
 
-    // Edge flags, collected only once they can change the picture. While
-    // every vertex so far has had the default GL_TRUE the vector stays
-    // empty, which the wireframe expansion reads as "all boundary"; the
-    // first cleared flag backfills the run's history and switches tracking
-    // on. Cost until then is this one compare against a hot byte.
-    if (__builtin_expect(!edge_flags.empty(), 0)) {
-        edge_flags.push_back(current_data.edge_flag);
-    } else if (__builtin_expect(current_data.edge_flag == 0, 0)) {
-        edge_flags.assign(vertex_count - 1u, 1u);
-        edge_flags.push_back(0u);
-    }
-
-    // One integer compare per vertex. The stamp changes only when a write
-    // actually changes the size block, so a steady layout - every vertex of
-    // every batch in a draw loop - costs this compare and nothing else.
-    if (__builtin_expect(packed_span_count < 0 || packed_layout_epoch != current_data.sizes_epoch,
+    // Edge flags are collected only once they can change the picture (an
+    // empty vector reads as "all boundary"), and the copy plan only changes
+    // when the size block does. Both are rare, so both are one predicted
+    // branch here and the work lives out of line.
+    if (__builtin_expect(!edge_flags.empty() || current_data.edge_flag == 0 ||
+                             packed_chunk_count < 0 ||
+                             packed_layout_epoch != current_data.sizes_epoch,
                          0)) {
-        rebuild_packed_layout();
+        prepare_advance();
     }
 
     // resize() + a scalar copy loop, deliberately: an immediate-mode vertex
     // is a handful of floats, and vector::insert routes those few bytes
     // through memmove, whose call overhead measured worse than the zeroing
     // resize did - and the buffer no longer zeroes on resize anyway.
+    //
+    // Each move is one unaligned 16-byte load and store, applied in
+    // ascending order. A move may read up to three floats past its span -
+    // still inside current_data, whose last attribute is followed by the
+    // size block - and write up to three past it, which the next move then
+    // overwrites or which lands in the slack kept below.
     auto& out = g_immediate_collect != nullptr ? *g_immediate_collect : vb;
     const size_t old_size = out.size();
-    out.resize(old_size + packed_floats);
-    GLfloat* output = out.data() + old_size;
-    const auto* base = reinterpret_cast<const GLfloat*>(&current_data);
-    for (int s = 0; s < packed_span_count; ++s) {
-        const auto [src_offset, count] = packed_spans[s];
-        const GLfloat* src = base + src_offset;
-        for (uint16_t c = 0; c < count; ++c) output[c] = src[c];
-        output += count;
+    const size_t new_size = old_size + packed_floats;
+    if (__builtin_expect(out.capacity() < new_size + 4, 0)) sfpewGrowVertexBuffer(out, new_size + 4);
+    out.resize(new_size);
+    GLfloat* const output = out.data() + old_size;
+    const auto* const base = reinterpret_cast<const GLfloat*>(&current_data);
+    for (int c = 0; c < packed_chunk_count; ++c) {
+        const packed_chunk_t chunk = packed_chunks[c];
+        std::memcpy(output + chunk.dst, base + chunk.src, 4 * sizeof(GLfloat));
     }
 }
 

@@ -11,66 +11,112 @@
 #include "transformation.h"
 #include "fpe_shadergen.h"
 #include "../init.h"
+#include <cstddef>
 #include <cstring>
+#include <string>
+#include <unordered_map>
 #include <format>
 #include <glm/gtc/matrix_inverse.hpp>
 
 #define DEBUG 0
 
+namespace {
+// Every uniform name a generated program can declare, mapped to the slot in
+// program_uniform_locations_t that holds its location. Built once: the
+// names are fixed by the generator, not by any program.
+using uniform_slot_table_t = std::unordered_map<std::string, size_t>;
+const uniform_slot_table_t& uniformSlots() {
+    static const uniform_slot_table_t table = [] {
+        uniform_slot_table_t slots;
+        const auto add = [&slots](std::string name, size_t offset) {
+            slots.emplace(std::move(name), offset);
+        };
+        const auto each = [&add](size_t base, int count, const char* format) {
+            for (int i = 0; i < count; ++i)
+                add(std::vformat(format, std::make_format_args(i)), base + i * sizeof(GLint));
+        };
+#define SFPEW_UNIFORM_SLOT(field) offsetof(program_uniform_locations_t, field)
+        add("ModelViewMat", SFPEW_UNIFORM_SLOT(model_view));
+        add("ModelViewProjMat", SFPEW_UNIFORM_SLOT(model_view_projection));
+        add("NormalMat", SFPEW_UNIFORM_SLOT(normal));
+        add("LightModelAmbient", SFPEW_UNIFORM_SLOT(light_model_ambient));
+        add("FrontMaterialAmbient", SFPEW_UNIFORM_SLOT(front_material_ambient));
+        add("FrontMaterialDiffuse", SFPEW_UNIFORM_SLOT(front_material_diffuse));
+        add("FrontMaterialEmission", SFPEW_UNIFORM_SLOT(front_material_emission));
+        add("FrontMaterialSpecular", SFPEW_UNIFORM_SLOT(front_material_specular));
+        add("FrontMaterialShininess", SFPEW_UNIFORM_SLOT(front_material_shininess));
+        add("BackMaterialAmbient", SFPEW_UNIFORM_SLOT(back_material_ambient));
+        add("BackMaterialDiffuse", SFPEW_UNIFORM_SLOT(back_material_diffuse));
+        add("BackMaterialEmission", SFPEW_UNIFORM_SLOT(back_material_emission));
+        add("BackMaterialSpecular", SFPEW_UNIFORM_SLOT(back_material_specular));
+        add("BackMaterialShininess", SFPEW_UNIFORM_SLOT(back_material_shininess));
+        add("FogColor", SFPEW_UNIFORM_SLOT(fog_color));
+        add("FogDensity", SFPEW_UNIFORM_SLOT(fog_density));
+        add("FogStart", SFPEW_UNIFORM_SLOT(fog_start));
+        add("FogEnd", SFPEW_UNIFORM_SLOT(fog_end));
+        add("alpharef", SFPEW_UNIFORM_SLOT(alpha_ref));
+        add("alphafunc", SFPEW_UNIFORM_SLOT(alpha_func));
+        add("PointSize", SFPEW_UNIFORM_SLOT(point_size));
+        add("PointSizeMin", SFPEW_UNIFORM_SLOT(point_size_min));
+        add("PointSizeMax", SFPEW_UNIFORM_SLOT(point_size_max));
+        add("PointDistanceAttenuation", SFPEW_UNIFORM_SLOT(point_distance_attenuation));
+        add("PointFadeThreshold", SFPEW_UNIFORM_SLOT(point_fade_threshold));
+        add("IsPointPrimitive", SFPEW_UNIFORM_SLOT(is_point_primitive));
+        add("PointSpriteLowerLeftOrigin", SFPEW_UNIFORM_SLOT(point_sprite_lower_left_origin));
+        add("PolygonStipple", SFPEW_UNIFORM_SLOT(polygon_stipple_rows));
+        each(SFPEW_UNIFORM_SLOT(clip_planes), 6, "ClipPlane{}");
+        each(SFPEW_UNIFORM_SLOT(light_ambient), MAX_LIGHTS, "Light{}Ambient");
+        each(SFPEW_UNIFORM_SLOT(light_diffuse), MAX_LIGHTS, "Light{}Diffuse");
+        each(SFPEW_UNIFORM_SLOT(light_specular), MAX_LIGHTS, "Light{}Specular");
+        each(SFPEW_UNIFORM_SLOT(light_position), MAX_LIGHTS, "Light{}Position");
+        each(SFPEW_UNIFORM_SLOT(light_attenuation), MAX_LIGHTS, "Light{}Attenuation");
+        each(SFPEW_UNIFORM_SLOT(light_spot_direction), MAX_LIGHTS, "Light{}SpotDirection");
+        each(SFPEW_UNIFORM_SLOT(light_spot_params), MAX_LIGHTS, "Light{}SpotParams");
+        each(SFPEW_UNIFORM_SLOT(sampler), MAX_TEX, "Sampler{}");
+        each(SFPEW_UNIFORM_SLOT(texture_matrix), MAX_TEX, "TexMat{}");
+        each(SFPEW_UNIFORM_SLOT(texture_env_color), MAX_TEX, "TexEnvColor{}");
+        each(SFPEW_UNIFORM_SLOT(lod_bias), MAX_TEX, "LodBias{}");
+        each(SFPEW_UNIFORM_SLOT(texgen_obj_planes), MAX_TEX, "TexGen{}ObjPlanes");
+        each(SFPEW_UNIFORM_SLOT(texgen_eye_planes), MAX_TEX, "TexGen{}EyePlanes");
+#undef SFPEW_UNIFORM_SLOT
+        return slots;
+    }();
+    return table;
+}
+} // namespace
+
 void program_uniform_locations_t::initialize(GLuint program) {
     if (initialized || program == 0) return;
     initialized = true;
 
-    const auto location = [program](const std::string& name) {
-        return g_glFuncs.glGetUniformLocation(program, name.c_str());
+    // Ask the program what it actually declares, then look up only those.
+    // Probing every name the generator could ever emit cost ~190 location
+    // queries per new program for the dozen or so a typical one keeps.
+    auto* const base = reinterpret_cast<unsigned char*>(this);
+    const auto slot = [base](size_t offset) -> GLint& {
+        return *reinterpret_cast<GLint*>(base + offset);
     };
+    const auto& slots = uniformSlots();
+    for (const auto& entry : slots) slot(entry.second) = -1;
 
-    model_view = location("ModelViewMat");
-    model_view_projection = location("ModelViewProjMat");
-    normal = location("NormalMat");
-    light_model_ambient = location("LightModelAmbient");
-    front_material_ambient = location("FrontMaterialAmbient");
-    front_material_diffuse = location("FrontMaterialDiffuse");
-    front_material_emission = location("FrontMaterialEmission");
-    front_material_specular = location("FrontMaterialSpecular");
-    front_material_shininess = location("FrontMaterialShininess");
-    back_material_ambient = location("BackMaterialAmbient");
-    back_material_diffuse = location("BackMaterialDiffuse");
-    back_material_emission = location("BackMaterialEmission");
-    back_material_specular = location("BackMaterialSpecular");
-    back_material_shininess = location("BackMaterialShininess");
-    fog_color = location("FogColor");
-    fog_density = location("FogDensity");
-    fog_start = location("FogStart");
-    fog_end = location("FogEnd");
-    alpha_ref = location("alpharef");
-    alpha_func = location("alphafunc");
-    point_size = location("PointSize");
-    point_size_min = location("PointSizeMin");
-    point_size_max = location("PointSizeMax");
-    point_distance_attenuation = location("PointDistanceAttenuation");
-    point_fade_threshold = location("PointFadeThreshold");
-    is_point_primitive = location("IsPointPrimitive");
-    point_sprite_lower_left_origin = location("PointSpriteLowerLeftOrigin");
-    for (int i = 0; i < 6; ++i) clip_planes[i] = location(std::format("ClipPlane{}", i));
-    polygon_stipple_rows = location("PolygonStipple");
-
-    for (int i = 0; i < MAX_LIGHTS; ++i) {
-        light_ambient[i] = location(std::format("Light{}Ambient", i));
-        light_diffuse[i] = location(std::format("Light{}Diffuse", i));
-        light_specular[i] = location(std::format("Light{}Specular", i));
-        light_position[i] = location(std::format("Light{}Position", i));
-        light_attenuation[i] = location(std::format("Light{}Attenuation", i));
-        light_spot_direction[i] = location(std::format("Light{}SpotDirection", i));
-        light_spot_params[i] = location(std::format("Light{}SpotParams", i));
-    }
-    for (int i = 0; i < MAX_TEX; ++i) {
-        sampler[i] = location(std::format("Sampler{}", i));
-        texture_matrix[i] = location(std::format("TexMat{}", i));
-        texture_env_color[i] = location(std::format("TexEnvColor{}", i));
-        lod_bias[i] = location(std::format("LodBias{}", i));
-        texgen_obj_planes[i] = location(std::format("TexGen{}ObjPlanes", i));
-        texgen_eye_planes[i] = location(std::format("TexGen{}EyePlanes", i));
+    if (g_glFuncs.glGetActiveUniform == nullptr) return;
+    GLint count = 0, max_length = 0;
+    g_glFuncs.glGetProgramiv(program, GL_ACTIVE_UNIFORMS, &count);
+    g_glFuncs.glGetProgramiv(program, GL_ACTIVE_UNIFORM_MAX_LENGTH, &max_length);
+    if (count <= 0 || max_length <= 0) return;
+    std::string name(static_cast<size_t>(max_length), '\0');
+    for (GLint i = 0; i < count; ++i) {
+        GLsizei length = 0;
+        GLint size = 0;
+        GLenum type = 0;
+        g_glFuncs.glGetActiveUniform(program, static_cast<GLuint>(i), max_length, &length, &size,
+                                     &type, name.data());
+        // An array reports its first element; its location is the array's.
+        std::string uniform(name.data(), static_cast<size_t>(std::max<GLsizei>(length, 0)));
+        if (uniform.ends_with("[0]")) uniform.resize(uniform.size() - 3);
+        const auto it = slots.find(uniform);
+        if (it == slots.end()) continue;
+        slot(it->second) = g_glFuncs.glGetUniformLocation(program, uniform.c_str());
     }
 }
 
@@ -365,12 +411,12 @@ void glstate_t::resync_texture_shadow_sample() {
     }
 }
 
-program_key_t glstate_t::program_hash() {
+program_key_t glstate_t::program_hash(const vertex_pointer_array_t& va) {
     // This executes for every fixed-function draw. The caller has already
     // normalized the vertex array, so avoid two heap allocations and a second
     // normalization just to build the shader-program key.
     resync_texture_shadow_sample();
-    const auto& va = fpe_state.normalized_vpa;
+    if (__builtin_expect(fpe_state.fpe_bools.alpha_test_enable, 0)) fpe_state.alpha_test_seen = true;
     const auto& sizes = fpe_state.fpe_draw.current_data.sizes;
 
     // Canonical parameter values: a parameter the generator does not read under
@@ -439,8 +485,9 @@ program_key_t glstate_t::program_hash() {
     // fixed-function chain with the previous program - lighting broken
     // from some camera angles and fine from others.
     fixed_function_bool_t canon_bools_now = bools;
-    // Alpha test is a uniform, not a program input (see the hash below).
-    canon_bools_now.alpha_test_enable = false;
+    // Alpha test is a uniform, not a program input (see the hash below);
+    // only whether the program carries the test at all is.
+    canon_bools_now.alpha_test_enable = fpe_state.alpha_test_seen;
     if (matches) {
         matches = std::memcmp(&cache.bools, &canon_bools_now, sizeof(canon_bools_now)) == 0;
     }
@@ -526,9 +573,10 @@ program_key_t glstate_t::program_hash() {
     hash.add(&canon_cm_mode, sizeof(canon_cm_mode));
 
     // alpha_test_enable is uniform-driven (see send_uniforms); hash a
-    // canonical copy with it cleared so toggling it cannot mint a program.
+    // canonical copy carrying the latch instead, so toggling it cannot mint
+    // a program once the first enable has.
     auto canon_bools = fpe_state.fpe_bools;
-    canon_bools.alpha_test_enable = false;
+    canon_bools.alpha_test_enable = fpe_state.alpha_test_seen;
     hash.add(&canon_bools, sizeof(canon_bools));
 
     hash.add(&fpe_state.texture_env_mode, sizeof(fpe_state.texture_env_mode));
@@ -583,15 +631,24 @@ program_key_t glstate_t::program_hash() {
     return cache.hash;
 }
 
-program_t& glstate_t::get_or_generate_program(const program_key_t& key) {
+program_t& glstate_t::get_or_generate_program(const program_key_t& key,
+                                              const vertex_pointer_array_t* layout) {
     // LOG()
     if (last_program != nullptr && last_program_key == key) return *last_program;
 
     auto it = fpe_programs.find(key);
     if (it == fpe_programs.end()) {
         // LOG_D("Generating new shader: 0x%x", key)
+        // The generator reads the layout from the state it is given; lend it
+        // the caller's for the length of the generation (a miss, so rare).
+        vertex_pointer_array_t displaced;
+        if (layout != nullptr) {
+            displaced = fpe_state.normalized_vpa;
+            fpe_state.normalized_vpa = *layout;
+        }
         fpe_shader_generator gen(fpe_state);
         program_t program = gen.generate_program();
+        if (layout != nullptr) fpe_state.normalized_vpa = displaced;
         const int generated = program.get_program();
         if (generated > 0) internal_programs.insert(generated);
         it = fpe_programs.emplace(key, std::move(program)).first;

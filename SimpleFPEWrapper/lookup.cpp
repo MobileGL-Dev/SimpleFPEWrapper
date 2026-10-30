@@ -1145,7 +1145,9 @@ EGLBoolean sfpewEglSwapBuffers(EGLDisplay dpy, EGLSurface surface) {
     if (!sfpewEnsureBackend() || g_eglFuncs.eglSwapBuffers == nullptr) return EGL_FALSE;
     sfpewEntryBarrier();
     sfpewListLogFrame();
-    return g_eglFuncs.eglSwapBuffers(dpy, surface);
+    const EGLBoolean swapped = g_eglFuncs.eglSwapBuffers(dpy, surface);
+    sfpewNoteGpuIdle();
+    return swapped;
 }
 
 EGLBoolean sfpewEglSwapBuffersWithDamageEXT(EGLDisplay dpy, EGLSurface surface, EGLint* rects,
@@ -1153,8 +1155,12 @@ EGLBoolean sfpewEglSwapBuffersWithDamageEXT(EGLDisplay dpy, EGLSurface surface, 
     if (!sfpewEnsureBackend()) return EGL_FALSE;
     sfpewEntryBarrier();
     sfpewListLogFrame();
-    if (g_eglFuncs.eglSwapBuffersWithDamageEXT != nullptr)
-        return g_eglFuncs.eglSwapBuffersWithDamageEXT(dpy, surface, rects, n_rects);
+    if (g_eglFuncs.eglSwapBuffersWithDamageEXT != nullptr) {
+        const EGLBoolean swapped =
+            g_eglFuncs.eglSwapBuffersWithDamageEXT(dpy, surface, rects, n_rects);
+        sfpewNoteGpuIdle();
+        return swapped;
+    }
     // The damage rectangles are only a hint; a plain swap is a conforming
     // fallback and keeps the flush above from being the reason a frame is lost.
     if (g_eglFuncs.eglSwapBuffers != nullptr) return g_eglFuncs.eglSwapBuffers(dpy, surface);

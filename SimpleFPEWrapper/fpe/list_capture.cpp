@@ -707,30 +707,46 @@ public:
 
         wrapper_client_state_guard_t wrapperState;
 
-        auto replayState = layout;
-        replayState.starting_pointer = nullptr;
-        replayState.dirty = true;
+        auto& gs = g_glstate_c;
+        auto& ffp = gs.fpe_state;
         GLuint staticVertexBuffer = 0;
         GLint drawFirst = 0;
         const bool useStaticBuffer = bindStaticVertexBuffer(&staticVertexBuffer, &drawFirst);
-        replayState.buffer_based = useStaticBuffer;
 
         for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
-            if (((replayState.enabled_pointers >> i) & 1u) == 0) continue;
-            replayState.attributes[i].pointer = useStaticBuffer
-                                                    ? reinterpret_cast<const void*>(packedOffsets[i])
-                                                    : vertexData.data() + packedOffsets[i];
+            if (((layout.enabled_pointers >> i) & 1u) == 0) continue;
             // Ground truth for classifyClientArrays (plans/13): this bypasses
             // gl*Pointer, so nothing else records which source this replay's
             // pointer values are relative to.
-            g_glstate_c.fpe_state.client_array_buffer_bindings[i] =
-                useStaticBuffer ? staticVertexBuffer : 0u;
+            ffp.client_array_buffer_bindings[i] = useStaticBuffer ? staticVertexBuffer : 0u;
         }
 
-        g_glstate_c.fpe_state.vertexpointer_array = replayState;
-        g_glstate_c.fpe_state.normalized_vpa.reset();
-        g_glstate_c.fpe_normalized_valid = false;
-        g_glstate_c.fpe_state.client_active_texture = clientActiveTexture;
+        const auto& liveSizes = ffp.fpe_draw.current_data.sizes;
+        const bool layoutHit = useStaticBuffer && replayLayout.valid &&
+                               std::memcmp(&replayLayout.sizes, &liveSizes, sizeof(liveSizes)) == 0;
+        if (layoutHit) {
+            // Exactly what commit_fpe_state_on_draw would rebuild below, so
+            // hand it over as a reusable layout.
+            ffp.vertexpointer_array = replayLayout.raw;
+            ffp.normalized_vpa = replayLayout.normalized;
+            gs.fpe_normalized_valid = true;
+            gs.fpe_normalized_sizes = liveSizes;
+        } else {
+            auto replayState = layout;
+            replayState.starting_pointer = nullptr;
+            replayState.dirty = true;
+            replayState.buffer_based = useStaticBuffer;
+            for (int i = 0; i < VERTEX_POINTER_COUNT; ++i) {
+                if (((replayState.enabled_pointers >> i) & 1u) == 0) continue;
+                replayState.attributes[i].pointer =
+                    useStaticBuffer ? reinterpret_cast<const void*>(packedOffsets[i])
+                                    : vertexData.data() + packedOffsets[i];
+            }
+            ffp.vertexpointer_array = replayState;
+            ffp.normalized_vpa.reset();
+            gs.fpe_normalized_valid = false;
+        }
+        ffp.client_active_texture = clientActiveTexture;
 
         // Static display-list geometry is immutable after glEndList. Keep it
         // in its own backend VBO so glCallList does not re-upload the same
@@ -740,9 +756,37 @@ public:
         // binding with zero to retain the previous CPU-backed upload path.
         drawArraysNow(mode, drawFirst, count, true,
                       useStaticBuffer ? static_cast<GLint>(staticVertexBuffer) : 0);
+
+        // Keep the layout the draw just normalized and indexed, when it is
+        // one that can be reused: from the static buffer (a client-memory
+        // replay is gathered, which bakes first/count in) and still matching
+        // the size block it was built for.
+        if (!layoutHit && useStaticBuffer && gs.fpe_normalized_valid &&
+            !ffp.vertexpointer_array.dirty &&
+            std::memcmp(&gs.fpe_normalized_sizes, &liveSizes, sizeof(liveSizes)) == 0) {
+            replayLayout.valid = true;
+            replayLayout.sizes = liveSizes;
+            replayLayout.raw = ffp.vertexpointer_array;
+            replayLayout.normalized = ffp.normalized_vpa;
+        }
     }
 
 private:
+    // The layout a static-buffer replay hands commit_fpe_state_on_draw is a
+    // pure function of what was captured and of the shader's size block, yet
+    // normalizing it and assigning compressed indices on every replay was a
+    // large part of a small chunk's cost. The first replay's result is kept
+    // and handed back while the size block matches. The pointers in it are
+    // offsets into whichever static buffer holds the data, so the buffer
+    // itself is not part of the key.
+    struct replay_layout_cache_t {
+        bool valid = false;
+        fixed_function_draw_size_t sizes;
+        vertex_pointer_array_t raw;
+        vertex_pointer_array_t normalized;
+    };
+    mutable replay_layout_cache_t replayLayout;
+
     bool hasIndependentPrimitives() const {
         switch (mode) {
         case GL_POINTS:

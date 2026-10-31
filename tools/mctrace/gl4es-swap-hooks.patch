@@ -1,0 +1,30 @@
+gl4es: export the swap hooks from every build without X11
+
+A build without X11 leaves context creation and buffer swaps to the
+application, which must call gl4es_pre_swap() and gl4es_post_swap() around
+each swap: they flush what gl4es batched and blit its main FBO. Upstream
+exports them only when EGL is off as well, but EGL is what gl4es's hardware
+probe needs, so a launcher-style build (NOX11, EGL on) could probe the
+device or be swapped correctly, not both. Applies to ptitSeb/gl4es bc4314d.
+
+diff --git a/src/gl/gl4es.c b/src/gl/gl4es.c
+index 8a2f4e7..cd2939a 100644
+--- a/src/gl/gl4es.c
++++ b/src/gl/gl4es.c
+@@ -1,6 +1,6 @@
+ #include "gl4es.h"
+ 
+-#if defined(AMIGAOS4) || (defined(NOX11) && defined(NOEGL) && !defined(_WIN32))
++#if defined(AMIGAOS4) || (defined(NOX11) && !defined(_WIN32))
+ #include <sys/time.h>
+ #endif // defined(AMIGAOS4) || (defined(NOX11) && defined(NOEGL)
+ 
+@@ -1263,7 +1263,7 @@ void gl4es_use_scratch_indices(int use) {
+     bindBuffer(GL_ELEMENT_ARRAY_BUFFER, use?glstate->scratch_indices:0);
+ }
+ 
+-#if defined(AMIGAOS4) || (defined(NOX11) && defined(NOEGL))
++#if defined(AMIGAOS4) || defined(NOX11)
+ #ifdef AMIGAOS4
+ void amiga_pre_swap()
+ #else

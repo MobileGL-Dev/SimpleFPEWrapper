@@ -1,0 +1,109 @@
+apitrace: remap the display lists glCallLists names
+
+glretrace remaps every display-list name it replays - glNewList,
+glCallList, glDeleteLists, glListBase - from the names the recording driver
+handed out to the ones the replaying driver does. glCallLists names its
+lists in an array the trace keeps as an opaque blob, so those names were
+replayed as recorded. Whenever the two drivers' glGenLists disagree, every
+glCallLists then calls the wrong lists or none: replaying a Minecraft 1.7.10
+capture made on Mesa drew no terrain on NVIDIA or through a wrapper.
+
+Remap each element relative to the recorded list base and keep it a single
+glCallLists call, so the replaying driver sees the call the application
+made. Applies to apitrace c3829c8fc94332f46f7616d9c9ee995b63d9bfc1.
+
+diff --git a/retrace/glretrace.hpp b/retrace/glretrace.hpp
+index 5b1f67f..c5f6885 100644
+--- a/retrace/glretrace.hpp
++++ b/retrace/glretrace.hpp
+@@ -217,6 +217,14 @@ void afterContextSwitch();
+ 
+ void updateDrawable(int width, int height);
+ 
++// The list base the trace last set with glListBase, as recorded. glCallLists
++// names its lists relative to it, so remapping them needs the recorded value
++// rather than the remapped one the driver now holds.
++extern GLuint recordedListBase;
++
++// Element i of a glCallLists array of the given type.
++GLuint callListsElement(const void *lists, GLenum type, GLsizei i);
++
+ void flushQueries();
+ void beginProfile(trace::Call &call, bool isDraw);
+ void endProfile(trace::Call &call, bool isDraw);
+diff --git a/retrace/glretrace.py b/retrace/glretrace.py
+index c47bebe..6b411a4 100644
+--- a/retrace/glretrace.py
++++ b/retrace/glretrace.py
+@@ -310,6 +310,28 @@ class GlRetracer(Retracer):
+             # then just blit to the drawable without ever calling glViewport.
+             print('    glretrace::updateDrawable(std::max(dstX0, dstX1), std::max(dstY0, dstY1));')
+ 
++        # glCallLists names its lists in an array the trace stores as an
++        # opaque blob, so unlike glNewList and glCallList its names were
++        # replayed unmapped: whenever the replaying driver's glGenLists
++        # returned different names than the recording driver's, every list
++        # it called was the wrong one or none. Remap each element relative
++        # to the recorded list base, and keep it one glCallLists call.
++        if function.name == 'glListBase':
++            print('    glretrace::recordedListBase = (call.arg(0)).toUInt();')
++        if function.name == 'glCallLists':
++            print('    std::vector<GLuint> _mapped_lists;')
++            print('    if (n > 0 && lists) {')
++            print('        const GLuint _recorded_base = glretrace::recordedListBase;')
++            print('        const GLuint _mapped_base = _list_map[_recorded_base];')
++            print('        _mapped_lists.resize(n);')
++            print('        for (GLsizei _i = 0; _i < n; ++_i) {')
++            print('            const GLuint _name = _recorded_base + glretrace::callListsElement(lists, type, _i);')
++            print('            _mapped_lists[_i] = _list_map[_name] - _mapped_base;')
++            print('        }')
++            print('        type = GL_UNSIGNED_INT;')
++            print('        lists = _mapped_lists.data();')
++            print('    }')
++
+         if function.name == "glEnd":
+             print(r'    if (currentContext) {')
+             print(r'        currentContext->insideBeginEnd = false;')
+diff --git a/retrace/glretrace_main.cpp b/retrace/glretrace_main.cpp
+index 4358f23..98a8a73 100644
+--- a/retrace/glretrace_main.cpp
++++ b/retrace/glretrace_main.cpp
+@@ -820,6 +820,38 @@ debugOutputCallback(GLenum source, GLenum type, GLuint id, GLenum severity,
+     }
+ }
+ 
++GLuint recordedListBase = 0;
++
++GLuint
++callListsElement(const void *lists, GLenum type, GLsizei i)
++{
++    const unsigned char *bytes = static_cast<const unsigned char *>(lists);
++    switch (type) {
++    case GL_BYTE:
++        return static_cast<GLuint>(static_cast<const GLbyte *>(lists)[i]);
++    case GL_UNSIGNED_BYTE:
++        return bytes[i];
++    case GL_SHORT:
++        return static_cast<GLuint>(static_cast<const GLshort *>(lists)[i]);
++    case GL_UNSIGNED_SHORT:
++        return static_cast<const GLushort *>(lists)[i];
++    case GL_INT:
++        return static_cast<GLuint>(static_cast<const GLint *>(lists)[i]);
++    case GL_UNSIGNED_INT:
++        return static_cast<const GLuint *>(lists)[i];
++    case GL_FLOAT:
++        return static_cast<GLuint>(static_cast<const GLfloat *>(lists)[i]);
++    case GL_2_BYTES:
++        return bytes[2 * i] * 256u + bytes[2 * i + 1];
++    case GL_3_BYTES:
++        return (bytes[3 * i] * 256u + bytes[3 * i + 1]) * 256u + bytes[3 * i + 2];
++    case GL_4_BYTES:
++        return ((bytes[4 * i] * 256u + bytes[4 * i + 1]) * 256u + bytes[4 * i + 2]) * 256u + bytes[4 * i + 3];
++    default:
++        return 0;
++    }
++}
++
+ } /* namespace glretrace */
+ 
+ 

@@ -192,6 +192,8 @@ public:
 
     EGLDisplay display() const { return display_; }
     EGLSurface surface() const { return surface_; }
+    EGLConfig config() const { return config_; }
+    EGLContext context() const { return context_; }
     int size() const { return size_; }
 
 protected:

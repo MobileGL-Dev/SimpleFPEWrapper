@@ -184,6 +184,18 @@ def main() -> int:
     for alias, target in backend_aliases:
         entries.setdefault(alias, {"status": "backend-alias", "target": target})
 
+    # Wrapper entry points for commands not every backend has, listed by
+    # X-macro in init.h and resolved through GETPROC_IF_BACKEND: the wrapper's
+    # own when the backend has the command, null otherwise. The _EXT list
+    # also resolves each name's EXT spelling to the same entry point.
+    header = (repo / "SimpleFPEWrapper" / "init.h").read_text()
+    for macro, with_ext in (("SFPEW_CURRENT_ATTRIB_SETTERS_EXT", True), ("SFPEW_CURRENT_ATTRIB_SETTERS", False)):
+        body = re.search(r"#define " + macro + r"\(X\)((?:.*\\\n)*.*)", header).group(1)
+        for name in re.findall(r"X\((\w+),", body):
+            entries.setdefault(name, {"status": "if-backend", "target": name})
+            if with_ext:
+                entries.setdefault(name + "EXT", {"status": "if-backend-alias", "target": name})
+
     # Everything still unaccounted for that IS a GL <= 2.1 core command
     # falls through eglGetProcAddress's final case: ask the backend's own
     # eglGetProcAddress for the name unchanged (lookup.cpp, the
@@ -215,6 +227,8 @@ def main() -> int:
         "eglGetProcAddress's final fallback, which asks the backend's own",
         "eglGetProcAddress for the name unchanged. That is intentional for",
         "commands the wrapper does not need to intercept, not a gap.",
+        "`if-backend` entries are the wrapper's own entry points for commands",
+        "not every backend has: resolved only where the backend has them too.",
         "",
         "| symbol | status | target |",
         "|---|---|---|",

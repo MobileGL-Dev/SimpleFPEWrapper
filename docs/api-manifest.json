@@ -1,6 +1,6 @@
 {
  "source": "lookup.cpp",
- "count": 837,
+ "count": 893,
  "entries": {
   "eglSwapBuffersWithDamageKHR": {
    "status": "alias",
@@ -3266,9 +3266,233 @@
    "status": "alias",
    "target": "glVertexAttrib4usv"
   },
+  "glVertexAttribI1i": {
+   "status": "if-backend",
+   "target": "glVertexAttribI1i"
+  },
+  "glVertexAttribI1iEXT": {
+   "status": "if-backend-alias",
+   "target": "glVertexAttribI1i"
+  },
+  "glVertexAttribI1iv": {
+   "status": "if-backend",
+   "target": "glVertexAttribI1iv"
+  },
+  "glVertexAttribI1ivEXT": {
+   "status": "if-backend-alias",
+   "target": "glVertexAttribI1iv"
+  },
+  "glVertexAttribI1ui": {
+   "status": "if-backend",
+   "target": "glVertexAttribI1ui"
+  },
+  "glVertexAttribI1uiEXT": {
+   "status": "if-backend-alias",
+   "target": "glVertexAttribI1ui"
+  },
+  "glVertexAttribI1uiv": {
+   "status": "if-backend",
+   "target": "glVertexAttribI1uiv"
+  },
+  "glVertexAttribI1uivEXT": {
+   "status": "if-backend-alias",
+   "target": "glVertexAttribI1uiv"
+  },
+  "glVertexAttribI2i": {
+   "status": "if-backend",
+   "target": "glVertexAttribI2i"
+  },
+  "glVertexAttribI2iEXT": {
+   "status": "if-backend-alias",
+   "target": "glVertexAttribI2i"
+  },
+  "glVertexAttribI2iv": {
+   "status": "if-backend",
+   "target": "glVertexAttribI2iv"
+  },
+  "glVertexAttribI2ivEXT": {
+   "status": "if-backend-alias",
+   "target": "glVertexAttribI2iv"
+  },
+  "glVertexAttribI2ui": {
+   "status": "if-backend",
+   "target": "glVertexAttribI2ui"
+  },
+  "glVertexAttribI2uiEXT": {
+   "status": "if-backend-alias",
+   "target": "glVertexAttribI2ui"
+  },
+  "glVertexAttribI2uiv": {
+   "status": "if-backend",
+   "target": "glVertexAttribI2uiv"
+  },
+  "glVertexAttribI2uivEXT": {
+   "status": "if-backend-alias",
+   "target": "glVertexAttribI2uiv"
+  },
+  "glVertexAttribI3i": {
+   "status": "if-backend",
+   "target": "glVertexAttribI3i"
+  },
+  "glVertexAttribI3iEXT": {
+   "status": "if-backend-alias",
+   "target": "glVertexAttribI3i"
+  },
+  "glVertexAttribI3iv": {
+   "status": "if-backend",
+   "target": "glVertexAttribI3iv"
+  },
+  "glVertexAttribI3ivEXT": {
+   "status": "if-backend-alias",
+   "target": "glVertexAttribI3iv"
+  },
+  "glVertexAttribI3ui": {
+   "status": "if-backend",
+   "target": "glVertexAttribI3ui"
+  },
+  "glVertexAttribI3uiEXT": {
+   "status": "if-backend-alias",
+   "target": "glVertexAttribI3ui"
+  },
+  "glVertexAttribI3uiv": {
+   "status": "if-backend",
+   "target": "glVertexAttribI3uiv"
+  },
+  "glVertexAttribI3uivEXT": {
+   "status": "if-backend-alias",
+   "target": "glVertexAttribI3uiv"
+  },
+  "glVertexAttribI4bv": {
+   "status": "if-backend",
+   "target": "glVertexAttribI4bv"
+  },
+  "glVertexAttribI4bvEXT": {
+   "status": "if-backend-alias",
+   "target": "glVertexAttribI4bv"
+  },
+  "glVertexAttribI4i": {
+   "status": "if-backend",
+   "target": "glVertexAttribI4i"
+  },
+  "glVertexAttribI4iEXT": {
+   "status": "if-backend-alias",
+   "target": "glVertexAttribI4i"
+  },
+  "glVertexAttribI4iv": {
+   "status": "if-backend",
+   "target": "glVertexAttribI4iv"
+  },
+  "glVertexAttribI4ivEXT": {
+   "status": "if-backend-alias",
+   "target": "glVertexAttribI4iv"
+  },
+  "glVertexAttribI4sv": {
+   "status": "if-backend",
+   "target": "glVertexAttribI4sv"
+  },
+  "glVertexAttribI4svEXT": {
+   "status": "if-backend-alias",
+   "target": "glVertexAttribI4sv"
+  },
+  "glVertexAttribI4ubv": {
+   "status": "if-backend",
+   "target": "glVertexAttribI4ubv"
+  },
+  "glVertexAttribI4ubvEXT": {
+   "status": "if-backend-alias",
+   "target": "glVertexAttribI4ubv"
+  },
+  "glVertexAttribI4ui": {
+   "status": "if-backend",
+   "target": "glVertexAttribI4ui"
+  },
+  "glVertexAttribI4uiEXT": {
+   "status": "if-backend-alias",
+   "target": "glVertexAttribI4ui"
+  },
+  "glVertexAttribI4uiv": {
+   "status": "if-backend",
+   "target": "glVertexAttribI4uiv"
+  },
+  "glVertexAttribI4uivEXT": {
+   "status": "if-backend-alias",
+   "target": "glVertexAttribI4uiv"
+  },
+  "glVertexAttribI4usv": {
+   "status": "if-backend",
+   "target": "glVertexAttribI4usv"
+  },
+  "glVertexAttribI4usvEXT": {
+   "status": "if-backend-alias",
+   "target": "glVertexAttribI4usv"
+  },
   "glVertexAttribIPointer": {
    "status": "resolvable",
    "target": "glVertexAttribIPointer"
+  },
+  "glVertexAttribL1d": {
+   "status": "if-backend",
+   "target": "glVertexAttribL1d"
+  },
+  "glVertexAttribL1dv": {
+   "status": "if-backend",
+   "target": "glVertexAttribL1dv"
+  },
+  "glVertexAttribL2d": {
+   "status": "if-backend",
+   "target": "glVertexAttribL2d"
+  },
+  "glVertexAttribL2dv": {
+   "status": "if-backend",
+   "target": "glVertexAttribL2dv"
+  },
+  "glVertexAttribL3d": {
+   "status": "if-backend",
+   "target": "glVertexAttribL3d"
+  },
+  "glVertexAttribL3dv": {
+   "status": "if-backend",
+   "target": "glVertexAttribL3dv"
+  },
+  "glVertexAttribL4d": {
+   "status": "if-backend",
+   "target": "glVertexAttribL4d"
+  },
+  "glVertexAttribL4dv": {
+   "status": "if-backend",
+   "target": "glVertexAttribL4dv"
+  },
+  "glVertexAttribP1ui": {
+   "status": "if-backend",
+   "target": "glVertexAttribP1ui"
+  },
+  "glVertexAttribP1uiv": {
+   "status": "if-backend",
+   "target": "glVertexAttribP1uiv"
+  },
+  "glVertexAttribP2ui": {
+   "status": "if-backend",
+   "target": "glVertexAttribP2ui"
+  },
+  "glVertexAttribP2uiv": {
+   "status": "if-backend",
+   "target": "glVertexAttribP2uiv"
+  },
+  "glVertexAttribP3ui": {
+   "status": "if-backend",
+   "target": "glVertexAttribP3ui"
+  },
+  "glVertexAttribP3uiv": {
+   "status": "if-backend",
+   "target": "glVertexAttribP3uiv"
+  },
+  "glVertexAttribP4ui": {
+   "status": "if-backend",
+   "target": "glVertexAttribP4ui"
+  },
+  "glVertexAttribP4uiv": {
+   "status": "if-backend",
+   "target": "glVertexAttribP4uiv"
   },
   "glVertexAttribPointer": {
    "status": "resolvable",

@@ -422,6 +422,58 @@ SFPEW_APIENTRY void glGetTexLevelParameteriv(GLenum target, GLint level, GLenum 
 SFPEW_APIENTRY void glGenerateMipmap(GLenum target);
 SFPEW_APIENTRY void glTexParameterIiv(GLenum target, GLenum pname, const GLint* params);
 SFPEW_APIENTRY void glTexParameterIuiv(GLenum target, GLenum pname, const GLuint* params);
+// The generic attribute current-value setters after GL 2.0 - GL 3.0's
+// integer ones (with their GL_EXT_gpu_shader4 spellings), GL 3.3's packed
+// and GL 4.1's double ones. The wrapper does not emulate them, but it must
+// see them: each forgets what glstate_t::backend_current_attribs holds for
+// its index before forwarding (shader/vertexattrib.cpp), and the resolver
+// hands one out only where the backend has the command (lookup.cpp).
+#define SFPEW_CURRENT_ATTRIB_SETTERS_EXT(X)                                                            \
+    X(glVertexAttribI1i, (GLuint index, GLint x), (index, x))                                          \
+    X(glVertexAttribI1ui, (GLuint index, GLuint x), (index, x))                                        \
+    X(glVertexAttribI1iv, (GLuint index, const GLint* v), (index, v))                                  \
+    X(glVertexAttribI1uiv, (GLuint index, const GLuint* v), (index, v))                                \
+    X(glVertexAttribI2i, (GLuint index, GLint x, GLint y), (index, x, y))                              \
+    X(glVertexAttribI2ui, (GLuint index, GLuint x, GLuint y), (index, x, y))                           \
+    X(glVertexAttribI2iv, (GLuint index, const GLint* v), (index, v))                                  \
+    X(glVertexAttribI2uiv, (GLuint index, const GLuint* v), (index, v))                                \
+    X(glVertexAttribI3i, (GLuint index, GLint x, GLint y, GLint z), (index, x, y, z))                  \
+    X(glVertexAttribI3ui, (GLuint index, GLuint x, GLuint y, GLuint z), (index, x, y, z))              \
+    X(glVertexAttribI3iv, (GLuint index, const GLint* v), (index, v))                                  \
+    X(glVertexAttribI3uiv, (GLuint index, const GLuint* v), (index, v))                                \
+    X(glVertexAttribI4i, (GLuint index, GLint x, GLint y, GLint z, GLint w), (index, x, y, z, w))      \
+    X(glVertexAttribI4ui, (GLuint index, GLuint x, GLuint y, GLuint z, GLuint w), (index, x, y, z, w)) \
+    X(glVertexAttribI4iv, (GLuint index, const GLint* v), (index, v))                                  \
+    X(glVertexAttribI4uiv, (GLuint index, const GLuint* v), (index, v))                                \
+    X(glVertexAttribI4bv, (GLuint index, const GLbyte* v), (index, v))                                 \
+    X(glVertexAttribI4sv, (GLuint index, const GLshort* v), (index, v))                                \
+    X(glVertexAttribI4ubv, (GLuint index, const GLubyte* v), (index, v))                               \
+    X(glVertexAttribI4usv, (GLuint index, const GLushort* v), (index, v))                              
+#define SFPEW_CURRENT_ATTRIB_SETTERS(X)                                                                                              \
+    X(glVertexAttribP1ui, (GLuint index, GLenum type, GLboolean normalized, GLuint value), (index, type, normalized, value))         \
+    X(glVertexAttribP1uiv, (GLuint index, GLenum type, GLboolean normalized, const GLuint* value), (index, type, normalized, value)) \
+    X(glVertexAttribP2ui, (GLuint index, GLenum type, GLboolean normalized, GLuint value), (index, type, normalized, value))         \
+    X(glVertexAttribP2uiv, (GLuint index, GLenum type, GLboolean normalized, const GLuint* value), (index, type, normalized, value)) \
+    X(glVertexAttribP3ui, (GLuint index, GLenum type, GLboolean normalized, GLuint value), (index, type, normalized, value))         \
+    X(glVertexAttribP3uiv, (GLuint index, GLenum type, GLboolean normalized, const GLuint* value), (index, type, normalized, value)) \
+    X(glVertexAttribP4ui, (GLuint index, GLenum type, GLboolean normalized, GLuint value), (index, type, normalized, value))         \
+    X(glVertexAttribP4uiv, (GLuint index, GLenum type, GLboolean normalized, const GLuint* value), (index, type, normalized, value)) \
+    X(glVertexAttribL1d, (GLuint index, GLdouble x), (index, x))                                                                     \
+    X(glVertexAttribL1dv, (GLuint index, const GLdouble* v), (index, v))                                                             \
+    X(glVertexAttribL2d, (GLuint index, GLdouble x, GLdouble y), (index, x, y))                                                      \
+    X(glVertexAttribL2dv, (GLuint index, const GLdouble* v), (index, v))                                                             \
+    X(glVertexAttribL3d, (GLuint index, GLdouble x, GLdouble y, GLdouble z), (index, x, y, z))                                       \
+    X(glVertexAttribL3dv, (GLuint index, const GLdouble* v), (index, v))                                                             \
+    X(glVertexAttribL4d, (GLuint index, GLdouble x, GLdouble y, GLdouble z, GLdouble w), (index, x, y, z, w))                        \
+    X(glVertexAttribL4dv, (GLuint index, const GLdouble* v), (index, v))                                                             
+#define SFPEW_DECLARE_CURRENT_ATTRIB_SETTER(NAME, PARAMS, ARGS) SFPEW_APIENTRY void NAME PARAMS;
+SFPEW_CURRENT_ATTRIB_SETTERS_EXT(SFPEW_DECLARE_CURRENT_ATTRIB_SETTER)
+SFPEW_CURRENT_ATTRIB_SETTERS(SFPEW_DECLARE_CURRENT_ATTRIB_SETTER)
+// Whether a texture this context names may also be another context's: the
+// process has served more than one wrapped context, or created a native
+// one whose calls never pass through the wrapper. Per-context caches of
+// texture state must step aside then. Monotonic.
+bool sfpewTexturesMayBeShared();
 SFPEW_APIENTRY void glGetTexLevelParameterfv(GLenum target, GLint level, GLenum pname, GLfloat* params);
 SFPEW_APIENTRY void glLoadTransposeMatrixf(const GLfloat* m);
 SFPEW_APIENTRY void glLoadTransposeMatrixd(const GLdouble* m);

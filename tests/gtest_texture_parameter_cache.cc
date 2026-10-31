@@ -11,7 +11,9 @@
 // Dropping a call is only ever safe when the value really is the backend's,
 // so every case here changes the parameter some other way first - another
 // setter, another texture, a deleted and reused name - and then checks, by
-// asking the driver, that the next glTexParameteri still lands.
+// asking the driver, that the next glTexParameteri still lands - including
+// a change made from another context that shares the texture, which the
+// wrapper cannot see: once a second context exists the cache steps aside.
 
 #include "sfpew_gtest.h"
 
@@ -158,6 +160,38 @@ TEST_F(TextureParameterCacheTest, RejectedValueIsRejectedEveryTime) {
     parameteri_(GL_TEXTURE_2D_, GL_TEXTURE_MAG_FILTER_, GL_REPEAT_);
     EXPECT_EQ(get_error_(), GL_INVALID_ENUM_) << "the repeat of an invalid value raised nothing";
     EXPECT_EQ(Parameter(GL_TEXTURE_MAG_FILTER_), static_cast<GLint>(GL_LINEAR_));
+}
+
+// A second context sharing the texture changes the filter; the first then
+// sets its old value again, which must reach the driver.
+TEST_F(TextureParameterCacheTest, ChangeFromASharedContextIsNotLost) {
+    using CreateFn = EGLContext (*)(EGLDisplay, EGLConfig, EGLContext, const EGLint*);
+    using MakeCurrentFn = EGLBoolean (*)(EGLDisplay, EGLSurface, EGLSurface, EGLContext);
+    using DestroyFn = EGLBoolean (*)(EGLDisplay, EGLContext);
+    auto create = Get<CreateFn>("eglCreateContext");
+    auto make_current = Get<MakeCurrentFn>("eglMakeCurrent");
+    auto destroy = Get<DestroyFn>("eglDestroyContext");
+    ASSERT_NE(create, nullptr);
+    ASSERT_NE(make_current, nullptr);
+
+    const GLuint texture = NewTexture();
+    parameteri_(GL_TEXTURE_2D_, GL_TEXTURE_MIN_FILTER_, GL_NEAREST_);
+    parameteri_(GL_TEXTURE_2D_, GL_TEXTURE_MIN_FILTER_, GL_NEAREST_);
+
+    const EGLint es3[] = {EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE};
+    const EGLContext other = create(display(), config(), context(), es3);
+    if (other == EGL_NO_CONTEXT) GTEST_SKIP() << "no second, shared ES3 context";
+    ASSERT_TRUE(make_current(display(), surface(), surface(), other));
+    bind_(GL_TEXTURE_2D_, texture);
+    parameteri_(GL_TEXTURE_2D_, GL_TEXTURE_MIN_FILTER_, GL_LINEAR_);
+    ASSERT_EQ(Parameter(GL_TEXTURE_MIN_FILTER_), static_cast<GLint>(GL_LINEAR_)) << "set in the shared context";
+
+    ASSERT_TRUE(make_current(display(), surface(), surface(), context()));
+    bind_(GL_TEXTURE_2D_, texture);
+    parameteri_(GL_TEXTURE_2D_, GL_TEXTURE_MIN_FILTER_, GL_NEAREST_);
+    EXPECT_EQ(Parameter(GL_TEXTURE_MIN_FILTER_), static_cast<GLint>(GL_NEAREST_))
+        << "dropped as redundant, though the shared context had changed it";
+    destroy(display(), other);
 }
 
 } // namespace

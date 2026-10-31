@@ -1001,7 +1001,9 @@ void glTexParameteri(GLenum target, GLenum pname, GLint param) {
     }
     const GLint value = compatibleTextureParameter(pname, param);
     const int slot = textureSamplingSlot(target, pname);
-    if (slot >= 0 && validTextureSamplingValue(slot, value)) {
+    // Another context sharing the texture could change it unseen, which
+    // would make a dropped call a lost one: no cache once one may.
+    if (slot >= 0 && validTextureSamplingValue(slot, value) && !sfpewTexturesMayBeShared()) {
         GLint& known = gs.texture_sampling[sfpewLogicalTextureBinding(target)][slot];
         if (known == value) {
             SFPEW_PERF_COUNT(redundant_tex_parameter);

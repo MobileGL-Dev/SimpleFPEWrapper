@@ -1013,7 +1013,9 @@ struct glstate_t {
     // texture upload, hundreds of times a frame, and a mobile driver may
     // revalidate the texture for each. 0 is "not known" (no valid value of
     // any of the four is 0). Only glTexParameteri fills it; the other setters
-    // forget what they change, and glDeleteTextures drops the name.
+    // forget what they change, and glDeleteTextures drops the name. Used
+    // only while no other context can share the textures
+    // (sfpewTexturesMayBeShared): another context's change is never seen.
     unordered_map<GLuint, std::array<GLint, 4>> texture_sampling;
 
     // GL 1.4's per-texture GL_TEXTURE_LOD_BIAS on a GLES backend, which has
@@ -1093,9 +1095,11 @@ struct glstate_t {
     // last wrote it, so a draw re-sending an unchanged current color, normal
     // or texture coordinate - most draws of any run - is not forwarded. An
     // index is forgotten by every draw that sources it from an array (GL 2.1
-    // leaves its current value undefined afterwards) and all of them by the
-    // application's glUseProgram, around which it may write values through
-    // setters that reach the backend unseen (the GL 3.0 integer ones).
+    // leaves its current value undefined afterwards) and by the setters the
+    // wrapper forwards rather than emulates (the GL 3.0+ integer, packed and
+    // double ones, SFPEW_CURRENT_ATTRIB_SETTERS). Current values are context
+    // state, so sharing does not reach them; the application's glUseProgram
+    // still forgets them all, a backstop for any spelling not wrapped.
     static constexpr GLuint kTrackedCurrentAttribs = 64;
     struct current_attrib_t {
         bool known = false;

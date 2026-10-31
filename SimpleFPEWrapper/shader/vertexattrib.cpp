@@ -54,6 +54,22 @@ void mglVertexAttrib(GLuint index, const std::array<Type, N>& value) {
 
 } // namespace
 
+// The later setters of the same current values (see their list in init.h):
+// the cached value of the index is forgotten, and the call goes to the
+// backend's own command, resolved by name once.
+#define SFPEW_DEFINE_CURRENT_ATTRIB_SETTER(NAME, PARAMS, ARGS)                                      \
+    void NAME PARAMS {                                                                             \
+        if (!sfpewEnsureBackend() || g_eglFuncs.eglGetProcAddress == nullptr) return;              \
+        static const auto backend = reinterpret_cast<void(*) PARAMS>(g_eglFuncs.eglGetProcAddress(#NAME)); \
+        if (backend == nullptr) return;                                                            \
+        sfpewEntryBarrier();                                                                       \
+        if (index < glstate_t::kTrackedCurrentAttribs) g_glstate_c.forget_current_attribs(1ull << index); \
+        backend ARGS;                                                                              \
+    }
+SFPEW_CURRENT_ATTRIB_SETTERS_EXT(SFPEW_DEFINE_CURRENT_ATTRIB_SETTER)
+SFPEW_CURRENT_ATTRIB_SETTERS(SFPEW_DEFINE_CURRENT_ATTRIB_SETTER)
+#undef SFPEW_DEFINE_CURRENT_ATTRIB_SETTER
+
 #define SFPEW_DEFINE_ATTRIB_1(SUFFIX, TYPE)                                                       \
     void glVertexAttrib1##SUFFIX(GLuint index, TYPE x) {                                          \
         LIST_RECORD(glVertexAttrib1##SUFFIX, {}, index, x)                                        \

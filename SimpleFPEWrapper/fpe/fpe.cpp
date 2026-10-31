@@ -9,6 +9,8 @@
 #include "fpe.hpp"
 #include "drawing1x.h"
 #include "../perf_counters.h"
+#include "../egl_dispatch.h"
+#include <atomic>
 #include <memory>
 #include <mutex>
 #include <glm/gtc/type_ptr.hpp>
@@ -97,6 +99,13 @@ namespace {
 // full lazy reconciliation per docs/context-model.md.
 } // namespace
 
+// Contexts the wrapper has made a glstate for (sfpewTexturesMayBeShared).
+std::atomic<unsigned> g_context_state_count{0};
+
+bool sfpewTexturesMayBeShared() {
+    return g_context_state_count.load(std::memory_order_relaxed) > 1 || sfpewAnyBackendDirectContext();
+}
+
 glstate_t& glstate_t::get_instance() {
     // Per-EGL-context FPE state (plans/07). The current context is resolved
     // lazily with a thread-local snapshot: this strict resolve runs once per
@@ -153,7 +162,10 @@ glstate_t& glstate_t::get_instance() {
     if (context != EGL_NO_CONTEXT) {
         std::lock_guard<std::mutex> lock(instances_mutex);
         auto& slot = instances[context];
-        if (!slot) slot = std::make_unique<glstate_t>();
+        if (!slot) {
+            slot = std::make_unique<glstate_t>();
+            g_context_state_count.fetch_add(1, std::memory_order_relaxed);
+        }
         state = slot.get();
     }
     tls_snapshot_context = context;

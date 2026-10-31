@@ -7,6 +7,7 @@
 // End of Source File Header
 
 #include "loader.h"
+#include "../perf_backend.h"
 #include <dlfcn.h>
 #include <cstring>
 #include <vector>
@@ -48,10 +49,19 @@ namespace SFPEW::Utils::BackendLoader {
             return false;
         }
 
+#if SFPEW_PERF_COUNTERS
+// Every resolved entry point goes through a counting thunk (perf_backend.h).
+#define INIT_BACKENDGL_FUNC(name)                                                                                      \
+    do {                                                                                                               \
+        funcs.name = sfpewPerfWrapBackend<__COUNTER__>((External::BackendGL::name##_PTR)procAddress(#name), #name, \
+                                                       &funcs.name);                                       \
+    } while (0);
+#else
 #define INIT_BACKENDGL_FUNC(name)                                                                                      \
     do {                                                                                                               \
         funcs.name = (External::BackendGL::name##_PTR)procAddress(#name);                                              \
     } while (0);
+#endif
 
         {
             INIT_BACKENDGL_FUNC(glActiveTexture)
@@ -433,6 +443,9 @@ namespace SFPEW::Utils::BackendLoader {
             INIT_BACKENDGL_FUNC(glMultiDrawElementsIndirectEXT)
             INIT_BACKENDGL_FUNC(glMultiDrawElementsBaseVertexEXT)
         }
+#if SFPEW_PERF_COUNTERS
+        sfpewPerfHookBackend(funcs);
+#endif
         return true;
     }
 
@@ -445,10 +458,18 @@ namespace SFPEW::Utils::BackendLoader {
         if (!eglLib) {
             return false;
         }
+#if SFPEW_PERF_COUNTERS
+#define INIT_EGL_FUNC(name)                                                                                            \
+    do {                                                                                                               \
+        funcs.name = sfpewPerfWrapBackend<__COUNTER__>((External::EGL::name##_PTR)ProcAddress(eglLib, #name), #name, \
+                                                       &funcs.name);                                       \
+    } while (0);
+#else
 #define INIT_EGL_FUNC(name)                                                                                            \
     do {                                                                                                               \
         funcs.name = (External::EGL::name##_PTR)ProcAddress(eglLib, #name);                                            \
     } while (0);
+#endif
 
         {
             INIT_EGL_FUNC(eglBindAPI)

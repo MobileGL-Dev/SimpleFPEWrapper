@@ -8,6 +8,7 @@
 
 #include "init.h"
 #include "fpe/drawing1x.h"
+#include "perf_counters.h"
 #include "fpe/list.h"
 #include "fpe/imaging.h"
 #include <vector>
@@ -113,6 +114,10 @@ void glClear(GLbitfield mask) {
     sfpewEntryBarrier();
     LIST_RECORD(glClear, {}, mask)
     sfpewListLogFrame();
+    // The perf counters' fallback frame boundary, for a launcher that swaps
+    // through libEGL directly. Depth-only and stencil-only clears are passes
+    // inside a frame, not its start.
+    if (mask & GL_COLOR_BUFFER_BIT) SFPEW_PERF_FRAME(false);
     if (g_glFuncs.glClear != nullptr) g_glFuncs.glClear(mask);
 }
 
@@ -446,6 +451,7 @@ void glUseProgram(GLuint program) {
     (void)g_glstate; // entry strict resolve; the program shadow reads the snapshot
     sfpewEntryBarrier();
     if (g_glFuncs.glUseProgram == nullptr) return;
+    SFPEW_PERF_COUNT(app_use_program);
     sfpewInvalidateImmediateDrawState();
     g_glFuncs.glUseProgram(program);
 
@@ -566,7 +572,11 @@ void glColorMask(GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha
         const bool redundant = (shadow_test);                                                      \
         const bool was_known = shadow.known;                                                       \
         shadow.known = true;                                                                       \
-        if (was_known && redundant) return;                                                        \
+        SFPEW_PERF_COUNT(app_state);                                                               \
+        if (was_known && redundant) {                                                              \
+            SFPEW_PERF_COUNT(redundant_state);                                                     \
+            return;                                                                                \
+        }                                                                                          \
         if (g_glFuncs.name != nullptr) g_glFuncs.name arguments;                                   \
     }
 

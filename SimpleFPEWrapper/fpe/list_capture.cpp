@@ -8,6 +8,7 @@
 
 #include "../init.h"
 #include "../log.h"
+#include "../perf_counters.h"
 
 #include "fpe.hpp"
 #include "list.h"
@@ -580,11 +581,15 @@ bool copyCapturedAttribute(const captured_attribute_t& attribute, GLint first, G
         source = static_cast<const uint8_t*>(mappedBuffer) + firstByte;
     }
 
-    for (GLsizei vertex = 0; vertex < count; ++vertex) {
-        auto* destination = vertexData->data() + static_cast<size_t>(vertex) * packedStride +
-                            attribute.packedOffset;
-        std::memcpy(destination, source + static_cast<size_t>(vertex) * attribute.sourceStride,
-                    attribute.elementSize);
+    {
+        SFPEW_PERF_TIMED(copy_list_capture, static_cast<uint64_t>(count) * attribute.elementSize);
+        for (GLsizei vertex = 0; vertex < count; ++vertex) {
+            auto* destination = vertexData->data() + static_cast<size_t>(vertex) * packedStride +
+                                attribute.packedOffset;
+            std::memcpy(destination,
+                        source + static_cast<size_t>(vertex) * attribute.sourceStride,
+                        attribute.elementSize);
+        }
     }
 
     if (mappedBuffer != nullptr && g_glFuncs.glUnmapBuffer(GL_ARRAY_BUFFER) == GL_FALSE) {
@@ -724,7 +729,9 @@ public:
         const auto& liveSizes = ffp.fpe_draw.current_data.sizes;
         const bool layoutHit = useStaticBuffer && replayLayout.valid &&
                                std::memcmp(&replayLayout.sizes, &liveSizes, sizeof(liveSizes)) == 0;
+        SFPEW_PERF_COUNT(list_replay);
         if (layoutHit) {
+            SFPEW_PERF_COUNT(list_replay_layout_hit);
             // Exactly what commit_fpe_state_on_draw would rebuild below, so
             // hand it over as a reusable layout.
             ffp.vertexpointer_array = replayLayout.raw;
@@ -1737,5 +1744,6 @@ void glDrawArrays(GLenum mode, GLint first, GLsizei count) {
         if (DisplayListManager::shouldFinish()) return;
     }
 
+    SFPEW_PERF_ADD(app_draw_arrays, count > 0 ? count : 0);
     drawArraysNow(mode, first, count, false);
 }

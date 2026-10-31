@@ -13,6 +13,7 @@
 #include "list.h"
 #include "list_diagnostics.h"
 #include "drawing1x.h"
+#include "../perf_counters.h"
 
 #include <algorithm>
 #include <cstddef>
@@ -1029,6 +1030,7 @@ void drawElementsEntry(GLenum mode, GLsizei count, GLenum type, const GLvoid* in
         if (DisplayListManager::shouldFinish()) return;
     }
 
+    SFPEW_PERF_ADD(app_draw_elements, count > 0 ? count : 0);
     drawElementsNow(mode, count, type, indices);
 }
 

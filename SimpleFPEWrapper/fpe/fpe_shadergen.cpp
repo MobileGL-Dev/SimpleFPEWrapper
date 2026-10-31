@@ -8,6 +8,7 @@
 
 #include "fpe_shadergen.h"
 #include "../log.h"
+#include "../perf_counters.h"
 #include "types.h"
 #include <cstdio>
 #include <format>
@@ -2129,6 +2130,7 @@ std::string fpe_shader_generator::fragment_shader(const fixed_function_state_t& 
 int program_t::get_program() {
     if (compile_attempted) return program;
     compile_attempted = true;
+    SFPEW_PERF_TIME(program_compile);
 
     int vss = compile_shader(GL_VERTEX_SHADER, vs.c_str());
     if (vss < 0) return 0;

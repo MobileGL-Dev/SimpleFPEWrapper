@@ -137,6 +137,8 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         SimpleFPEWrapper/fpe/vertexpointer.cpp
         SimpleFPEWrapper/fpe/list.cpp
         SimpleFPEWrapper/fpe/list_diagnostics.cpp
+        SimpleFPEWrapper/perf_counters.cpp
+        SimpleFPEWrapper/perf_backend.cpp
         SimpleFPEWrapper/fpe/list_capture.cpp
         SimpleFPEWrapper/fpe/draw_now.cpp
         SimpleFPEWrapper/fpe/attribstack.cpp
@@ -166,6 +168,15 @@ target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE -Wall -Wextra)
 option(SFPEW_LIST_DEBUG "Compile the display-list accounting and its bisection switches" OFF)
 if(SFPEW_LIST_DEBUG)
         target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE SFPEW_LIST_DEBUG=1)
+endif()
+
+# Performance counters for debugging (SimpleFPEWrapper/perf_counters.h): how
+# often each hot-path event happens and what the coarse ones cost. Out of a
+# normal build entirely; compiled in, they count always and report once
+# SFPEW_PERF is set at runtime.
+option(SFPEW_PERF_COUNTERS "Compile the debug performance counters" OFF)
+if(SFPEW_PERF_COUNTERS)
+        target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE SFPEW_PERF_COUNTERS=1)
 endif()
 
 # The git commit this build came from, reported alongside the version in
@@ -384,7 +395,8 @@ if(NOT ANDROID)
                                        user_program_generic_arrays
                                        texture_legacy_swizzle compressed_dlist_pbo
                                        texture_scratch_context egl_direct_dispatch
-                                       pixel_dlist_record bitmap_dlist_advance)
+                                       pixel_dlist_record bitmap_dlist_advance
+                                       perf_counters)
                                 sfpew_add_gtest(sfpew_${suite}_test SOURCES tests/gtest_${suite}.cc
                                                 LIBRARIES ${SFPEW_TEST_EGL})
                         endforeach()

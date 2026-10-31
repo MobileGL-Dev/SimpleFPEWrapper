@@ -15,6 +15,7 @@
 #include "fpe/fpe.hpp"
 #include "fpe/drawing1x.h"
 #include "fpe/list.h"
+#include "perf_counters.h"
 
 namespace {
 struct LogicalTextureBindings {
@@ -126,8 +127,12 @@ void glActiveTexture(GLenum texture) {
     // Record BEFORE the redundancy shortcut: a list must contain the command
     // even when it matches the current state (GL spec; audit finding).
     LIST_RECORD(glActiveTexture, {}, texture)
+    SFPEW_PERF_COUNT(app_active_texture);
     auto& state = getLogicalTextureBindings();
-    if (getLogicalActiveTexture(state) == texture) return;
+    if (getLogicalActiveTexture(state) == texture) {
+        SFPEW_PERF_COUNT(redundant_active_texture);
+        return;
+    }
 
     sfpewTextureStateBarrier();
     g_glFuncs.glActiveTexture(texture);
@@ -141,13 +146,17 @@ void glBindTexture(GLenum target, GLuint texture) {
     (void)g_glstate; // entry strict resolve; the binding shadow reads the snapshot
     if (target == GL_TEXTURE_1D) target = GL_TEXTURE_2D; // Nx1 emulation
     LIST_RECORD(glBindTexture, {}, target, texture)
+    SFPEW_PERF_COUNT(app_bind_texture);
     auto& state = getLogicalTextureBindings();
     const GLenum activeTexture = getLogicalActiveTexture(state);
     const GLenum query = textureBindingQuery(target);
     const uint64_t key = textureBindingKey(activeTexture, target);
 
     if (query != GL_NONE) {
-        if (sfpewLogicalTextureBinding(target) == texture) return;
+        if (sfpewLogicalTextureBinding(target) == texture) {
+            SFPEW_PERF_COUNT(redundant_bind_texture);
+            return;
+        }
     }
 
     sfpewTextureStateBarrier();

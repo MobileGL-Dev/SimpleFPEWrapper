@@ -8,6 +8,7 @@
 
 #include "fpe.hpp"
 #include "drawing1x.h"
+#include "../perf_counters.h"
 #include <memory>
 #include <mutex>
 #include <glm/gtc/type_ptr.hpp>
@@ -62,6 +63,7 @@ void* sfpewReconcileContext() {
     g_context_reconcile_counter = 0;
     if (g_eglFuncs.eglGetCurrentContext == nullptr)
         return g_authoritative_context_known ? g_authoritative_context : nullptr;
+    SFPEW_PERF_COUNT(context_egl_query);
     void* const context = g_eglFuncs.eglGetCurrentContext();
     if (g_authoritative_context_known && context == g_authoritative_context) {
         // Confirmed again: trust it for longer. The cap keeps the bound well
@@ -113,6 +115,7 @@ glstate_t& glstate_t::get_instance() {
     static std::mutex instances_mutex;
     static glstate_t no_context_state; // keeps backend-less calls crash-free
 
+    SFPEW_PERF_COUNT(context_strict_resolve);
     // Refilling the budget is what lets the inlined fast path be a single
     // decrement; every return below therefore sets it.
     if (g_sfpew_relaxed_context && tls_snapshot_state != nullptr &&
@@ -135,6 +138,7 @@ glstate_t& glstate_t::get_instance() {
         return *tls_snapshot_state;
     }
 
+    SFPEW_PERF_COUNT(context_switch);
     // The thread switched contexts. If the outgoing snapshot still holds an
     // open Begin/End batch, that batch was abandoned mid-collection: clear it
     // here so the vertex-data pin cannot route later calls (made on other
@@ -897,6 +901,7 @@ bool gather_client_arrays(const vertex_pointer_array_t& raw, GLint first, GLsize
     const size_t total_size = (size_t)count * total_stride;
     if (total_size > (size_t)std::numeric_limits<GLsizei>::max()) return false;
     gathered.resize(total_size);
+    SFPEW_PERF_TIMED(copy_client_gather, total_size);
 
     *out = raw;
     size_t attribute_offset = 0;
@@ -994,6 +999,7 @@ bool gather_mixed_client_arrays(const vertex_pointer_array_t& raw, GLint first, 
     static thread_local std::vector<uint8_t> gathered;
     static thread_local std::vector<uint8_t> attribute_scratch;
     gathered.resize(total_size);
+    SFPEW_PERF_TIMED(copy_client_gather, total_size);
 
     *out = raw;
     size_t attribute_offset = 0;
@@ -1084,6 +1090,8 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint p
     const bool layout_reused =
         !raw_vpa.dirty && g_glstate_c.fpe_normalized_valid &&
         std::memcmp(&g_glstate_c.fpe_normalized_sizes, &live_sizes, sizeof(live_sizes)) == 0;
+    SFPEW_PERF_COUNT(draw_arrays);
+    if (layout_reused) SFPEW_PERF_COUNT(draw_arrays_layout_reuse);
     if (!layout_reused) {
         if (gather_client_arrays(raw_vpa, *first, *count, &vpa)) {
             *first = 0; // the gather already applied the base offset

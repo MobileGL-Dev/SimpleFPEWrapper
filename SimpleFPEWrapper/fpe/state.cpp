@@ -13,6 +13,7 @@
 #include "list.h"
 #include "pointer_utils.h"
 #include "../init.h"
+#include "../perf_counters.h"
 
 #include <algorithm>
 #include <cstring>
@@ -363,8 +364,12 @@ static int backendEnableSlot(GLenum cap) {
 static bool backendEnableRedundant(glstate_t& gs, GLenum cap, bool enable) {
     const int slot = backendEnableSlot(cap);
     if (slot < 0) return false;
+    SFPEW_PERF_COUNT(app_state);
     auto& shadow = gs.fpe_state.backend_state;
-    if (shadow.enable_known[slot] && shadow.enable_value[slot] == enable) return true;
+    if (shadow.enable_known[slot] && shadow.enable_value[slot] == enable) {
+        SFPEW_PERF_COUNT(redundant_state);
+        return true;
+    }
     shadow.enable_known[slot] = true;
     shadow.enable_value[slot] = enable;
     return false;

@@ -13,6 +13,8 @@
 #include <cstdio>
 #include "fpe/transformation.h"
 #include "fpe/drawing1x.h" // sfpewEntryBarrier: the swap must drain the pending batch
+#include "perf_counters.h"
+#include "perf_backend.h"
 
 #define GETPROC(name, var)                                                                                             \
     if (std::strcmp(#name, var) == 0) {                                                                                \
@@ -1048,6 +1050,12 @@ SFPEW_APIENTRY __eglMustCastToProperFunctionPointerType eglGetProcAddress(const 
     if (!sfpewEnsureBackend() || g_eglFuncs.eglGetProcAddress == nullptr) {
         return nullptr;
     }
+#if SFPEW_PERF_COUNTERS
+    // The counted table entry, so the application's own driver calls are
+    // measured like the wrapper's (perf_backend.h).
+    if (void* counted = sfpewPerfBackendEntry(name))
+        return (__eglMustCastToProperFunctionPointerType)counted;
+#endif
     __eglMustCastToProperFunctionPointerType ptr = g_eglFuncs.eglGetProcAddress(name);
     if (!ptr) {
         SFPEW_LOGW("eglGetProcAddress: backend also failed to find '%s'", name);
@@ -1145,6 +1153,7 @@ EGLBoolean sfpewEglSwapBuffers(EGLDisplay dpy, EGLSurface surface) {
     if (!sfpewEnsureBackend() || g_eglFuncs.eglSwapBuffers == nullptr) return EGL_FALSE;
     sfpewEntryBarrier();
     sfpewListLogFrame();
+    SFPEW_PERF_FRAME(true);
     const EGLBoolean swapped = g_eglFuncs.eglSwapBuffers(dpy, surface);
     sfpewNoteGpuIdle();
     return swapped;
@@ -1155,6 +1164,7 @@ EGLBoolean sfpewEglSwapBuffersWithDamageEXT(EGLDisplay dpy, EGLSurface surface, 
     if (!sfpewEnsureBackend()) return EGL_FALSE;
     sfpewEntryBarrier();
     sfpewListLogFrame();
+    SFPEW_PERF_FRAME(true);
     if (g_eglFuncs.eglSwapBuffersWithDamageEXT != nullptr) {
         const EGLBoolean swapped =
             g_eglFuncs.eglSwapBuffersWithDamageEXT(dpy, surface, rects, n_rects);

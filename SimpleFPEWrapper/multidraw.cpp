@@ -12,6 +12,7 @@
 #include "fpe/fpe.hpp"
 #include "fpe/drawing1x.h"
 #include "fpe/list.h"
+#include "perf_counters.h"
 
 #include <cstring>
 
@@ -149,6 +150,7 @@ void glMultiDrawArrays(GLenum mode, const GLint* first, const GLsizei* count, GL
         }
         if (DisplayListManager::shouldFinish()) return;
     }
+    SFPEW_PERF_ADD(app_draw_multi, drawcount);
 
     const auto native = nativeMultiDrawArrays();
     const GLenum native_mode = nativeMultiDrawMode(mode);
@@ -186,6 +188,7 @@ void glMultiDrawElements(GLenum mode, const GLsizei* count, GLenum type,
         }
         if (DisplayListManager::shouldFinish()) return;
     }
+    SFPEW_PERF_ADD(app_draw_multi, drawcount);
 
     const auto native = nativeMultiDrawElements();
     const GLenum native_mode = nativeMultiDrawMode(mode);

@@ -10,6 +10,7 @@
 #include "pointer_utils.h"
 #include "fpe.hpp"
 #include "drawing1x.h"
+#include "../perf_counters.h"
 
 #define DEBUG 0
 
@@ -118,6 +119,7 @@ void glCallList(GLuint list) {
         displayListManager.record<glCallList>({}, list);
         if (DisplayListManager::shouldFinish()) return;
     }
+    SFPEW_PERF_ADD(app_call_list, 1);
     if (DisplayListManager::isCalling()) {
         DisplayListManager::callList(list);
     } else {
@@ -165,6 +167,7 @@ void glCallLists(GLsizei n, GLenum type, const GLvoid* lists) {
         displayListManager.record<glCallLists>({{2, n * PointerUtils::type_to_bytes(type)}}, n, type, lists);
         if (DisplayListManager::shouldFinish()) return;
     }
+    SFPEW_PERF_ADD(app_call_list, n);
     thread_local std::vector<GLuint> decodedListIds;
     decodedListIds.clear();
     const size_t listCount = n > 0 ? static_cast<size_t>(n) : 0u;

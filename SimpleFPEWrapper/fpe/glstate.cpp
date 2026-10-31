@@ -11,6 +11,7 @@
 #include "transformation.h"
 #include "fpe_shadergen.h"
 #include "../init.h"
+#include "../perf_counters.h"
 #include <cstddef>
 #include <cstring>
 #include <string>
@@ -88,6 +89,7 @@ const uniform_slot_table_t& uniformSlots() {
 void program_uniform_locations_t::initialize(GLuint program) {
     if (initialized || program == 0) return;
     initialized = true;
+    SFPEW_PERF_TIME(program_uniform_init);
 
     // Ask the program what it actually declares, then look up only those.
     // Probing every name the generator could ever emit cost ~190 location
@@ -517,9 +519,13 @@ program_key_t glstate_t::program_hash(const vertex_pointer_array_t& va) {
             }
         }
     }
-    if (matches) return cache.hash;
+    if (matches) {
+        SFPEW_PERF_COUNT(program_key_fast);
+        return cache.hash;
+    }
     }
 
+    SFPEW_PERF_COUNT(program_key_hashed);
     // Two independent hash passes form the 128-bit key.
     struct dual_hash_t {
         XXHash64 lo{glstate_t::s_hash_seed};
@@ -646,8 +652,11 @@ program_t& glstate_t::get_or_generate_program(const program_key_t& key,
             displaced = fpe_state.normalized_vpa;
             fpe_state.normalized_vpa = *layout;
         }
-        fpe_shader_generator gen(fpe_state);
-        program_t program = gen.generate_program();
+        program_t program = [&] {
+            SFPEW_PERF_TIME(program_generate);
+            fpe_shader_generator gen(fpe_state);
+            return gen.generate_program();
+        }();
         if (layout != nullptr) fpe_state.normalized_vpa = displaced;
         const int generated = program.get_program();
         if (generated > 0) internal_programs.insert(generated);

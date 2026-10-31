@@ -20,6 +20,7 @@
 #include "fpe/drawing1x.h"
 #include "fpe/list.h"
 #include "fpe/imaging.h"
+#include "perf_counters.h"
 
 namespace {
 struct ProxyTexture2DLevel {
@@ -1257,6 +1258,7 @@ bool sfpewPrepareBgraUpload(GLsizei width, GLsizei height, GLenum type, const vo
 
     thread_local std::vector<uint8_t> scratch;
     scratch.resize((size_t)width * (size_t)height * 4u);
+    SFPEW_PERF_TIMED(copy_bgra_convert, scratch.size());
     for (size_t row = 0; row < (size_t)height; ++row) {
         const uint8_t* in = source + start + row * row_px * 4u;
         uint8_t* line = scratch.data() + row * (size_t)width * 4u;

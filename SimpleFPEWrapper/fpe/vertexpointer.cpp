@@ -10,6 +10,7 @@
 #include "../log.h"
 #include "fpe.hpp"
 #include "drawing1x.h"
+#include "../perf_counters.h"
 #include <algorithm>
 #include <cstring>
 
@@ -193,6 +194,7 @@ void recordAppAttribEnable(GLuint index, bool enabled) {
 void glBindBuffer(GLenum target, GLuint buffer) {
     if (!sfpewEnsureBackend() || g_glFuncs.glBindBuffer == nullptr) return;
     (void)g_glstate; // entry strict resolve; the array-buffer shadow reads the snapshot
+    SFPEW_PERF_COUNT(app_bind_buffer);
     if (target == GL_ARRAY_BUFFER) {
         // GL_ARRAY_BUFFER is global (not VAO) state, so the bind can land
         // while a fixed-function draw still holds the app's draw state: the
@@ -424,6 +426,7 @@ GLuint sfpewLogicalVertexArrayBinding() { return getLogicalVertexArrayBinding();
 void glBindVertexArray(GLuint array) {
     if (!sfpewEnsureBackend() || g_glFuncs.glBindVertexArray == nullptr) return;
     (void)g_glstate; // entry strict resolve; the shadows read the snapshot
+    SFPEW_PERF_COUNT(app_bind_vertex_array);
     sfpewEntryBarrier();
     sfpewBackendBindVertexArray(array); // keeps the shadow and clears the fast path
     auto& gs = g_glstate_c;

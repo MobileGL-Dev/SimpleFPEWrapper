@@ -10,6 +10,7 @@
 #include "fpe.hpp"
 #include "list.h"
 #include "vertexpointer_utils.h"
+#include "../perf_counters.h"
 #include <glm/gtc/type_ptr.hpp>
 #include <algorithm>
 #include <cmath>
@@ -710,9 +711,12 @@ GLboolean glIsEnabled(GLenum cap) {
     GLdouble values[16] = {};
     int count = 0;
     bool color = false, enable = false;
-    if (fixedFunctionState(cap, values, &count, &color, &enable) && enable)
+    if (fixedFunctionState(cap, values, &count, &color, &enable) && enable) {
+        SFPEW_PERF_COUNT(app_get_wrapper);
         return values[0] != 0 ? GL_TRUE : GL_FALSE;
+    }
     if (!sfpewEnsureBackend() || g_glFuncs.glIsEnabled == nullptr) return GL_FALSE;
+    SFPEW_PERF_COUNT(app_get_backend);
     return g_glFuncs.glIsEnabled(cap);
 }
 
@@ -722,6 +726,7 @@ void glGetBooleanv(GLenum pname, GLboolean* params) {
     int count = 0;
     bool color = false, enable = false;
     if (fixedFunctionState(pname, values, &count, &color, &enable)) {
+        SFPEW_PERF_COUNT(app_get_wrapper);
         // "GL_FALSE if and only if it is 0.0" - no rounding, no scaling.
         for (int i = 0; i < count; ++i) params[i] = values[i] != 0.0 ? GL_TRUE : GL_FALSE;
         return;
@@ -733,6 +738,7 @@ void glGetBooleanv(GLenum pname, GLboolean* params) {
         return;
     }
     if (!sfpewEnsureBackend() || g_glFuncs.glGetBooleanv == nullptr) return;
+    SFPEW_PERF_COUNT(app_get_backend);
     g_glFuncs.glGetBooleanv(pname, params);
 }
 
@@ -740,7 +746,10 @@ void glGetDoublev(GLenum pname, GLdouble* params) {
     if (!params) return;
     int count = 0;
     bool color = false, enable = false;
-    if (fixedFunctionState(pname, params, &count, &color, &enable)) return;
+    if (fixedFunctionState(pname, params, &count, &color, &enable)) {
+        SFPEW_PERF_COUNT(app_get_wrapper);
+        return;
+    }
     if (isWrapperIntegerPname(pname)) {
         GLint value = 0;
         glGetIntegerv(pname, &value);
@@ -768,6 +777,7 @@ void glGetIntegerv(GLenum pname, GLint* params) {
         int count = 0;
         bool color = false, enable = false;
         if (fixedFunctionState(pname, values, &count, &color, &enable)) {
+            SFPEW_PERF_COUNT(app_get_wrapper);
             for (int i = 0; i < count; ++i) {
                 const double scaled =
                     color ? std::clamp(values[i], -1.0, 1.0) * 2147483647.0 : values[i];
@@ -779,6 +789,9 @@ void glGetIntegerv(GLenum pname, GLint* params) {
     }
     if (!sfpewEnsureBackend() || g_glFuncs.glGetIntegerv == nullptr) return;
 
+    // Counted once below: the cases answer from the wrapper's own shadows
+    // unless they say otherwise.
+    bool forwarded = false;
     switch (pname) {
     case GL_CONTEXT_PROFILE_MASK:
         *params = GL_CONTEXT_COMPATIBILITY_PROFILE_BIT;
@@ -796,6 +809,7 @@ void glGetIntegerv(GLenum pname, GLint* params) {
             *params = pname == GL_MAJOR_VERSION ? major : minor;
         } else {
             g_glFuncs.glGetIntegerv(pname, params);
+            forwarded = true;
         }
         break;
     }
@@ -846,7 +860,13 @@ void glGetIntegerv(GLenum pname, GLint* params) {
         break;
     default:
         g_glFuncs.glGetIntegerv(pname, params);
+        forwarded = true;
         break;
+    }
+    if (forwarded) {
+        SFPEW_PERF_COUNT(app_get_backend);
+    } else {
+        SFPEW_PERF_COUNT(app_get_wrapper);
     }
 }
 
@@ -857,12 +877,18 @@ void glGetFloatv(GLenum pname, GLfloat* params) {
     // counts) become floats.
     int count = 0;
     bool color = false, enable = false;
-    if (fixedFunctionState<GLfloat>(pname, params, &count, &color, &enable)) return;
+    if (fixedFunctionState<GLfloat>(pname, params, &count, &color, &enable)) {
+        SFPEW_PERF_COUNT(app_get_wrapper);
+        return;
+    }
     if (isWrapperIntegerPname(pname)) {
         GLint value = 0;
         glGetIntegerv(pname, &value);
         params[0] = static_cast<GLfloat>(value);
         return;
     }
-    if (sfpewEnsureBackend() && g_glFuncs.glGetFloatv != nullptr) g_glFuncs.glGetFloatv(pname, params);
+    if (sfpewEnsureBackend() && g_glFuncs.glGetFloatv != nullptr) {
+        SFPEW_PERF_COUNT(app_get_backend);
+        g_glFuncs.glGetFloatv(pname, params);
+    }
 }

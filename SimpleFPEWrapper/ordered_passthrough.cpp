@@ -454,6 +454,7 @@ void glUseProgram(GLuint program) {
     SFPEW_PERF_COUNT(app_use_program);
     sfpewInvalidateImmediateDrawState();
     g_glFuncs.glUseProgram(program);
+    g_glstate_c.forget_current_attribs(~0ull);
 
     // Use the backend's post-call value so an invalid/unlinked program cannot
     // poison the logical shadow. This query happens only on glUseProgram,

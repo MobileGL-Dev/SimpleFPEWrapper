@@ -285,6 +285,7 @@ void sfpewDrawStippledLines(GLenum primitive, const GLfloat* vertices, size_t fl
     g_glFuncs.glEnableVertexAttribArray(2);
     g_glFuncs.glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, sizeof(stipple_vertex_t),
                                     (const void*)offsetof(stipple_vertex_t, distance));
+    g_glstate_c.forget_current_attribs(0b111);
 
     if (d.loc_factor >= 0) g_glFuncs.glUniform1f(d.loc_factor, (GLfloat)uniform.line_stipple_factor);
     if (d.loc_pattern >= 0 && g_glFuncs.glUniform1ui != nullptr)

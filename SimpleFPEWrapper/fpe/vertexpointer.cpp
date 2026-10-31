@@ -407,6 +407,7 @@ void glEnableVertexAttribArray(GLuint index) {
     sfpewEntryBarrier();
     g_glFuncs.glEnableVertexAttribArray(index);
     recordAppAttribEnable(index, true);
+    if (index < 64u) g_glstate_c.forget_current_attribs(1ull << index);
 }
 
 void glDisableVertexAttribArray(GLuint index) {

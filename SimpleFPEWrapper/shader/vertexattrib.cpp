@@ -49,7 +49,7 @@ void mglVertexAttrib(GLuint index, const std::array<Type, N>& value) {
         else
             expanded[i] = static_cast<GLfloat>(value[i]);
     }
-    g_glFuncs.glVertexAttrib4fv(index, expanded);
+    g_glstate_c.send_current_attrib(index, expanded[0], expanded[1], expanded[2], expanded[3]);
 }
 
 } // namespace

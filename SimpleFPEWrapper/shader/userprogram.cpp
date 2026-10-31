@@ -372,16 +372,17 @@ void sfpewSendUserProgramAttributes(const GLint locations[VERTEX_POINTER_COUNT],
             g_glFuncs.glDisableVertexAttribArray((GLuint)loc);
         switch (i) {
         case 1:
-            g_glFuncs.glVertexAttrib4f((GLuint)loc, cur.normal.x, cur.normal.y, cur.normal.z, 0.0f);
+            g_glstate_c.send_current_attrib((GLuint)loc, cur.normal.x, cur.normal.y, cur.normal.z, 0.0f);
             break;
         case 2:
-            g_glFuncs.glVertexAttrib4fv((GLuint)loc, glm::value_ptr(cur.color));
+            g_glstate_c.send_current_attrib((GLuint)loc, cur.color[0], cur.color[1], cur.color[2], cur.color[3]);
             break;
         default:
             if (i >= 7) {
-                g_glFuncs.glVertexAttrib4fv((GLuint)loc, glm::value_ptr(cur.texcoord[i - 7]));
+                const auto& t = cur.texcoord[i - 7];
+                g_glstate_c.send_current_attrib((GLuint)loc, t[0], t[1], t[2], t[3]);
             } else {
-                g_glFuncs.glVertexAttrib4f((GLuint)loc, 0.0f, 0.0f, 0.0f, 1.0f);
+                g_glstate_c.send_current_attrib((GLuint)loc, 0.0f, 0.0f, 0.0f, 1.0f);
             }
             break;
         }
@@ -398,6 +399,7 @@ void sfpewSendUserProgramAttributes(const GLint locations[VERTEX_POINTER_COUNT],
         if ((stale >> loc) & 1ull) g_glFuncs.glDisableVertexAttribArray((GLuint)loc);
     }
     st.fpe_user_vao_enabled = enabled_now;
+    g_glstate_c.forget_current_attribs(enabled_now);
 }
 
 // Called before passthrough draws while a user program is current.

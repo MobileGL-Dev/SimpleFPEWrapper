@@ -695,6 +695,22 @@ GLint backendAttribSize(const vertexattribute_t& attribute) {
 }
 } // namespace
 
+void glstate_t::send_current_attrib(GLuint index, GLfloat x, GLfloat y, GLfloat z, GLfloat w) {
+    const GLfloat value[4] = {x, y, z, w};
+    if (index >= kTrackedCurrentAttribs) {
+        g_glFuncs.glVertexAttrib4fv(index, value);
+        return;
+    }
+    auto& known = backend_current_attribs[index];
+    if (known.known && std::memcmp(known.value, value, sizeof value) == 0) {
+        SFPEW_PERF_COUNT(redundant_current_attrib);
+        return;
+    }
+    g_glFuncs.glVertexAttrib4fv(index, value);
+    known.known = true;
+    std::memcpy(known.value, value, sizeof value);
+}
+
 bool glstate_t::send_vertex_attributes(const vertex_pointer_array_t& va, GLuint array_buffer,
                                        GLintptr binding_offset) {
     // LOG()
@@ -801,6 +817,7 @@ bool glstate_t::send_vertex_attributes(const vertex_pointer_array_t& va, GLuint 
                 cached.enable_known = true;
                 cached.enabled = true;
             }
+            if (index < 64u) forget_current_attribs(1ull << index);
 
             // LOG_D("attrib #%d, cidx #%u: type = %s, size = %d, stride = %d, usage = %s, ptr = %p", i, va.cidx(i),
             //      glEnumToString(vp.type), vp.size, vp.stride, glEnumToString(vp.usage), vp.pointer)
@@ -813,7 +830,7 @@ bool glstate_t::send_vertex_attributes(const vertex_pointer_array_t& va, GLuint 
                     // i,
                     //      va.cidx(i), glEnumToString(vp.type), glEnumToString(vp.usage), v[0], v[1], v[2], v[3])
 
-                    g_glFuncs.glVertexAttrib4fv(va.cidx(i), glm::value_ptr(v));
+                    send_current_attrib(va.cidx(i), v[0], v[1], v[2], v[3]);
                 }
                 break;
             case GL_NORMAL_ARRAY:
@@ -822,7 +839,7 @@ bool glstate_t::send_vertex_attributes(const vertex_pointer_array_t& va, GLuint 
                     // LOG_D("attrib #%d, cidx #%u: type = %s, usage = %s, value = (%.2f, %.2f, %.2f) (disabled)", i,
                     //      va.cidx(i), glEnumToString(vp.type), glEnumToString(vp.usage), v[0], v[1], v[2])
 
-                    g_glFuncs.glVertexAttrib3fv(va.cidx(i), glm::value_ptr(v));
+                    send_current_attrib(va.cidx(i), v[0], v[1], v[2], 1.0f);
                 }
                 break;
             default:
@@ -834,7 +851,7 @@ bool glstate_t::send_vertex_attributes(const vertex_pointer_array_t& va, GLuint 
                     const int textureUnit = i - 7;
                     if (fpe_state.fpe_draw.current_data.sizes.texcoord_size[textureUnit] > 0) {
                         const auto& v = fpe_state.fpe_draw.current_data.texcoord[textureUnit];
-                        g_glFuncs.glVertexAttrib4fv(va.cidx(i), glm::value_ptr(v));
+                        send_current_attrib(va.cidx(i), v[0], v[1], v[2], v[3]);
                     }
                 }
                 break;

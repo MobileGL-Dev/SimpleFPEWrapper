@@ -12,6 +12,7 @@
 #include "defines.h"
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include <array>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -1077,6 +1078,26 @@ struct glstate_t {
     program_hash_cache_t program_hash_cache[kProgramHashCacheWays];
     int program_hash_cache_next = 0;
     vertex_attribute_cache_entry_t fpe_vertex_attributes[VERTEX_POINTER_COUNT];
+
+    // The current value (glVertexAttrib*) the backend holds for each of the
+    // first kTrackedCurrentAttribs generic attribute indices, as the wrapper
+    // last wrote it, so a draw re-sending an unchanged current color, normal
+    // or texture coordinate - most draws of any run - is not forwarded. An
+    // index is forgotten by every draw that sources it from an array (GL 2.1
+    // leaves its current value undefined afterwards) and all of them by the
+    // application's glUseProgram, around which it may write values through
+    // setters that reach the backend unseen (the GL 3.0 integer ones).
+    static constexpr GLuint kTrackedCurrentAttribs = 64;
+    struct current_attrib_t {
+        bool known = false;
+        GLfloat value[4] = {};
+    };
+    current_attrib_t backend_current_attribs[kTrackedCurrentAttribs];
+    void send_current_attrib(GLuint index, GLfloat x, GLfloat y, GLfloat z, GLfloat w);
+    void forget_current_attribs(uint64_t indices) {
+        for (GLuint index = 0; indices != 0; ++index, indices >>= 1)
+            if (indices & 1u) backend_current_attribs[index].known = false;
+    }
     bool fpe_vertex_binding_valid = false;
     GLuint fpe_vertex_binding_buffer = 0;
     GLintptr fpe_vertex_binding_offset = 0;

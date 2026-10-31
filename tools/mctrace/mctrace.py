@@ -28,8 +28,9 @@ exactly what a player's frame asks of it.
         display-list terrain replays as nothing on any driver whose
         glGenLists disagrees with the recording one, and with
         apitrace-headless.patch, without which every swap waits on the
-        desktop's compositor; and gl4es as launchers embed it, to measure
-        against (gl4es-swap-hooks.patch). With --android, also
+        desktop's compositor, and apitrace-skip-draws.patch, which replays
+        the frames before the measured one without drawing them; and gl4es
+        as launchers embed it, to measure against (gl4es-swap-hooks.patch). With --android, also
         the shim and a headless eglretrace for Android arm64
         (apitrace-headless.patch), for `bench --device`.
     mctrace.py bench [<instance>...] --wrapper LIB [--counters LIB] [--device [SERIAL]]
@@ -41,6 +42,9 @@ exactly what a player's frame asks of it.
         frames. With --device, the same on an Android phone over adb, with
         Android builds of the wrapper: timed and profiled only, as there is
         no native desktop GL there and correctness is the host's to check.
+        Every run replays the whole lead-in to the measured frame - most of
+        a minute on a phone - so a device bench does one round unless
+        --rounds asks for more, and profiles only with --counters.
         Results go to results/<date>/ as Markdown and JSON.
     mctrace.py list
         Show installed instances and captured frames.
@@ -601,8 +605,12 @@ def render_reference(frame):
     with tempfile.TemporaryDirectory() as scratch:
         # apitrace's own snapshot of the final frame: this replay goes
         # through no shim, and the driver implements all a snapshot needs.
+        # Every frame is drawn in full: the reference is what the image
+        # check holds the skip-draws replays to.
+        total = frame_count(frame)
         replay(["xvfb-run", "-a", "-s", f"-screen 0 {WIDTH}x{HEIGHT}x24", retracer("glretrace"), "-S", "*/frame",
-                f"--snapshot-interval={frame_count(frame) - 1}", "-s", os.path.join(scratch, "s-")], frame)
+                f"--snapshot-interval={total - 1}", "-s", os.path.join(scratch, "s-")], frame, total,
+               skip_draws=False)
         shots = sorted(glob.glob(os.path.join(scratch, "s-*.png")))
         shutil.copyfile(shots[-1], reference)
     log(f"reference image {reference}")
@@ -633,7 +641,7 @@ def setup(ndk=None):
     if not os.path.isdir(source):
         subprocess.run(["git", "clone", "-q", "https://github.com/apitrace/apitrace.git", source], check=True)
         subprocess.run(["git", "-C", source, "checkout", "-q", APITRACE_COMMIT], check=True)
-        for patch in ("apitrace-glcalllists-remap.patch", "apitrace-headless.patch"):
+        for patch in ("apitrace-glcalllists-remap.patch", "apitrace-headless.patch", "apitrace-skip-draws.patch"):
             subprocess.run(["git", "-C", source, "apply", os.path.join(HERE, patch)], check=True)
         subprocess.run(["git", "-C", source, "submodule", "update", "--init", "--depth", "1", "-q"], check=True)
     build = os.path.join(source, "build")
@@ -700,18 +708,22 @@ def retracer(name):
     return built if os.path.exists(built) else name
 
 
-def retrace_args(loops):
+def retrace_args(total, loops, skip_draws=True):
     """loops > 0 repeats the final frame that many more times."""
     # -b: without it the retracer checks glGetError after every call, which
     # would be most of the driver calls a wrapper is measured on.
-    return ["-b"] + ([f"--loop={loops}"] if loops else [])
+    # --skip-draws (apitrace-skip-draws.patch): the frames before the last
+    # only rebuild the state it starts from, which needs none of their
+    # pixels. Every image check replays the same way, so a frame that did
+    # depend on earlier output would show there.
+    return ["-b"] + ([f"--skip-draws={total - 1}"] if skip_draws else []) + ([f"--loop={loops}"] if loops else [])
 
 
-def replay(prefix, frame, loops=0, env=None):
+def replay(prefix, frame, total, loops=0, env=None, skip_draws=True):
     """Replays a frame trace locally. Its exit status is not the verdict:
     gl4es crashes in its own teardown after every replay, so callers check
     for the output they asked for instead."""
-    subprocess.run(list(prefix) + retrace_args(loops) + [frame], env=env,
+    subprocess.run(list(prefix) + retrace_args(total, loops, skip_draws) + [frame], env=env,
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
@@ -722,6 +734,7 @@ class Local:
     name = "pc"
     native = True
     checks_images = True
+    default_rounds = 3
 
     def __init__(self, out):
         self.shim = os.path.join(HOME, "tools", "shim", "libEGL.so.1")
@@ -736,7 +749,7 @@ class Local:
     def library(self, path, name):
         return path
 
-    def run(self, frame, wrapper, loops=0, env=None):
+    def run(self, frame, total, wrapper, loops=0, env=None):
         # No display: EGL's surfaceless platform, so nothing presents a
         # swap or paces it. NVIDIA's waits spin by default, and a spinning
         # wait is CPU time that measures the GPU: __GL_YIELD=USLEEP makes
@@ -749,7 +762,7 @@ class Local:
             full["SFPEW_SHIM_WRAPPER"] = wrapper
         full.update(env or {})
         # A fixed set of cores, so the scheduler does not move a run around.
-        replay(["taskset", "-c", "8-11", retracer("eglretrace-headless")], frame, loops=loops, env=full)
+        replay(["taskset", "-c", "8-11", retracer("eglretrace-headless")], frame, total, loops=loops, env=full)
 
     def scratch(self, name):
         return os.path.join(self.out, name)
@@ -774,6 +787,7 @@ class Device:
     # Correctness is the host's to judge (see Local); a device run is timed
     # and profiled only.
     checks_images = False
+    default_rounds = 1
     root = "/data/local/tmp/sfpew/mctrace"
     memory_floor_kb = 800_000
 
@@ -806,7 +820,7 @@ class Device:
     def library(self, path, name):
         return self.push(path, f"{name}-{os.path.basename(path)}")
 
-    def run(self, frame, wrapper, loops=0, env=None):
+    def run(self, frame, total, wrapper, loops=0, env=None):
         # Nothing is preloaded and the shim dlopen()s the wrapper privately,
         # as a launcher would: global exports from either break Android's
         # EGL, whose vendor layer resolves EGL entry points globally and
@@ -819,7 +833,7 @@ class Device:
         if wrapper:
             variables["SFPEW_SHIM_WRAPPER"] = wrapper
         variables.update(env or {})
-        cmd = [f"{self.root}/eglretrace", "--headless"] + retrace_args(loops)
+        cmd = [f"{self.root}/eglretrace", "--headless"] + retrace_args(total, loops)
         prefix = " ".join(f"{k}='{v}'" for k, v in variables.items())
         # The big cores, so the scheduler does not move a run to a little one.
         # A replay that eats the phone's memory is killed while the phone
@@ -840,13 +854,13 @@ class Device:
         return True
 
 
-def frame_times(runner, frame, wrapper, loops, warmup):
+def frame_times(runner, frame, total, wrapper, loops, warmup):
     """Each looped repeat of the final frame, from buffer swap to buffer swap,
     warm-up repeats dropped: its wall time and the process CPU time it took,
     both in ms."""
     local = os.path.join(runner.out, "times.txt")
     remote = runner.scratch("times.txt")
-    runner.run(frame, wrapper, loops=loops, env={"SFPEW_SHIM_FRAME_TIMES": remote})
+    runner.run(frame, total, wrapper, loops=loops, env={"SFPEW_SHIM_FRAME_TIMES": remote})
     if not runner.fetch(remote, local):
         raise SystemExit(f"{frame} did not replay through {wrapper or 'the native driver'}")
     stamps = [tuple(map(int, line.split())) for line in open(local)][-loops - 1:]
@@ -876,29 +890,34 @@ def image_difference(image, reference):
     return diff.histogram()[255] / (a.size[0] * a.size[1])
 
 
-def bench(instances, layers, counters, loops, warmup, rounds, device=None):
+def bench(instances, layers, counters, loops, warmup, rounds=None, device=None):
     """layers: [(name, library)] of the GL-on-GLES layers to measure, SFPEW
     first; on the host the native driver is measured beside them."""
     instances = instances or sorted(os.path.basename(f)[:-6] for f in glob.glob(os.path.join(HOME, "frames", "*.trace")))
     out = os.path.join(HOME, "results", time.strftime("%Y%m%d-%H%M%S") + ("-device" if device is not None else ""))
     os.makedirs(out)
     runner = Device(out, device) if device is not None else Local(out)
+    # A phone replays the lead-in to the measured frame for most of a
+    # minute per run; one round there, three on the host, unless asked.
+    rounds = rounds or runner.default_rounds
     targets = [(name, runner.library(library, name)) for name, library in layers]
     targets += [("native", None)] if runner.native else []
     counters = counters and runner.library(counters, "counters")
     results = []
-    for instance in instances:
+    for index, instance in enumerate(instances):
         frame, total = runner.frame(instance)
         log(f"{instance} on {runner.name}: {total} frames, looping the last {loops} times, {rounds} rounds")
         row = {"instance": instance, "frames": total, "where": runner.name}
 
-        # Round after round, every target once in a rotating order: a phone
-        # warming up, or anything else drifting during the run, then weighs
-        # on all of them alike instead of on whichever ran last.
+        # Round after round, every target once in an order that rotates by
+        # round and by frame: a phone warming up, or anything else drifting
+        # during the run, then weighs on all of them alike instead of on
+        # whichever always ran last.
         samples = {name: {"wall": [], "cpu": []} for name, _ in targets}
         for round in range(rounds):
-            for name, library in targets[round % len(targets):] + targets[:round % len(targets)]:
-                for clock, ms in frame_times(runner, frame, library, loops, warmup).items():
+            first = (round + index) % len(targets)
+            for name, library in targets[first:] + targets[:first]:
+                for clock, ms in frame_times(runner, frame, total, library, loops, warmup).items():
                     samples[name][clock] += ms
         for name, clocks in samples.items():
             row[name] = {clock: summarize(ms) for clock, ms in clocks.items()}
@@ -908,7 +927,8 @@ def bench(instances, layers, counters, loops, warmup, rounds, device=None):
             for name, library in targets:
                 image = os.path.join(out, f"{instance}.{name}.ppm")
                 remote = runner.scratch(f"{instance}.{name}.ppm")
-                runner.run(frame, library, env={"SFPEW_SHIM_SNAPSHOT": remote, "SFPEW_SHIM_SNAPSHOT_FRAME": str(total)})
+                runner.run(frame, total, library,
+                           env={"SFPEW_SHIM_SNAPSHOT": remote, "SFPEW_SHIM_SNAPSHOT_FRAME": str(total)})
                 if runner.fetch(remote, image):
                     row[name]["pixels_off"] = image_difference(image, reference)
 
@@ -916,7 +936,7 @@ def bench(instances, layers, counters, loops, warmup, rounds, device=None):
             # The counters zero at the first looped frame past warm-up, so the
             # exit report covers exactly the frames that were timed.
             report, table = runner.scratch(instance + ".perf.txt"), runner.scratch(instance + ".perf.csv")
-            runner.run(frame, counters, loops=loops,
+            runner.run(frame, total, counters, loops=loops,
                        env={"SFPEW_PERF": "1", "SFPEW_PERF_START": str(total + warmup),
                             "SFPEW_PERF_FILE": report, "SFPEW_PERF_CSV": table})
             runner.fetch(report, os.path.join(out, instance + ".perf.txt"))
@@ -987,7 +1007,7 @@ def main():
     p.add_argument("--counters", help="a performance-counters build of the same wrapper, to profile with")
     p.add_argument("--loops", type=int, default=300, help="repeats of the final frame")
     p.add_argument("--warmup", type=int, default=30, help="leading repeats left out of the statistics")
-    p.add_argument("--rounds", type=int, default=3, help="interleaved runs of every target")
+    p.add_argument("--rounds", type=int, help="interleaved runs of every target (default 3, 1 with --device)")
     p.add_argument("--device", nargs="?", const="", help="run on an Android device over adb (optional serial); "
                    "--wrapper and --counters are then Android builds")
     sub.add_parser("list")

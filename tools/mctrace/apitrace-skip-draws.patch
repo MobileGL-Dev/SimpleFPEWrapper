@@ -1,0 +1,136 @@
+apitrace: --skip-draws=N, replay frames before N without their draw calls
+
+Benchmarking one frame of a long trace means replaying every frame before
+it to rebuild the state it starts from, and drawing them is the one part
+of that the measured frame does not need: their pixels are overwritten.
+--skip-draws=N skips the draw calls of frames before N and runs the rest -
+state, uploads, display-list calls (a list can change state), immediate
+mode (an unpaired glBegin would derail the stream), and any draw issued
+between glNewList and glEndList, which records into the list rather than
+drawing. Applies on top of apitrace-headless.patch.
+
+diff --git a/retrace/retrace.hpp b/retrace/retrace.hpp
+--- a/retrace/retrace.hpp
++++ b/retrace/retrace.hpp
+@@ -201,6 +201,11 @@
+ extern unsigned samples;
+ 
+ extern unsigned frameNo;
++
++/**
++ * Frames before this one replay without their draw calls (--skip-draws).
++ */
++extern unsigned skipDrawsBefore;
+ extern unsigned callNo;
+ 
+ extern trace::DumpFlags dumpFlags;
+diff --git a/retrace/retrace_main.cpp b/retrace/retrace_main.cpp
+--- a/retrace/retrace_main.cpp
++++ b/retrace/retrace_main.cpp
+@@ -131,6 +131,7 @@
+ retrace::EQueryHandling queryResultHandling = retrace::QUERY_SKIP;
+ 
+ unsigned frameNo = 0;
++unsigned skipDrawsBefore = 0;
+ unsigned callNo = 0;
+ 
+ long long lastFrameTime = 0;
+@@ -818,6 +819,7 @@
+         "      --per-frame-delay=MICROSECONDS   add extra delay after each frame (in addition to min-frame-duration)\n"
+         "  -w, --wait              waitOnFinish on final frame\n"
+         "      --loop[=N]          loop N times (N<0 continuously) replaying final frame.\n"
++        "      --skip-draws=N      replay frames before N without their draw calls\n"
+         "      --watchdog          invokes abort() if retrace of a single api call will take more than " << retrace::RetraceWatchdog::TimeoutInSec << " seconds\n"
+         "      --singlethread      use a single thread to replay command stream\n"
+         "      --ignore-retvals    ignore return values in wglMakeCurrent, etc\n"
+@@ -852,6 +854,7 @@
+     MIN_FRAME_DURATION_OPT,
+     PER_FRAME_DELAY_OPT,
+     LOOP_OPT,
++    SKIP_DRAWS_OPT,
+     SINGLETHREAD_OPT,
+     IGNORE_RETVALS_OPT,
+     NO_CONTEXT_CHECK,
+@@ -914,6 +917,7 @@
+     {"min-frame-duration", required_argument, 0, MIN_FRAME_DURATION_OPT},
+     {"per-frame-delay", required_argument, 0, PER_FRAME_DELAY_OPT},
+     {"loop", optional_argument, 0, LOOP_OPT},
++    {"skip-draws", required_argument, 0, SKIP_DRAWS_OPT},
+     {"singlethread", no_argument, 0, SINGLETHREAD_OPT},
+     {"ignore-retvals", no_argument, 0, IGNORE_RETVALS_OPT},
+     {"no-context-check", no_argument, 0, NO_CONTEXT_CHECK},
+@@ -1308,6 +1312,9 @@
+         case LOOP_OPT:
+             loopCount = trace::intOption(optarg, -1);
+             break;
++        case SKIP_DRAWS_OPT:
++            retrace::skipDrawsBefore = trace::intOption(optarg, 0);
++            break;
+         case PFRAMETIMES_OPT:
+             retrace::debug = 0;
+             retrace::profiling = true;
+diff --git a/retrace/glretrace.hpp b/retrace/glretrace.hpp
+--- a/retrace/glretrace.hpp
++++ b/retrace/glretrace.hpp
+@@ -222,6 +222,10 @@
+ // rather than the remapped one the driver now holds.
+ extern GLuint recordedListBase;
+ 
++/* Between glNewList and glEndList: a draw call then records into the list
++ * instead of drawing, so --skip-draws must not skip it. */
++extern bool listCompiling;
++
+ // Element i of a glCallLists array of the given type.
+ GLuint callListsElement(const void *lists, GLenum type, GLsizei i);
+ 
+diff --git a/retrace/glretrace_main.cpp b/retrace/glretrace_main.cpp
+--- a/retrace/glretrace_main.cpp
++++ b/retrace/glretrace_main.cpp
+@@ -821,6 +821,7 @@
+ }
+ 
+ GLuint recordedListBase = 0;
++bool listCompiling = false;
+ 
+ GLuint
+ callListsElement(const void *lists, GLenum type, GLsizei i)
+diff --git a/retrace/glretrace.py b/retrace/glretrace.py
+--- a/retrace/glretrace.py
++++ b/retrace/glretrace.py
+@@ -104,6 +104,14 @@
+     ]) + r')[0-9A-Z]*$')
+ 
+ 
++    # Drawing commands without state effects beyond the pixels they write.
++    skippable_draw_function_regex = re.compile(r'^gl(' + r'|'.join([
++        r'DrawPixels',
++        r'DrawTransformFeedback([A-Z][a-zA-Z]*)?',
++        r'Rect[dfis]v?',
++        r'EvalMesh[0-9]+',
++    ]) + r')[0-9A-Z]*$')
++
+     bind_framebuffer_function_regex = re.compile(r'^glBindFramebuffer[0-9A-Z]*$')
+ 
+     # Names of the functions that can pack into the current pixel buffer
+@@ -195,6 +203,21 @@
+             print('    glretrace::frame_complete(call);')
+             return
+ 
++        # --skip-draws: the frames before the one measured only have to
++        # rebuild the state it starts from, which their draw calls - output
++        # the next frame overwrites - do not touch. Everything else still
++        # runs: state, uploads, display-list calls (a list can change state)
++        # and immediate mode (an unpaired glBegin would derail the stream);
++        # and a draw inside glNewList records into the list, so it runs too.
++        if function.name == 'glNewList':
++            print('    glretrace::listCompiling = true;')
++        if function.name == 'glEndList':
++            print('    glretrace::listCompiling = false;')
++        if is_draw_arrays or is_draw_elements or self.skippable_draw_function_regex.match(function.name):
++            print('    if (retrace::frameNo < retrace::skipDrawsBefore && !glretrace::listCompiling) {')
++            print('        return;')
++            print('    }')
++
+         Retracer.retraceFunctionBody(self, function)
+ 
+         # If we have a query buffer or if we execute the query we have to loop until the

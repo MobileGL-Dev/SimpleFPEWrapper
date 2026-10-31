@@ -1,6 +1,6 @@
 {
  "source": "lookup.cpp",
- "count": 835,
+ "count": 837,
  "entries": {
   "eglSwapBuffersWithDamageKHR": {
    "status": "alias",
@@ -2637,6 +2637,14 @@
   "glTexImage3D": {
    "status": "resolvable",
    "target": "glTexImage3D"
+  },
+  "glTexParameterIiv": {
+   "status": "resolvable",
+   "target": "glTexParameterIiv"
+  },
+  "glTexParameterIuiv": {
+   "status": "resolvable",
+   "target": "glTexParameterIuiv"
   },
   "glTexParameterf": {
    "status": "resolvable",

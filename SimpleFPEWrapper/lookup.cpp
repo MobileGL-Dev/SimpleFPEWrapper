@@ -403,6 +403,8 @@ SFPEW_APIENTRY __eglMustCastToProperFunctionPointerType eglGetProcAddress(const 
     GETPROC(glTexParameterfv, name)
     GETPROC(glTexParameteri, name)
     GETPROC(glTexParameteriv, name)
+    GETPROC(glTexParameterIiv, name)
+    GETPROC(glTexParameterIuiv, name)
     GETPROC(glGetTexParameterfv, name)
     GETPROC(glGetTexParameteriv, name)
     GETPROC(glAreTexturesResident, name)

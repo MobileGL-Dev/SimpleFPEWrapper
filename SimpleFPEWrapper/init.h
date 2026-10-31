@@ -420,6 +420,8 @@ SFPEW_APIENTRY void glPrioritizeTextures(GLsizei n, const GLuint* textures,
                                          const GLclampf* priorities);
 SFPEW_APIENTRY void glGetTexLevelParameteriv(GLenum target, GLint level, GLenum pname, GLint* params);
 SFPEW_APIENTRY void glGenerateMipmap(GLenum target);
+SFPEW_APIENTRY void glTexParameterIiv(GLenum target, GLenum pname, const GLint* params);
+SFPEW_APIENTRY void glTexParameterIuiv(GLenum target, GLenum pname, const GLuint* params);
 SFPEW_APIENTRY void glGetTexLevelParameterfv(GLenum target, GLint level, GLenum pname, GLfloat* params);
 SFPEW_APIENTRY void glLoadTransposeMatrixf(const GLfloat* m);
 SFPEW_APIENTRY void glLoadTransposeMatrixd(const GLdouble* m);

@@ -102,6 +102,7 @@
     X(redundant_bind_texture, events, "wrapper.redundant.bind_texture")                            \
     X(redundant_active_texture, events, "wrapper.redundant.active_texture")                        \
     X(redundant_state, events, "wrapper.redundant.state")                                          \
+    X(redundant_tex_parameter, events, "wrapper.redundant.tex_parameter")                          \
     X(barrier_restore, events, "wrapper.barrier.restore")                                          \
     X(immediate_merged_run, events, "wrapper.immediate.merged_run")                                \
     X(immediate_batch_draw, items, "wrapper.immediate.batch_draw")                                 \

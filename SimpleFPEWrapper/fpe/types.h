@@ -1004,6 +1004,15 @@ struct glstate_t {
     // needs it. Absent entries use the specified default GL_NONE.
     unordered_map<GLuint, GLenum> texture_compare_mode;
 
+    // The min/mag filter and S/T wrap each 2D texture last handed the
+    // backend, per texture name, so setting one to the value it already has
+    // is not forwarded: Minecraft re-sets all four around every animated
+    // texture upload, hundreds of times a frame, and a mobile driver may
+    // revalidate the texture for each. 0 is "not known" (no valid value of
+    // any of the four is 0). Only glTexParameteri fills it; the other setters
+    // forget what they change, and glDeleteTextures drops the name.
+    unordered_map<GLuint, std::array<GLint, 4>> texture_sampling;
+
     // Selection / feedback (plans/10 10.3). CPU transform results only;
     // nothing reaches the GPU while render_mode != GL_RENDER.
     GLenum render_mode = GL_RENDER;

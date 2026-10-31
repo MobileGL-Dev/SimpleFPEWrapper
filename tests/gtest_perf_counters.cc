@@ -23,6 +23,7 @@ using sfpew_test::ContextTest;
 using sfpew_test::GLbitfield;
 using sfpew_test::GLenum;
 using sfpew_test::GLfloat;
+using sfpew_test::GLint;
 using sfpew_test::GLsizei;
 using sfpew_test::GLsizeiptr;
 using sfpew_test::GLuint;
@@ -30,6 +31,8 @@ using sfpew_test::GLuint;
 constexpr GLenum GL_QUADS_ = 0x0007;
 constexpr GLenum GL_MODELVIEW_MATRIX_ = 0x0BA6;
 constexpr GLenum GL_TEXTURE_2D_ = 0x0DE1;
+constexpr GLenum GL_TEXTURE_MIN_FILTER_ = 0x2801;
+constexpr GLenum GL_NEAREST_ = 0x2600;
 constexpr GLenum GL_ARRAY_BUFFER_ = 0x8892;
 constexpr GLenum GL_STATIC_DRAW_ = 0x88E4;
 constexpr GLbitfield GL_COLOR_BUFFER_BIT_ = 0x00004000;
@@ -164,6 +167,22 @@ TEST_F(PerfCountersTest, RedundantTextureBindIsDropped) {
     EXPECT_EQ(Hits("app.bind.texture"), 2u);
     EXPECT_EQ(Hits("wrapper.redundant.bind_texture"), 1u);
     EXPECT_EQ(Hits("call.glBindTexture"), 1u);
+}
+
+// A 2D texture's filter set again to the value it has never reaches the
+// driver either - Minecraft does that around every animated texture upload.
+TEST_F(PerfCountersTest, RedundantTextureParameterIsDropped) {
+    auto gen = Get<void (*)(GLsizei, GLuint*)>("glGenTextures");
+    auto bind = Get<void (*)(GLenum, GLuint)>("glBindTexture");
+    auto parameteri = Get<void (*)(GLenum, GLenum, GLint)>("glTexParameteri");
+    GLuint texture = 0;
+    gen(1, &texture);
+    bind(GL_TEXTURE_2D_, texture);
+    reset_();
+    parameteri(GL_TEXTURE_2D_, GL_TEXTURE_MIN_FILTER_, GL_NEAREST_);
+    parameteri(GL_TEXTURE_2D_, GL_TEXTURE_MIN_FILTER_, GL_NEAREST_);
+    EXPECT_EQ(Hits("wrapper.redundant.tex_parameter"), 1u);
+    EXPECT_EQ(Hits("call.glTexParameteri"), 1u);
 }
 
 // An entry point the wrapper does not implement is still counted when the

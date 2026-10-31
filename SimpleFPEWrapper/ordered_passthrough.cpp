@@ -641,6 +641,55 @@ bool validTextureParameterTarget(GLenum target) {
     }
 }
 
+// Slot of a parameter texture_sampling tracks (see glstate_t), or -1.
+int textureSamplingSlot(GLenum target, GLenum pname) {
+    if (target != GL_TEXTURE_2D) return -1;
+    switch (pname) {
+    case GL_TEXTURE_MIN_FILTER:
+        return 0;
+    case GL_TEXTURE_MAG_FILTER:
+        return 1;
+    case GL_TEXTURE_WRAP_S:
+        return 2;
+    case GL_TEXTURE_WRAP_T:
+        return 3;
+    default:
+        return -1;
+    }
+}
+
+// Whether the backend stores value for the slot's parameter. Only a value
+// it accepts may be remembered: a rejected one changes nothing, and must
+// keep raising its error when repeated.
+bool validTextureSamplingValue(int slot, GLint value) {
+    switch (value) {
+    case GL_NEAREST:
+    case GL_LINEAR:
+        return true;
+    case GL_NEAREST_MIPMAP_NEAREST:
+    case GL_LINEAR_MIPMAP_NEAREST:
+    case GL_NEAREST_MIPMAP_LINEAR:
+    case GL_LINEAR_MIPMAP_LINEAR:
+        return slot == 0;
+    case GL_REPEAT:
+    case GL_CLAMP_TO_EDGE:
+    case GL_MIRRORED_REPEAT:
+        return slot >= 2;
+    default:
+        return false;
+    }
+}
+
+// A setter other than glTexParameteri changed this parameter: what the
+// cache holds for it is no longer known to be the backend's value.
+void forgetTextureSampling(GLenum target, GLenum pname) {
+    const int slot = textureSamplingSlot(target, pname);
+    if (slot < 0) return;
+    auto& cache = g_glstate_c.texture_sampling;
+    const auto it = cache.find(sfpewLogicalTextureBinding(target));
+    if (it != cache.end()) it->second[slot] = 0;
+}
+
 GLint compatibleTextureParameter(GLenum pname, GLint param) {
     // GL_CLAMP was removed from the programmable/core and GLES profiles used
     // by SFPEW's backends.  Legacy games still use it for projected textures
@@ -830,6 +879,7 @@ void glTexParameterf(GLenum target, GLenum pname, GLfloat param) {
     }
     if (isTextureWrapParameter(pname) && static_cast<GLint>(param) == GL_CLAMP)
         param = static_cast<GLfloat>(GL_CLAMP_TO_EDGE);
+    forgetTextureSampling(target, pname);
     g_glFuncs.glTexParameterf(target, pname, param);
 }
 
@@ -867,6 +917,7 @@ void glTexParameterfv(GLenum target, GLenum pname, const GLfloat* params) {
         gs.set_error(GL_INVALID_ENUM);
         return;
     }
+    forgetTextureSampling(target, pname);
     if (isTextureWrapParameter(pname) && static_cast<GLint>(params[0]) == GL_CLAMP) {
         const GLfloat compatible = static_cast<GLfloat>(GL_CLAMP_TO_EDGE);
         g_glFuncs.glTexParameterfv(target, pname, &compatible);
@@ -908,7 +959,20 @@ void glTexParameteri(GLenum target, GLenum pname, GLint param) {
         gs.set_error(GL_INVALID_ENUM);
         return;
     }
-    g_glFuncs.glTexParameteri(target, pname, compatibleTextureParameter(pname, param));
+    const GLint value = compatibleTextureParameter(pname, param);
+    const int slot = textureSamplingSlot(target, pname);
+    if (slot >= 0 && validTextureSamplingValue(slot, value)) {
+        GLint& known = gs.texture_sampling[sfpewLogicalTextureBinding(target)][slot];
+        if (known == value) {
+            SFPEW_PERF_COUNT(redundant_tex_parameter);
+            return;
+        }
+        g_glFuncs.glTexParameteri(target, pname, value);
+        known = value;
+        return;
+    }
+    forgetTextureSampling(target, pname);
+    g_glFuncs.glTexParameteri(target, pname, value);
 }
 
 void glTexParameteriv(GLenum target, GLenum pname, const GLint* params) {
@@ -946,12 +1010,29 @@ void glTexParameteriv(GLenum target, GLenum pname, const GLint* params) {
         gs.set_error(GL_INVALID_ENUM);
         return;
     }
+    forgetTextureSampling(target, pname);
     if (isTextureWrapParameter(pname) && params[0] == GL_CLAMP) {
         const GLint compatible = GL_CLAMP_TO_EDGE;
         g_glFuncs.glTexParameteriv(target, pname, &compatible);
     } else {
         g_glFuncs.glTexParameteriv(target, pname, params);
     }
+}
+
+// GL 3.0's pure-integer setters reach the same filter and wrap state, so they
+// too leave texture_sampling not knowing it.
+void glTexParameterIiv(GLenum target, GLenum pname, const GLint* params) {
+    if (!sfpewEnsureBackend() || g_glFuncs.glTexParameterIiv == nullptr) return;
+    sfpewEntryBarrier();
+    forgetTextureSampling(target, pname);
+    g_glFuncs.glTexParameterIiv(target, pname, params);
+}
+
+void glTexParameterIuiv(GLenum target, GLenum pname, const GLuint* params) {
+    if (!sfpewEnsureBackend() || g_glFuncs.glTexParameterIuiv == nullptr) return;
+    sfpewEntryBarrier();
+    forgetTextureSampling(target, pname);
+    g_glFuncs.glTexParameterIuiv(target, pname, params);
 }
 namespace {
 

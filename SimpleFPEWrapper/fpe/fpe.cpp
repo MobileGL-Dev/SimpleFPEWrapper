@@ -1266,7 +1266,12 @@ int commit_fpe_state_on_draw(GLenum* mode, GLint* first, GLsizei* count, GLint p
             }
             const auto* draw_start = static_cast<const uint8_t*>(vpa.starting_pointer) + skip;
             auto& st = g_glstate_c.fpe_state;
-            g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, st.fpe_immediate_vbo);
+            // The arm says when the ring is bound already: a run of
+            // client-array draws (the GUI, entities, particles) binds it once.
+            if (gsc.immediate_live_buffer != st.fpe_immediate_vbo) {
+                g_glFuncs.glBindBuffer(GL_ARRAY_BUFFER, st.fpe_immediate_vbo);
+                gsc.immediate_live_buffer = st.fpe_immediate_vbo;
+            }
             const GLintptr ring_offset =
                 sfpewUploadImmediateVertexData(draw_start, (size_t)upload_size);
             // Fresh read: the upload can replace the ring buffer object.

@@ -105,9 +105,11 @@ inline const char* sfpewVersionString() {
 }
 
 // "26.11-dev, GIT@<commit>" - what goes into GL_VERSION, where a user
-// reading a crash report needs both halves.
+// reading a crash report needs both halves. The commit is abbreviated to the
+// conventional 7 characters there, a string games show and log; the
+// initialization log line keeps the full stamp.
 inline const char* sfpewVersionAndCommit() {
     static const std::string cached =
-        std::string(sfpewVersionString()) + ", GIT@" + SFPEW_GIT_COMMIT;
+        std::string(sfpewVersionString()) + ", GIT@" + std::string(SFPEW_GIT_COMMIT).substr(0, 7);
     return cached.c_str();
 }

@@ -98,6 +98,11 @@ void CheckCommonIdentity(const Identity& id, const std::string& version_token) {
     EXPECT_FALSE(hash.empty());
     EXPECT_NE(hash[0], ' ');
     EXPECT_NE(hash[0], ')');
+    // Abbreviated to the conventional 7 characters (a build outside git
+    // says "unknown" instead).
+    const size_t hash_end = hash.find_first_not_of("0123456789abcdef");
+    if (hash.compare(0, 7, "unknown") != 0)
+        EXPECT_EQ(hash_end, 7u) << "GL_VERSION's commit is not 7 hex characters: " << id.version;
 
     // GL_RENDERER repeats the version, so a report quoting only that line
     // still carries it.

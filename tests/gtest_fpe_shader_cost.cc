@@ -18,6 +18,10 @@
 //    test. A discard anywhere in a fragment shader costs the whole draw its
 //    early depth test and forward pixel kill on Mali, and opaque terrain
 //    drawn with the test off paid that once the game had used it anywhere.
+//  - Varyings: every component is written out per vertex and interpolated
+//    per fragment on a tiler, so only what the fragment stage reads is
+//    passed - texcoords sized to their unit's sampler, no normal, the eye z
+//    alone for plane-distance fog.
 //
 // The source comes from sfpewLastFixedFunctionFragmentSourceForTest: the
 // program the last fixed-function draw used. A pixel read in between flushes
@@ -53,6 +57,14 @@ constexpr GLenum kTexMinFilter = 0x2801;
 constexpr GLenum kTexMagFilter = 0x2800;
 constexpr GLenum kGreater = 0x0204;
 constexpr GLenum kLess = 0x0201;
+constexpr GLenum kFloat = 0x1406;
+constexpr GLenum kVertexArray = 0x8074;
+constexpr GLenum kNormalArray = 0x8075;
+constexpr GLenum kTexCoordArray = 0x8078;
+constexpr GLenum kTexture0 = 0x84C0;
+constexpr GLenum kTexture1 = 0x84C1;
+constexpr GLenum kFogDistanceModeNV = 0x855A;
+constexpr GLenum kEyeRadialNV = 0x855B;
 
 class FpeShaderCostTest : public ContextTest {
 protected:
@@ -79,6 +91,23 @@ protected:
                                      const void*)>("glTexImage2D");
         tex_parameteri_ = Get<void (*)(GLenum, GLenum, GLint)>("glTexParameteri");
         read_pixels_ = Get<PixelProbe::ReadPixelsFn>("glReadPixels");
+        enable_client_state_ = Get<void (*)(GLenum)>("glEnableClientState");
+        vertex_pointer_ = Get<void (*)(GLint, GLenum, GLsizei, const void*)>("glVertexPointer");
+        normal_pointer_ = Get<void (*)(GLenum, GLsizei, const void*)>("glNormalPointer");
+        tex_coord_pointer_ = Get<void (*)(GLint, GLenum, GLsizei, const void*)>("glTexCoordPointer");
+        client_active_texture_ = Get<void (*)(GLenum)>("glClientActiveTexture");
+        active_texture_ = Get<void (*)(GLenum)>("glActiveTexture");
+        draw_arrays_ = Get<void (*)(GLenum, GLint, GLsizei)>("glDrawArrays");
+    }
+
+    // A 1x1 texture of one color on the active unit, nearest-filtered.
+    void SolidTexture(const GLubyte (&rgba)[4]) {
+        GLuint texture = 0;
+        gen_textures_(1, &texture);
+        bind_texture_(kTexture2D, texture);
+        tex_image_2d_(kTexture2D, 0, 0x1908 /* GL_RGBA */, 1, 1, 0, 0x1908, 0x1401 /* GL_UNSIGNED_BYTE */, rgba);
+        tex_parameteri_(kTexture2D, kTexMinFilter, kNearest);
+        tex_parameteri_(kTexture2D, kTexMagFilter, kNearest);
     }
 
     // A full-viewport quad in the current color; the pixel read flushes it.
@@ -120,6 +149,13 @@ protected:
     void (*tex_image_2d_)(GLenum, GLint, GLint, GLsizei, GLsizei, GLint, GLenum, GLenum, const void*) = nullptr;
     void (*tex_parameteri_)(GLenum, GLenum, GLint) = nullptr;
     PixelProbe::ReadPixelsFn read_pixels_ = nullptr;
+    void (*enable_client_state_)(GLenum) = nullptr;
+    void (*vertex_pointer_)(GLint, GLenum, GLsizei, const void*) = nullptr;
+    void (*normal_pointer_)(GLenum, GLsizei, const void*) = nullptr;
+    void (*tex_coord_pointer_)(GLint, GLenum, GLsizei, const void*) = nullptr;
+    void (*client_active_texture_)(GLenum) = nullptr;
+    void (*active_texture_)(GLenum) = nullptr;
+    void (*draw_arrays_)(GLenum, GLint, GLsizei) = nullptr;
 };
 
 TEST_F(FpeShaderCostTest, FragmentMathIsMediumpWhileCoordinatesStayHighp) {
@@ -146,7 +182,7 @@ TEST_F(FpeShaderCostTest, FragmentMathIsMediumpWhileCoordinatesStayHighp) {
     ASSERT_FALSE(fs.empty()) << "no fixed-function program recorded for the draw";
     EXPECT_NE(fs.find("precision mediump float;"), std::string::npos)
         << "fragment math is not mediump by default:\n" << fs;
-    EXPECT_TRUE(std::regex_search(fs, std::regex(R"(in highp vec[234] texCoord0;)")))
+    EXPECT_TRUE(std::regex_search(fs, std::regex(R"(in highp vec2 texCoord0;)")))
         << "the texture coordinate lost highp under the mediump default:\n" << fs;
     EXPECT_NE(fs.find("highp float distance"), std::string::npos)
         << "the fog distance lost highp under the mediump default:\n" << fs;
@@ -202,6 +238,62 @@ TEST_F(FpeShaderCostTest, AlphaTestStillRejectsAndPassesAcrossToggles) {
     clear_(0x00004000);
     DrawQuad();
     EXPECT_LT(Center().g, 20) << "re-enabling the alpha test did not reject again";
+}
+
+// Minecraft's terrain draw, in the shape that matters here: client arrays
+// with a normal, a 2D texture on unit 0, a coordinate array on a unit whose
+// texture is off, and plane-distance fog.
+TEST_F(FpeShaderCostTest, VaryingsCarryOnlyWhatTheFragmentStageReads) {
+    const GLubyte green[4] = {0, 255, 0, 255};
+    active_texture_(kTexture0);
+    SolidTexture(green);
+    enable_(kTexture2D);
+    enable_(kFog);
+    fogi_(kFogMode, kLinear);
+    fogf_(kFogStart, 100.0f);
+    fogf_(kFogEnd, 200.0f);
+
+    static const GLfloat positions[] = {-1, -1, 1, -1, 1, 1, -1, 1};
+    static const GLfloat normals[] = {0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1};
+    static const GLfloat coords[] = {0, 0, 1, 0, 1, 1, 0, 1};
+    enable_client_state_(kVertexArray);
+    vertex_pointer_(2, kFloat, 0, positions);
+    enable_client_state_(kNormalArray);
+    normal_pointer_(kFloat, 0, normals);
+    client_active_texture_(kTexture0);
+    enable_client_state_(kTexCoordArray);
+    tex_coord_pointer_(2, kFloat, 0, coords);
+    client_active_texture_(kTexture1);
+    enable_client_state_(kTexCoordArray);
+    tex_coord_pointer_(2, kFloat, 0, coords);
+
+    clear_color_(0.0f, 0.0f, 0.0f, 1.0f);
+    clear_(0x00004000);
+    color4f_(1.0f, 1.0f, 1.0f, 1.0f);
+    draw_arrays_(kQuads, 0, 4);
+    EXPECT_GT(Center().g, 200) << "the terrain-shaped draw did not draw its texel";
+
+    std::string fs = Source();
+    ASSERT_FALSE(fs.empty());
+    EXPECT_NE(fs.find("in highp vec2 texCoord0;"), std::string::npos)
+        << "a 2D unit's texcoord is not a highp vec2:\n" << fs;
+    EXPECT_EQ(fs.find("texCoord1"), std::string::npos)
+        << "a unit with its texture off still receives a texcoord:\n" << fs;
+    EXPECT_EQ(fs.find("vertexNormal"), std::string::npos)
+        << "the fragment stage receives a normal it never reads:\n" << fs;
+    EXPECT_NE(fs.find("in highp float vEyeZ;"), std::string::npos)
+        << "plane-distance fog does not interpolate the eye z alone:\n" << fs;
+    EXPECT_EQ(fs.find("vViewPosition"), std::string::npos)
+        << "plane-distance fog still carries the eye position:\n" << fs;
+
+    // Radial distance is not affine: it needs the position per fragment.
+    fogi_(kFogDistanceModeNV, kEyeRadialNV);
+    clear_(0x00004000);
+    draw_arrays_(kQuads, 0, 4);
+    EXPECT_GT(Center().g, 200);
+    fs = Source();
+    EXPECT_NE(fs.find("in highp vec3 vViewPosition;"), std::string::npos)
+        << "radial fog lost the per-fragment eye position:\n" << fs;
 }
 
 } // namespace

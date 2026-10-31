@@ -1347,6 +1347,34 @@ bool unit_has_point_sprite_replace(const fixed_function_state_t& state, int unit
            !state.fpe_bools.texture_shadow_sample[unit];
 }
 
+// Texcoord components the fragment stage samples for a unit: s,t for a 2D
+// texture, s,t,r for 3D, cube and shadow-compare units, none while the unit
+// has no texture enabled. The varying carries exactly those - on a tiler
+// every varying component is written out per vertex and interpolated per
+// fragment, and a vertex-dense terrain draw paid for components nothing read.
+int texcoord_components(const fixed_function_state_t& state, int unit) {
+    switch (active_texture_target(state, unit)) {
+    case texture_target_kind_t::none:
+        return 0;
+    case texture_target_kind_t::tex2d:
+        return state.fpe_bools.texture_shadow_sample[unit] ? 3 : 2;
+    default:
+        return 3;
+    }
+}
+
+const char* texcoord_swizzle(int components) { return components == 2 ? "xy" : "xyz"; }
+
+// GL_EYE_RADIAL_NV needs the eye position per fragment: length() of an
+// interpolated position is not the interpolated length. Every other
+// fragment-depth fog distance is affine in eye space, so the eye z alone
+// interpolates to exactly the per-fragment value. It stays signed: an abs()
+// taken per vertex would bend the interpolation across a triangle clipped
+// at the eye plane, where visible fragments are all in front.
+bool fog_needs_radial_position(const fixed_function_state_t& state) {
+    return fog_needs_view_position(state) && state.fog_distance_mode == GL_EYE_RADIAL_NV;
+}
+
 void add_vs_inout(const fixed_function_state_t& state, scratch_t& scratch, std::string& vs) {
     auto& vpa = state.normalized_vpa;
     // LOG_D("[shadergen] enabled_ptr: 0x%x", vpa.enabled_pointers)
@@ -1390,11 +1418,30 @@ void add_vs_inout(const fixed_function_state_t& state, scratch_t& scratch, std::
             }
 
             std::string out_name = vp2out_name(usage, i);
+            if (texid >= 0) {
+                // Texture coordinates first pass through the matrix belonging
+                // to their server texture unit.
+                scratch.has_texcoord[texid] = true;
+                const int components = texcoord_components(state, texid);
+                if (components > 0) {
+                    vs += std::format("out highp vec{} {};\n", components, out_name);
+                    scratch.last_stage_linkage += std::format("in highp vec{} {};\n", components, out_name);
+                    scratch.vs_body += std::format("    {} = (TexMat{} * {}).{};\n", out_name, texid, in_name,
+                                                   texcoord_swizzle(components));
+                }
+                continue;
+            }
+            if (usage == GL_NORMAL_ARRAY) {
+                // Lighting and texgen read the normal in this stage; nothing
+                // downstream does, so it is not forwarded.
+                scratch.has_normal_input = true;
+                continue;
+            }
             std::string linkage;
 
-            // Coordinates and distances stay highp under the fragment
-            // stage's mediump default (mg_fs_header).
-            if (texid >= 0 || usage == GL_FOG_COORD_ARRAY) linkage += "highp ";
+            // The fog coordinate is a distance: it stays highp under the
+            // fragment stage's mediump default (mg_fs_header).
+            if (usage == GL_FOG_COORD_ARRAY) linkage += "highp ";
             linkage += type;
             linkage += ' ';
             linkage += out_name;
@@ -1408,13 +1455,7 @@ void add_vs_inout(const fixed_function_state_t& state, scratch_t& scratch, std::
             if (color_varying) scratch.last_stage_linkage += "flat ";
             scratch.last_stage_linkage += "in " + linkage;
 
-            // TODO: Fog / vertex lighting. Texture coordinates first pass
-            // through the matrix belonging to their server texture unit.
-            if (texid >= 0) {
-                scratch.vs_body += std::format("    {} = TexMat{} * {};\n", out_name, texid, in_name);
-                // LOG_D("has_texcoord[%d] = true", texid)
-                scratch.has_texcoord[texid] = true;
-            } else if (vpa.attributes[i].bgra && !sfpewBackendTakesBgra()) {
+            if (vpa.attributes[i].bgra && !sfpewBackendTakesBgra()) {
                 // The array was declared GL_BGRA and the backend has no such
                 // format, so it was uploaded as four plain components in the
                 // application's order. Undo that order here - the one place
@@ -1429,7 +1470,6 @@ void add_vs_inout(const fixed_function_state_t& state, scratch_t& scratch, std::
                 scratch.has_color_input = true;
                 scratch.has_vertex_color = true;
             }
-            if (usage == GL_NORMAL_ARRAY) scratch.has_normal_input = true;
             if (usage == GL_FOG_COORD_ARRAY) scratch.has_fog_coord_input = true;
             if (usage == GL_SECONDARY_COLOR_ARRAY) scratch.has_secondary_color_input = true;
         }
@@ -1461,14 +1501,19 @@ void add_vs_inout(const fixed_function_state_t& state, scratch_t& scratch, std::
     // Units fed purely by texgen still need their varying.
     for (int i = 0; i < MAX_TEX; ++i) {
         if (!unit_uses_texgen(state, i) || scratch.has_texcoord[i]) continue;
-        vs += std::format("out highp vec4 texCoord{};\n", i);
-        scratch.last_stage_linkage += std::format("in highp vec4 texCoord{};\n", i);
+        const int components = texcoord_components(state, i);
+        if (components > 0) {
+            vs += std::format("out highp vec{} texCoord{};\n", components, i);
+            scratch.last_stage_linkage += std::format("in highp vec{} texCoord{};\n", components, i);
+        }
         scratch.has_texcoord[i] = true;
         scratch.texgen_no_input[i] = true; // the texgen body block writes it
     }
 
-    if (fog_needs_view_position(state)) {
-        vs += "out vec3 vViewPosition;\n";
+    if (fog_needs_radial_position(state)) {
+        vs += "out highp vec3 vViewPosition;\n";
+    } else if (fog_needs_view_position(state)) {
+        vs += "out highp float vEyeZ;\n";
     }
     for (int i = 0; i < 6; ++i) {
         if (!state.fpe_bools.clip_plane_enable[i]) continue;
@@ -1659,8 +1704,10 @@ void add_vs_body(const fixed_function_state_t& state, scratch_t& scratch, std::s
         if (state.fpe_bools.clip_plane_enable[i])
             vs += std::format("    vClipDistance{0} = dot(ClipPlane{0}, eyePosition);\n", i);
     }
-    if (fog_needs_view_position(state)) {
+    if (fog_needs_radial_position(state)) {
         vs += "    vViewPosition = eyePosition.xyz;\n";
+    } else if (fog_needs_view_position(state)) {
+        vs += "    vEyeZ = eyePosition.z;\n";
     }
     vs += scratch.vs_body;
 
@@ -1718,7 +1765,9 @@ void add_vs_body(const fixed_function_state_t& state, scratch_t& scratch, std::s
                 }
                 vs += std::format("    tgsrc{}.{} = {};\n", i, comp[c], value);
             }
-            vs += std::format("    texCoord{0} = TexMat{0} * tgsrc{0};\n", i);
+            const int components = texcoord_components(state, i);
+            if (components > 0)
+                vs += std::format("    texCoord{0} = (TexMat{0} * tgsrc{0}).{1};\n", i, texcoord_swizzle(components));
         }
     }
 
@@ -1786,7 +1835,7 @@ void add_fs_inout(const fixed_function_state_t& state, scratch_t& scratch, std::
     fs += scratch.last_stage_linkage;
     fs += "\n";
     if (fog_needs_view_position(state)) {
-        fs += "in highp vec3 vViewPosition;\n";
+        fs += fog_needs_radial_position(state) ? "in highp vec3 vViewPosition;\n" : "in highp float vEyeZ;\n";
     }
     fs += "out vec4 FragColor;\n";
 }
@@ -2078,9 +2127,9 @@ void add_fs_body(const fixed_function_state_t& state, scratch_t& scratch, std::s
         } else if (state.fog_distance_mode == GL_EYE_RADIAL_NV) {
             fs += "    highp float distance = length(vViewPosition.xyz);\n";
         } else if (state.fog_distance_mode == GL_EYE_PLANE) {
-            fs += "    highp float distance = -vViewPosition.z;\n";
+            fs += "    highp float distance = -vEyeZ;\n";
         } else {
-            fs += "    highp float distance = abs(vViewPosition.z);\n";
+            fs += "    highp float distance = abs(vEyeZ);\n";
         }
         switch (state.fog_mode) {
         case GL_LINEAR:

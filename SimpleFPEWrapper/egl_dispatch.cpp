@@ -9,6 +9,7 @@
 
 #include "init.h"
 
+#include <atomic>
 #include <mutex>
 #include <thread>
 #include <unordered_map>
@@ -208,11 +209,17 @@ bool sfpewCanCreateNativeCompatibilityContext(EGLDisplay dpy, EGLConfig config, 
     return supported;
 }
 
+// Set once, never cleared: a stale true only costs the dispatch lookup.
+std::atomic<bool> g_any_backend_direct{false};
+
 void sfpewRegisterContextDispatch(EGLContext context, SfpewContextDispatchMode mode) {
     if (context == EGL_NO_CONTEXT) return;
+    if (mode == SfpewContextDispatchMode::BackendDirect) g_any_backend_direct.store(true, std::memory_order_release);
     std::lock_guard lock(g_context_dispatch_mutex);
     g_context_dispatch[context] = {mode, false};
 }
+
+bool sfpewAnyBackendDirectContext() { return g_any_backend_direct.load(std::memory_order_acquire); }
 
 void sfpewNoteDispatchCurrentContext(EGLContext context) {
     noteCurrentContext(context);

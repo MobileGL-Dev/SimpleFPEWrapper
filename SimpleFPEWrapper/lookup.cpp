@@ -55,12 +55,17 @@ SFPEW_APIENTRY __eglMustCastToProperFunctionPointerType eglGetProcAddress(const 
         return (__eglMustCastToProperFunctionPointerType)sfpewEglDestroyContext;
 
     // A pointer resolved while a native Core/Compatibility context is current
-    // must be the backend pointer itself, not a forwarding wrapper.
-    // Complete lazy initialization before the dispatch lookup reads the backend
-    // current-context hook or resolver table.
-    (void)sfpewEnsureBackend();
-    if (sfpewCurrentContextDispatch() == SfpewContextDispatchMode::BackendDirect) {
-        return g_eglFuncs.eglGetProcAddress != nullptr ? g_eglFuncs.eglGetProcAddress(name) : nullptr;
+    // must be the backend pointer itself, not a forwarding wrapper. Such a
+    // context exists only once sfpewEglCreateContext - which starts the
+    // backend - registered one; until then resolving a wrapper symbol must
+    // not start the backend (and load libEGL) just to find that out. After
+    // it, complete lazy initialization before the dispatch lookup reads the
+    // backend current-context hook or resolver table.
+    if (sfpewAnyBackendDirectContext()) {
+        (void)sfpewEnsureBackend();
+        if (sfpewCurrentContextDispatch() == SfpewContextDispatchMode::BackendDirect) {
+            return g_eglFuncs.eglGetProcAddress != nullptr ? g_eglFuncs.eglGetProcAddress(name) : nullptr;
+        }
     }
 
     // Routing eglMakeCurrent through the wrapper turns the current context

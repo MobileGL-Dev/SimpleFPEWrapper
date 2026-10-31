@@ -34,3 +34,6 @@ void sfpewRegisterContextDispatch(EGLContext context, SfpewContextDispatchMode m
 void sfpewNoteDispatchCurrentContext(EGLContext context);
 void sfpewForgetContextDispatch(EGLContext context);
 SfpewContextDispatchMode sfpewCurrentContextDispatch();
+// Whether any context was ever registered BackendDirect. Free, and starts
+// nothing: until it is true no context can be current in that mode.
+bool sfpewAnyBackendDirectContext();

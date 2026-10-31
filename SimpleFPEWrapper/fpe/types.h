@@ -1363,5 +1363,10 @@ inline glstate_t& sfpewVertexDataState() {
         tls_snapshot_context != nullptr) {
         return *state;
     }
+    // Outside a Begin, the budgeted resolve every other entry point uses: a
+    // strict one here was a libEGL query per glColor/glNormal/glTexCoord,
+    // which Minecraft issues between draws all frame long. Still strict while
+    // the snapshot holds no context, for the reason above.
+    if (tls_snapshot_context != nullptr) return sfpewResolveState();
     return glstate_t::get_instance();
 }

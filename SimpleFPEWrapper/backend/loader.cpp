@@ -8,6 +8,7 @@
 
 #include "loader.h"
 #include "../perf_backend.h"
+#include "../log.h"
 #include <dlfcn.h>
 #include <cstring>
 #include <vector>
@@ -456,6 +457,10 @@ namespace SFPEW::Utils::BackendLoader {
         const std::vector<std::string> EGLLibNames = {customLibPath.empty() ? std::string("libEGL.so") : customLibPath};
         void* eglLib = OpenLib(EGLLibNames);
         if (!eglLib) {
+            // The loader's reason - a missing dependency, an ABI mismatch -
+            // is what someone choosing a backend needs to see.
+            const char* reason = dlerror();
+            SFPEW_LOGE("cannot load backend '%s': %s", customLibPath.c_str(), reason != nullptr ? reason : "not found");
             return false;
         }
 #if SFPEW_PERF_COUNTERS

@@ -433,7 +433,6 @@ program_key_t glstate_t::program_hash(const vertex_pointer_array_t& va) {
     // normalized the vertex array, so avoid two heap allocations and a second
     // normalization just to build the shader-program key.
     resync_texture_shadow_sample();
-    if (__builtin_expect(fpe_state.fpe_bools.alpha_test_enable, 0)) fpe_state.alpha_test_seen = true;
     const auto& sizes = fpe_state.fpe_draw.current_data.sizes;
 
     // Canonical parameter values: a parameter the generator does not read under
@@ -497,20 +496,15 @@ program_key_t glstate_t::program_hash(const vertex_pointer_array_t& va) {
     }
 
     const auto& bools = fpe_state.fpe_bools;
-    // One block compare against the SAME canonical enable block the hash
-    // digests, so the fast path cannot disagree with the hash about which
+    // One block compare against the SAME enable block the hash digests, so the fast path cannot disagree with the hash about which
     // enables matter. The field-by-field version this replaces silently
     // omitted texture_gen_enable, the clip planes and the stipples: a
     // sphere-map texgen toggling with the view (an enchantment glint
     // entering the frame) then HIT the cache and drew the whole
     // fixed-function chain with the previous program - lighting broken
     // from some camera angles and fine from others.
-    fixed_function_bool_t canon_bools_now = bools;
-    // Alpha test is a uniform, not a program input (see the hash below);
-    // only whether the program carries the test at all is.
-    canon_bools_now.alpha_test_enable = fpe_state.alpha_test_seen;
     if (matches) {
-        matches = std::memcmp(&cache.bools, &canon_bools_now, sizeof(canon_bools_now)) == 0;
+        matches = std::memcmp(&cache.bools, &bools, sizeof(bools)) == 0;
     }
     if (matches) {
         for (int i = 0; i < MAX_TEX; ++i) {
@@ -598,12 +592,14 @@ program_key_t glstate_t::program_hash(const vertex_pointer_array_t& va) {
     hash.add(&canon_cm_face, sizeof(canon_cm_face));
     hash.add(&canon_cm_mode, sizeof(canon_cm_mode));
 
-    // alpha_test_enable is uniform-driven (see send_uniforms); hash a
-    // canonical copy carrying the latch instead, so toggling it cannot mint
-    // a program once the first enable has.
-    auto canon_bools = fpe_state.fpe_bools;
-    canon_bools.alpha_test_enable = fpe_state.alpha_test_seen;
-    hash.add(&canon_bools, sizeof(canon_bools));
+    // GL_ALPHA_TEST is a program input, the comparison is not: the function
+    // and reference stay uniforms (send_uniforms), so glAlphaFunc never
+    // mints a program, but only a program drawn with the test enabled
+    // carries its discard. A discard anywhere in a fragment shader costs
+    // early depth/stencil testing on tilers - Mali drops early-ZS and
+    // forward pixel kill for the whole draw - so opaque geometry drawn
+    // with the test off must not pay for it.
+    hash.add(&fpe_state.fpe_bools, sizeof(fpe_state.fpe_bools));
 
     hash.add(&fpe_state.texture_env_mode, sizeof(fpe_state.texture_env_mode));
     hash.add(&fpe_state.texture_gen_mode, sizeof(fpe_state.texture_gen_mode));
@@ -647,7 +643,7 @@ program_key_t glstate_t::program_hash(const vertex_pointer_array_t& va) {
     cache.light_model_two_side = canon_lm_two_side;
     cache.color_material_face = canon_cm_face;
     cache.color_material_mode = canon_cm_mode;
-    cache.bools = canon_bools; // the same canonical block the hash above digested
+    cache.bools = fpe_state.fpe_bools; // the same block the hash above digested
     for (int i = 0; i < MAX_TEX; ++i) {
         cache.texture_env_mode[i] = fpe_state.texture_env_mode[i];
         cache.combiners[i] = sfpewCombinerSignature(fpe_uniform.texture_env[i]);

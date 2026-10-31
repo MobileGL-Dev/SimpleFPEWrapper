@@ -376,7 +376,7 @@ if(NOT ANDROID)
                                        color_sum logicop line_stipple texture_3d_cube
                                        read_buffer point_sprite texgen_cube
                                        drawpixels_stencil pixel_transfer_readback lod_bias
-                                       depth_texture_mode texture_shadow texture_parameter_cache proxy_texture current_attrib_cache egl_exports
+                                       depth_texture_mode texture_shadow texture_parameter_cache proxy_texture current_attrib_cache egl_exports fpe_shader_cost
                                        texture_anisotropic texture_compressed_2d
                                        texture_border_clamp occlusion_query
                                        texture_env_crossbar multitexture_unit_validation

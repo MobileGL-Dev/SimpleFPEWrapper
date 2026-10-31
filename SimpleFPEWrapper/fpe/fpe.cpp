@@ -972,6 +972,15 @@ bool gather_client_arrays(const vertex_pointer_array_t& raw, GLint first, GLsize
     return true;
 }
 
+// Test-only view of what the fixed-function path compiled: the fragment
+// source of the program the last fixed-function draw used, or nullptr before
+// one. What a generated shader costs the GPU - its precision, whether it
+// carries a discard - is invisible in the pixels it draws.
+SFPEW_APIENTRY const char* sfpewLastFixedFunctionFragmentSourceForTest() {
+    const auto& state = g_glstate;
+    return state.last_program != nullptr ? state.last_program->fs.c_str() : nullptr;
+}
+
 // Test-only view of the gather's input validation. The gl*Pointer entry
 // points reject a negative stride now (plans/16 M1), which is precisely why
 // the gather's own check is unobservable from outside - no public call can

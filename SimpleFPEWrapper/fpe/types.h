@@ -447,15 +447,6 @@ struct fixed_function_draw_state_t {
 struct fixed_function_state_t {
     GLenum client_active_texture = GL_TEXTURE0;      // glClientActiveTexture, specifies active texcood
     GLenum alpha_func = GL_ALWAYS;                   // glAlphaFunc
-    // Latched by program_hash() the first time a draw sees GL_ALPHA_TEST on,
-    // and never cleared by it. The alpha test itself rides uniforms, so a
-    // program that has it can be toggled freely; this only decides whether
-    // generated programs carry the test at all. Until a context has used
-    // it they do not, and they compile measurably faster without it (the
-    // seven-way comparison was a third of a small program's compile time on
-    // NVIDIA). A wholesale restore that clears it costs at most one extra
-    // program variant: the latch runs on every draw before the key is built.
-    bool alpha_test_seen = false;
     color_buffer_state_t color_buffer;                // blend / masks (for attrib stack)
     // glLogicOp: stored so GL_LOGIC_OP_MODE reads back exactly what was set,
     // but GL_COLOR_LOGIC_OP/GL_INDEX_LOGIC_OP never actually enable per

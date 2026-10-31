@@ -314,15 +314,16 @@ TEST_F(TextureAnisotropicTest, DefaultsToOneAndRoundTripsThroughAllFourSettersAn
 }
 
 TEST_F(TextureAnisotropicTest, ValueAboveTheImplementationCapReachesTheDriverUnrejected) {
-    // Measured on this machine's real driver (NVIDIA, cap 16.0): a request
-    // above GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT round-trips back EXACTLY as
-    // set (164 in, 164 out), not clamped to the cap - the same
-    // store-what-was-asked/clamp-only-the-effective-filtering behavior as
-    // GL_LINE_WIDTH vs GL_ALIASED_LINE_WIDTH_RANGE. This is real backend
-    // behavior the wrapper has no part in (it never touches this pname);
-    // what this proves is that the value truly reached the driver's own
-    // per-texture sampler state - a wrapper bug that silently dropped or
-    // rejected the call would leave the default 1.0 in place instead.
+    // A request above GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT is legal, and what it
+    // reads back is the driver's choice: NVIDIA (cap 16.0) stores it EXACTLY
+    // as set (164 in, 164 out) and clamps only the effective filtering, the
+    // same store-what-was-asked behavior as GL_LINE_WIDTH vs
+    // GL_ALIASED_LINE_WIDTH_RANGE; Mesa (llvmpipe, the CI device) clamps the
+    // stored value to the cap (164 in, 16 out). The wrapper has no part in
+    // either (it never touches this pname). What this proves is that the
+    // value truly reached the driver's own per-texture sampler state - a
+    // wrapper bug that silently dropped or rejected the call would leave the
+    // default 1.0 in place instead, and raise or leave an error.
     MakeSolidTexture();
     GLfloat cap = 1.0f;
     get_floatv_(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT_, &cap);
@@ -332,7 +333,9 @@ TEST_F(TextureAnisotropicTest, ValueAboveTheImplementationCapReachesTheDriverUnr
     tex_parameterf_(GL_TEXTURE_2D_, GL_TEXTURE_MAX_ANISOTROPY_EXT_, requested);
     GLfloat value_f = -1.0f;
     get_parameter_f_(GL_TEXTURE_2D_, GL_TEXTURE_MAX_ANISOTROPY_EXT_, &value_f);
-    EXPECT_FLOAT_EQ(value_f, requested);
+    EXPECT_TRUE(value_f == requested || value_f == cap)
+        << "read back " << value_f << " for a request of " << requested << " (cap " << cap
+        << "): neither the value as set nor the value clamped to the cap";
     EXPECT_EQ(get_error_(), GL_NO_ERROR_);
 }
 

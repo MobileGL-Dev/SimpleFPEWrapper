@@ -30,6 +30,7 @@ struct attrib_snapshot_t {
     GLenum fog_mode;
     GLint fog_index;
     GLenum fog_coord_src;
+    GLenum fog_distance_mode;
     glm::vec4 fog_color;
     GLfloat fog_density, fog_start, fog_end;
     // lighting
@@ -150,6 +151,7 @@ void glPushAttrib(GLbitfield mask) {
         snap.fog_mode = st.fog_mode;
         snap.fog_index = st.fog_index;
         snap.fog_coord_src = st.fog_coord_src;
+        snap.fog_distance_mode = st.fog_distance_mode;
         snap.fog_color = un.fog_color;
         snap.fog_density = un.fog_density;
         snap.fog_start = un.fog_start;
@@ -274,6 +276,7 @@ void glPopAttrib() {
         st.fog_mode = snap.fog_mode;
         st.fog_index = snap.fog_index;
         st.fog_coord_src = snap.fog_coord_src;
+        st.fog_distance_mode = snap.fog_distance_mode;
         un.fog_color = snap.fog_color;
         un.fog_density = snap.fog_density;
         un.fog_start = snap.fog_start;

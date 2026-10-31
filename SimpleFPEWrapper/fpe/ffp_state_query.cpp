@@ -350,6 +350,7 @@ bool fixedFunctionState(GLenum pname, T* values, int* count, bool* color, bool* 
     case GL_FOG_COLOR: return signal(glm::value_ptr(uni.fog_color), 4);
     case GL_FOG_INDEX: return scalar(ff.fog_index);
     case GL_FOG_COORD_SRC: return scalar(ff.fog_coord_src);
+    case GL_FOG_DISTANCE_MODE_NV: return scalar(ff.fog_distance_mode);
 
     // ---- lighting and materials ----
     case GL_LIGHT_MODEL_AMBIENT: return signal(glm::value_ptr(uni.light_model_ambient), 4);

@@ -523,6 +523,7 @@ struct fixed_function_state_t {
     GLenum fog_mode = GL_EXP;                        // glFogi(GL_FOG_MODE)
     GLint fog_index = 0;                             // glFogi(GL_FOG_INDEX)
     GLenum fog_coord_src = GL_FRAGMENT_DEPTH;        // glFogi(GL_FOG_COORD_SRC)
+    GLenum fog_distance_mode = GL_EYE_PLANE_ABSOLUTE_NV; // glFogi(GL_FOG_DISTANCE_MODE_NV)
     GLenum shade_model = GL_SMOOTH;                  // glShadeModel
     // glPointParameter*: only the active/non-active attenuation shape is a
     // shader key. Coefficients, limits and sizes remain uniforms.
@@ -895,6 +896,7 @@ struct program_hash_cache_t {
     GLenum fog_mode = 0;
     GLint fog_index = 0;
     GLenum fog_coord_src = 0;
+    GLenum fog_distance_mode = 0;
     GLenum shade_model = 0;
     bool point_attenuation_active = false;
     GLenum light_model_color_ctrl = 0;

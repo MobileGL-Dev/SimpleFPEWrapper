@@ -431,6 +431,9 @@ program_key_t glstate_t::program_hash(const vertex_pointer_array_t& va) {
     const GLenum canon_fog_mode = bools_now.fog_enable ? fpe_state.fog_mode : 0;
     const GLint canon_fog_index = bools_now.fog_enable ? fpe_state.fog_index : 0;
     const GLenum canon_fog_coord_src = bools_now.fog_enable ? fpe_state.fog_coord_src : 0;
+    // The distance mode only shapes a fog computed from the fragment depth.
+    const GLenum canon_fog_distance_mode =
+        bools_now.fog_enable && fpe_state.fog_coord_src != GL_FOG_COORD ? fpe_state.fog_distance_mode : 0;
     const GLenum canon_lm_color_ctrl =
         bools_now.lighting_enable ? fpe_state.light_model_color_ctrl : 0;
     const bool canon_lm_local_viewer =
@@ -448,6 +451,7 @@ program_key_t glstate_t::program_hash(const vertex_pointer_array_t& va) {
                    cache.fog_mode == canon_fog_mode &&
                    cache.fog_index == canon_fog_index &&
                    cache.fog_coord_src == canon_fog_coord_src &&
+                   cache.fog_distance_mode == canon_fog_distance_mode &&
                    cache.shade_model == fpe_state.shade_model &&
                    cache.point_attenuation_active == fpe_state.point_attenuation_active &&
                    cache.light_model_color_ctrl == canon_lm_color_ctrl &&
@@ -570,6 +574,7 @@ program_key_t glstate_t::program_hash(const vertex_pointer_array_t& va) {
     hash.add(&canon_fog_mode, sizeof(canon_fog_mode));
     hash.add(&canon_fog_index, sizeof(canon_fog_index));
     hash.add(&canon_fog_coord_src, sizeof(canon_fog_coord_src));
+    hash.add(&canon_fog_distance_mode, sizeof(canon_fog_distance_mode));
     hash.add(&fpe_state.shade_model, sizeof(fpe_state.shade_model));
     hash.add(&fpe_state.point_attenuation_active, sizeof(fpe_state.point_attenuation_active));
     hash.add(&canon_lm_color_ctrl, sizeof(canon_lm_color_ctrl));
@@ -619,6 +624,7 @@ program_key_t glstate_t::program_hash(const vertex_pointer_array_t& va) {
     cache.fog_mode = canon_fog_mode;
     cache.fog_index = canon_fog_index;
     cache.fog_coord_src = canon_fog_coord_src;
+    cache.fog_distance_mode = canon_fog_distance_mode;
     cache.shade_model = fpe_state.shade_model;
     cache.point_attenuation_active = fpe_state.point_attenuation_active;
     cache.light_model_color_ctrl = canon_lm_color_ctrl;

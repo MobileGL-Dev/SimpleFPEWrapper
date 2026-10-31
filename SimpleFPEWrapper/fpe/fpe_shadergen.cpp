@@ -2055,15 +2055,20 @@ void add_fs_body(const fixed_function_state_t& state, scratch_t& scratch, std::s
     // Fog calculation
     if (state.fpe_bools.fog_enable) {
         // GL_FOG_COORD_SRC (GL 1.4 core) picks between the interpolated
-        // eye-space depth and the per-vertex fog coordinate. Radial distance
-        // is a separate, optional NV extension and stays unimplemented.
-        // Per spec the fog coordinate is used unsigned.
+        // eye-space depth and the per-vertex fog coordinate; for the depth,
+        // GL_NV_fog_distance picks the measure - the distance to the eye
+        // (radial), the signed or the absolute distance to the eye plane
+        // (the default). Per spec the fog coordinate is used unsigned.
         if (state.fog_coord_src == GL_FOG_COORD && scratch.has_fog_coord_input) {
             fs += "    float distance = abs(vertexFogCoord);\n";
         } else if (state.fog_coord_src == GL_FOG_COORD) {
             // Source selected but nothing feeds the coordinate: GL then uses
             // the current value, which without any glFogCoord* call is 0.
             fs += "    float distance = 0.0;\n";
+        } else if (state.fog_distance_mode == GL_EYE_RADIAL_NV) {
+            fs += "    float distance = length(vViewPosition.xyz);\n";
+        } else if (state.fog_distance_mode == GL_EYE_PLANE) {
+            fs += "    float distance = -vViewPosition.z;\n";
         } else {
             fs += "    float distance = abs(vViewPosition.z);\n";
         }

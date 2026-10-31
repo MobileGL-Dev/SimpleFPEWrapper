@@ -63,6 +63,7 @@ const char* const kDesktopExtensions[] = {
     "GL_EXT_blend_subtract",
     "GL_EXT_blend_color",
     "GL_EXT_fog_coord",
+    "GL_NV_fog_distance",
     "GL_EXT_secondary_color",
     "GL_EXT_color_table",
     "GL_EXT_color_subtable",

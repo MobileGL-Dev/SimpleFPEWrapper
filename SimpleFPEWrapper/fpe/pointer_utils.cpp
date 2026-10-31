@@ -44,6 +44,7 @@ int PointerUtils::pname_to_count(GLenum pname) {
     case GL_FOG_MODE: // fog
     case GL_FOG_INDEX:
     case GL_FOG_COORD_SRC:
+    case GL_FOG_DISTANCE_MODE_NV:
     case GL_FOG_DENSITY:
     case GL_FOG_START:
     case GL_FOG_END:

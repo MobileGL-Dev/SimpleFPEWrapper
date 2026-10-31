@@ -9,12 +9,14 @@
 // Numeric fog verification: every fog factor is computed on the CPU from
 // the GL 2.1 formulas and compared against what the wrapper renders, so a
 // wrong distance, a flipped mix or an ignored state shows up as a number
-// rather than as "the fog looks odd". Covers GL_LINEAR / GL_EXP / GL_EXP2
-// and both GL_FOG_COORD_SRC sources (GL 1.4 core).
+// rather than as "the fog looks odd". Covers GL_LINEAR / GL_EXP / GL_EXP2,
+// both GL_FOG_COORD_SRC sources (GL 1.4 core) and GL_NV_fog_distance's
+// three distance measures.
 
 #include "sfpew_gtest.h"
 
 #include <cmath>
+#include <cstring>
 #include <optional>
 
 namespace {
@@ -45,6 +47,13 @@ constexpr GLenum GL_EXP_ = 0x0800;
 constexpr GLenum GL_EXP2_ = 0x0801;
 constexpr GLenum GL_PROJECTION_ = 0x1701;
 constexpr GLenum GL_MODELVIEW_ = 0x1700;
+constexpr GLenum GL_FOG_DISTANCE_MODE_NV_ = 0x855A;
+constexpr GLenum GL_EYE_RADIAL_NV_ = 0x855B;
+constexpr GLenum GL_EYE_PLANE_ABSOLUTE_NV_ = 0x855C;
+constexpr GLenum GL_EYE_PLANE_ = 0x2502;
+constexpr GLenum GL_FOG_BIT_ = 0x00000080;
+constexpr GLenum GL_EXTENSIONS_ = 0x1F03;
+constexpr GLenum GL_INVALID_ENUM_ = 0x0500;
 
 class FogTest : public ContextTest {
 protected:
@@ -68,6 +77,8 @@ protected:
         matrix_mode_ = Get<void (*)(GLenum)>("glMatrixMode");
         load_identity_ = Get<void (*)()>("glLoadIdentity");
         ortho_ = Get<void (*)(double, double, double, double, double, double)>("glOrtho");
+        translatef_ = Get<void (*)(GLfloat, GLfloat, GLfloat)>("glTranslatef");
+        get_integerv_ = Get<void (*)(GLenum, GLint*)>("glGetIntegerv");
         get_error_ = Get<GLenum (*)()>("glGetError");
         auto read_pixels =
             Get<void (*)(GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, void*)>("glReadPixels");
@@ -125,6 +136,8 @@ protected:
     void (*matrix_mode_)(GLenum) = nullptr;
     void (*load_identity_)() = nullptr;
     void (*ortho_)(double, double, double, double, double, double) = nullptr;
+    void (*translatef_)(GLfloat, GLfloat, GLfloat) = nullptr;
+    void (*get_integerv_)(GLenum, GLint*) = nullptr;
     GLenum (*get_error_)() = nullptr;
     std::optional<PixelProbe> probe_;
 };
@@ -176,6 +189,68 @@ TEST_F(FogTest, FogCoordSrcSelectsTheDistanceSource) {
     DrawAtDepth(90.0f, 25.0f, true);
     ExpectFactor("FRAGMENT_DEPTH src back: depth=90", 0.10f);
 
+    EXPECT_EQ(get_error_(), 0u);
+}
+
+// GL_NV_fog_distance. The modelview moves the quad 30 units to the side in
+// eye space and the projection moves it back, so the probed centre pixel
+// sits at eye position (30, 0, -40): 50 from the eye, 40 from its plane.
+// Minecraft selects the radial measure whenever the extension is offered,
+// and without it the clouds overhead - near the eye plane, far from the
+// eye - come out unfogged.
+TEST_F(FogTest, FogDistanceModeSelectsTheDistanceMeasure) {
+    fogi_(GL_FOG_MODE_, GL_LINEAR_);
+    fogf_(GL_FOG_START_, 0.0f);
+    fogf_(GL_FOG_END_, 100.0f);
+    matrix_mode_(GL_PROJECTION_);
+    translatef_(-30.0f, 0.0f, 0.0f);
+    matrix_mode_(GL_MODELVIEW_);
+    translatef_(30.0f, 0.0f, 0.0f);
+
+    DrawAtDepth(40.0f, 0, false);
+    ExpectFactor("default (absolute eye plane): distance 40", 0.6f);
+    fogi_(GL_FOG_DISTANCE_MODE_NV_, GL_EYE_RADIAL_NV_);
+    DrawAtDepth(40.0f, 0, false);
+    ExpectFactor("EYE_RADIAL: distance 50", 0.5f);
+    fogi_(GL_FOG_DISTANCE_MODE_NV_, GL_EYE_PLANE_ABSOLUTE_NV_);
+    DrawAtDepth(40.0f, 0, false);
+    ExpectFactor("EYE_PLANE_ABSOLUTE: distance 40", 0.6f);
+
+    // Behind the eye plane the signed measure goes negative - a linear
+    // factor above one, clamped - where the absolute one does not.
+    DrawAtDepth(-40.0f, 0, false);
+    ExpectFactor("EYE_PLANE_ABSOLUTE behind the eye: distance 40", 0.6f);
+    fogi_(GL_FOG_DISTANCE_MODE_NV_, GL_EYE_PLANE_);
+    DrawAtDepth(-40.0f, 0, false);
+    ExpectFactor("EYE_PLANE behind the eye: distance -40", 1.0f);
+
+    EXPECT_EQ(get_error_(), 0u);
+}
+
+TEST_F(FogTest, FogDistanceModeIsQueryableValidatedAndPartOfTheFogBit) {
+    auto get_string = Get<const GLubyte* (*)(GLenum)>("glGetString");
+    auto push_attrib = Get<void (*)(GLbitfield)>("glPushAttrib");
+    auto pop_attrib = Get<void (*)()>("glPopAttrib");
+    const char* extensions = reinterpret_cast<const char*>(get_string(GL_EXTENSIONS_));
+    ASSERT_NE(extensions, nullptr);
+    EXPECT_NE(std::strstr(extensions, "GL_NV_fog_distance"), nullptr) << "extension not advertised";
+
+    GLint mode = 0;
+    get_integerv_(GL_FOG_DISTANCE_MODE_NV_, &mode);
+    EXPECT_EQ(mode, static_cast<GLint>(GL_EYE_PLANE_ABSOLUTE_NV_)) << "the specified initial value";
+
+    fogi_(GL_FOG_DISTANCE_MODE_NV_, GL_LINEAR_);
+    EXPECT_EQ(get_error_(), GL_INVALID_ENUM_);
+    get_integerv_(GL_FOG_DISTANCE_MODE_NV_, &mode);
+    EXPECT_EQ(mode, static_cast<GLint>(GL_EYE_PLANE_ABSOLUTE_NV_)) << "a rejected value changed the mode";
+
+    push_attrib(GL_FOG_BIT_);
+    fogi_(GL_FOG_DISTANCE_MODE_NV_, GL_EYE_RADIAL_NV_);
+    get_integerv_(GL_FOG_DISTANCE_MODE_NV_, &mode);
+    EXPECT_EQ(mode, static_cast<GLint>(GL_EYE_RADIAL_NV_));
+    pop_attrib();
+    get_integerv_(GL_FOG_DISTANCE_MODE_NV_, &mode);
+    EXPECT_EQ(mode, static_cast<GLint>(GL_EYE_PLANE_ABSOLUTE_NV_)) << "GL_FOG_BIT did not restore it";
     EXPECT_EQ(get_error_(), 0u);
 }
 

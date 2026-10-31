@@ -124,6 +124,7 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         SimpleFPEWrapper/texture_image.cpp
         SimpleFPEWrapper/egl_dispatch.cpp
         SimpleFPEWrapper/lookup.cpp
+        SimpleFPEWrapper/egl_exports.cpp
         SimpleFPEWrapper/ordered_passthrough.cpp
 
         SimpleFPEWrapper/backend/loader.cpp
@@ -375,7 +376,7 @@ if(NOT ANDROID)
                                        color_sum logicop line_stipple texture_3d_cube
                                        read_buffer point_sprite texgen_cube
                                        drawpixels_stencil pixel_transfer_readback lod_bias
-                                       depth_texture_mode texture_shadow texture_parameter_cache proxy_texture current_attrib_cache
+                                       depth_texture_mode texture_shadow texture_parameter_cache proxy_texture current_attrib_cache egl_exports
                                        texture_anisotropic texture_compressed_2d
                                        texture_border_clamp occlusion_query
                                        texture_env_crossbar multitexture_unit_validation

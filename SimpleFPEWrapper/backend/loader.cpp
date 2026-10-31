@@ -450,10 +450,10 @@ namespace SFPEW::Utils::BackendLoader {
     }
 
     bool AcquireEGLFunctions(External::EGLFunctionsTable& funcs, std::string customLibPath) {
-        std::vector<std::string> EGLLibNames = {"libEGL.so"};
-        if (!customLibPath.empty()) {
-            EGLLibNames.insert(EGLLibNames.begin(), customLibPath);
-        }
+        // Exactly the library asked for: falling back to the system libEGL when
+        // a configured backend fails to load would run a different backend
+        // than the one chosen, with nothing to say so.
+        const std::vector<std::string> EGLLibNames = {customLibPath.empty() ? std::string("libEGL.so") : customLibPath};
         void* eglLib = OpenLib(EGLLibNames);
         if (!eglLib) {
             return false;

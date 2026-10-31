@@ -190,6 +190,7 @@ void glDeleteTextures(GLsizei n, const GLuint* textures) {
         gs.texture_depth_mode.erase(textures[i]);
         gs.texture_compare_mode.erase(textures[i]);
         gs.texture_sampling.erase(textures[i]);
+        gs.texture_lod_bias.erase(textures[i]);
         sfpewForgetTextureMetadata(textures[i]);
     }
 }

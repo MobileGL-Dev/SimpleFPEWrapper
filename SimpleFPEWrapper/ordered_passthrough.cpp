@@ -691,6 +691,36 @@ void forgetTextureSampling(GLenum target, GLenum pname) {
     if (it != cache.end()) it->second[slot] = 0;
 }
 
+// GL 1.4's per-texture GL_TEXTURE_LOD_BIAS. A desktop backend stores it on
+// the texture; GLES has no such parameter and rejects it, so there the
+// wrapper keeps it (glstate_t::texture_lod_bias) and the generated shader
+// samples with it. True when the call was taken care of here.
+bool handleTextureLodBias(GLenum target, GLenum pname, GLfloat value) {
+    if (pname != GL_TEXTURE_LOD_BIAS || !sfpewBackendIsES()) return false;
+    if (target == GL_TEXTURE_1D) target = GL_TEXTURE_2D;
+    if (!validTextureParameterTarget(target)) {
+        g_glstate.set_error(GL_INVALID_ENUM);
+        return true;
+    }
+    auto& biases = g_glstate_c.texture_lod_bias;
+    const GLuint texture = sfpewLogicalTextureBinding(target);
+    if (value == 0.0f)
+        biases.erase(texture);
+    else
+        biases[texture] = value;
+    return true;
+}
+
+// What handleTextureLodBias kept for the bound texture, if it keeps it.
+bool textureLodBias(GLenum target, GLenum pname, GLfloat* value) {
+    if (pname != GL_TEXTURE_LOD_BIAS || !sfpewBackendIsES()) return false;
+    if (target == GL_TEXTURE_1D) target = GL_TEXTURE_2D;
+    const auto& biases = g_glstate_c.texture_lod_bias;
+    const auto it = biases.find(sfpewLogicalTextureBinding(target));
+    *value = it == biases.end() ? 0.0f : it->second;
+    return true;
+}
+
 GLint compatibleTextureParameter(GLenum pname, GLint param) {
     // GL_CLAMP was removed from the programmable/core and GLES profiles used
     // by SFPEW's backends.  Legacy games still use it for projected textures
@@ -819,6 +849,7 @@ void glGetTexParameterfv(GLenum target, GLenum pname, GLfloat* params) {
     }
     if (!sfpewEnsureBackend() || g_glFuncs.glGetTexParameterfv == nullptr) return;
     sfpewEntryBarrier();
+    if (validTextureGetParameterTarget(target) && textureLodBias(target, pname, params)) return;
     g_glFuncs.glGetTexParameterfv(textureParameterTarget(target), pname, params);
 }
 
@@ -843,6 +874,11 @@ void glGetTexParameteriv(GLenum target, GLenum pname, GLint* params) {
     }
     if (!sfpewEnsureBackend() || g_glFuncs.glGetTexParameteriv == nullptr) return;
     sfpewEntryBarrier();
+    GLfloat bias = 0.0f;
+    if (validTextureGetParameterTarget(target) && textureLodBias(target, pname, &bias)) {
+        *params = static_cast<GLint>(std::lround(bias));
+        return;
+    }
     g_glFuncs.glGetTexParameteriv(textureParameterTarget(target), pname, params);
 }
 
@@ -851,6 +887,7 @@ void glTexParameterf(GLenum target, GLenum pname, GLfloat param) {
     sfpewClientStateBarrier();
     LIST_RECORD(glTexParameterf, {}, target, pname, param)
     if (sfpewHandleGenerateMipmapParam(target, pname, (GLint)param)) return;
+    if (handleTextureLodBias(target, pname, param)) return;
     sfpewRecordTextureCompareMode(target, pname, static_cast<GLint>(param));
     if (pname == GL_TEXTURE_PRIORITY) {
         if (target == GL_TEXTURE_1D) target = GL_TEXTURE_2D;
@@ -891,6 +928,7 @@ void glTexParameterfv(GLenum target, GLenum pname, const GLfloat* params) {
     LIST_RECORD(glTexParameterfv,
                 {{2, (pname == GL_TEXTURE_BORDER_COLOR ? 4u : 1u) * sizeof(GLfloat)}}, target, pname,
                 params)
+    if (handleTextureLodBias(target, pname, params[0])) return;
     sfpewRecordTextureCompareMode(target, pname, static_cast<GLint>(params[0]));
     if (pname == GL_TEXTURE_PRIORITY) {
         if (target == GL_TEXTURE_1D) target = GL_TEXTURE_2D;
@@ -932,6 +970,7 @@ void glTexParameteri(GLenum target, GLenum pname, GLint param) {
     sfpewClientStateBarrier();
     LIST_RECORD(glTexParameteri, {}, target, pname, param)
     if (sfpewHandleGenerateMipmapParam(target, pname, param)) return;
+    if (handleTextureLodBias(target, pname, static_cast<GLfloat>(param))) return;
     sfpewRecordTextureCompareMode(target, pname, param);
     if (pname == GL_TEXTURE_PRIORITY) {
         if (target == GL_TEXTURE_1D) target = GL_TEXTURE_2D;
@@ -983,6 +1022,7 @@ void glTexParameteriv(GLenum target, GLenum pname, const GLint* params) {
     LIST_RECORD(glTexParameteriv,
                 {{2, (pname == GL_TEXTURE_BORDER_COLOR ? 4u : 1u) * sizeof(GLint)}}, target, pname,
                 params)
+    if (handleTextureLodBias(target, pname, static_cast<GLfloat>(params[0]))) return;
     sfpewRecordTextureCompareMode(target, pname, params[0]);
     if (pname == GL_TEXTURE_PRIORITY) {
         if (target == GL_TEXTURE_1D) target = GL_TEXTURE_2D;

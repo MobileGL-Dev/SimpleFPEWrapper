@@ -1016,6 +1016,13 @@ struct glstate_t {
     // forget what they change, and glDeleteTextures drops the name.
     unordered_map<GLuint, std::array<GLint, 4>> texture_sampling;
 
+    // GL 1.4's per-texture GL_TEXTURE_LOD_BIAS on a GLES backend, which has
+    // no such parameter: kept per texture name and added to the unit's
+    // GL_TEXTURE_FILTER_CONTROL bias in the generated shader - GL samples
+    // with the sum of the two. Absent entries are the default 0. A desktop
+    // backend stores the parameter itself and nothing is kept here.
+    unordered_map<GLuint, GLfloat> texture_lod_bias;
+
     // Selection / feedback (plans/10 10.3). CPU transform results only;
     // nothing reaches the GPU while render_mode != GL_RENDER.
     GLenum render_mode = GL_RENDER;

@@ -265,7 +265,22 @@ void glstate_t::send_uniforms(program_t& program) {
             values.texture_env_color[i] = env_color;
         }
 
-        const auto lod_bias = fpe_uniform.texture_env[i].lod_bias;
+        GLfloat lod_bias = fpe_uniform.texture_env[i].lod_bias;
+        if (!texture_lod_bias.empty()) {
+            // The bound texture's own bias, where the wrapper keeps it
+            // (texture_lod_bias, GLES backends): GL samples with the sum.
+            GLenum target = GL_NONE;
+            switch (active_texture_target(fpe_state, i)) {
+            case texture_target_kind_t::tex2d: target = GL_TEXTURE_2D; break;
+            case texture_target_kind_t::tex3d: target = GL_TEXTURE_3D; break;
+            case texture_target_kind_t::cube: target = GL_TEXTURE_CUBE_MAP; break;
+            case texture_target_kind_t::none: break;
+            }
+            if (target != GL_NONE) {
+                const auto it = texture_lod_bias.find(sfpewLogicalTextureBindingForUnit(GL_TEXTURE0 + i, target));
+                if (it != texture_lod_bias.end()) lod_bias += it->second;
+            }
+        }
         if (differs(lod_bias, values.lod_bias[i])) {
             if (locations.lod_bias[i] >= 0) g_glFuncs.glUniform1f(locations.lod_bias[i], lod_bias);
             values.lod_bias[i] = lod_bias;

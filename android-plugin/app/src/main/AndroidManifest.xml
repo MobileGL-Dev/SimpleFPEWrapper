@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- MobileGlues reads its settings from /sdcard/MG/config.json, which the
+         settings screen edits: all-files access from Android 11, the storage
+         permissions before it. -->
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29" />
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+
+    <application
+        android:hasCode="true"
+        android:label="${appLabel}"
+        android:requestLegacyExternalStorage="true"
+        android:theme="@android:style/Theme.Material.Light.DarkActionBar">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- The renderer config (app/build.gradle.kts) and the titles of its options. -->
+        <meta-data
+            android:name="fclPlugin_V2"
+            android:resource="@string/config" />
+        <meta-data
+            android:name="sfpew_backend_title"
+            android:resource="@string/sfpew_backend_title" />
+        <meta-data
+            android:name="sfpew_relaxed_context_title"
+            android:resource="@string/sfpew_relaxed_context_title" />
+        <meta-data
+            android:name="sfpew_no_mipmap_repair_title"
+            android:resource="@string/sfpew_no_mipmap_repair_title" />
+        <meta-data
+            android:name="sfpew_no_multidrawarrays_title"
+            android:resource="@string/sfpew_no_multidrawarrays_title" />
+        <meta-data
+            android:name="sfpew_no_list_batch_title"
+            android:resource="@string/sfpew_no_list_batch_title" />
+        <meta-data
+            android:name="sfpew_no_list_arena_title"
+            android:resource="@string/sfpew_no_list_arena_title" />
+        <meta-data
+            android:name="sfpew_dump_shaders_title"
+            android:resource="@string/sfpew_dump_shaders_title" />
+        <meta-data
+            android:name="mobilegl_backend_type_title"
+            android:resource="@string/mobilegl_backend_type_title" />
+        <meta-data
+            android:name="mobilegl_disable_timerquery_title"
+            android:resource="@string/mobilegl_disable_timerquery_title" />
+        <meta-data
+            android:name="mobilegl_subgroup_emulation_title"
+            android:resource="@string/mobilegl_subgroup_emulation_title" />
+        <meta-data
+            android:name="mobilegl_magma_r11g11b10f_fallback_title"
+            android:resource="@string/mobilegl_magma_r11g11b10f_fallback_title" />
+        <meta-data
+            android:name="mobilegl_frames_inflight_title"
+            android:resource="@string/mobilegl_frames_inflight_title" />
+        <meta-data
+            android:name="mobilegl_avoid_sampler_mipmap_min_filter_title"
+            android:resource="@string/mobilegl_avoid_sampler_mipmap_min_filter_title" />
+        <meta-data
+            android:name="mobilegl_coherent_as_flush_title"
+            android:resource="@string/mobilegl_coherent_as_flush_title" />
+        <meta-data
+            android:name="mobilegl_relaxed_semantics_title"
+            android:resource="@string/mobilegl_relaxed_semantics_title" />
+        <meta-data
+            android:name="mobilegl_use_angle_title"
+            android:resource="@string/mobilegl_use_angle_title" />
+        <meta-data
+            android:name="about_title"
+            android:resource="@string/about_title" />
+        <meta-data
+            android:name="mobileglues_title"
+            android:resource="@string/mobileglues_title" />
+
+        <!-- The legacy (V1) plugin manifest, for launchers before the config above. -->
+        <meta-data
+            android:name="fclPlugin"
+            android:value="true" />
+        <meta-data
+            android:name="des"
+            android:value="${des}" />
+        <meta-data
+            android:name="renderer"
+            android:value="${renderer}" />
+        <meta-data
+            android:name="boatEnv"
+            android:value="${boatEnv}" />
+        <meta-data
+            android:name="pojavEnv"
+            android:value="${pojavEnv}" />
+    </application>
+
+</manifest>

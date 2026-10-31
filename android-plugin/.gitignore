@@ -1,0 +1,6 @@
+.gradle/
+build/
+local.properties
+# The backends' sources, checked out by the workflow (or by hand) for the
+# build to compile: see settings.gradle.kts.
+backends/

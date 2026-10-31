@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="sfpew_backend_title">SFPEW：后端（libEGL.so = 系统 GLES）</string>
+    <string name="sfpew_relaxed_context_title">SFPEW：每线程只用一个上下文（加快上下文查找）</string>
+    <string name="sfpew_no_mipmap_repair_title">SFPEW：关闭 mipmap 链修复</string>
+    <string name="sfpew_no_multidrawarrays_title">SFPEW：不使用后端的 glMultiDrawArrays</string>
+    <string name="sfpew_no_list_batch_title">SFPEW：关闭显示列表合批</string>
+    <string name="sfpew_no_list_arena_title">SFPEW：关闭显示列表缓冲区池</string>
+    <string name="sfpew_dump_shaders_title">SFPEW：把翻译后的着色器导出到此目录</string>
+    <string name="mobilegl_backend_type_title">MobileGL：渲染后端</string>
+    <string name="mobilegl_disable_timerquery_title">MobileGL：禁用 GPU 计时查询</string>
+    <string name="mobilegl_subgroup_emulation_title">MobileGL：着色器子组模拟</string>
+    <string name="mobilegl_magma_r11g11b10f_fallback_title">MobileGL：使用 Magma R11G11B10F 回退</string>
+    <string name="mobilegl_frames_inflight_title">MobileGL：同时在途的帧数（1-64）</string>
+    <string name="mobilegl_avoid_sampler_mipmap_min_filter_title">MobileGL：避免采样器 mipmap 缩小过滤</string>
+    <string name="mobilegl_coherent_as_flush_title">MobileGL：把显式刷新的持久映射视为一致映射</string>
+    <string name="mobilegl_relaxed_semantics_title">MobileGL：宽松 GL 语义（兼容旧程序）</string>
+    <string name="mobilegl_use_angle_title">MobileGL：使用 ANGLE GLES 库</string>
+
+    <string name="about_title">SFPEW 渲染器插件</string>
+    <string name="about_body">在启动器中选择此渲染器。启动器里的选项决定 SFPEW 运行在哪个后端上，并设置 SFPEW 与 MobileGL 的开关；MobileGlues 的设置读自 %1$s，在下面编辑。</string>
+    <string name="bundled_backends">内置后端：%1$s</string>
+    <string name="backend_system">系统 GLES/EGL（libEGL.so）</string>
+    <string name="mobileglues_title">MobileGlues 设置</string>
+    <string name="mobileglues_absent">此版本未内置 MobileGlues 后端。</string>
+    <string name="storage_needed">MobileGlues 读取 %1$s，编辑它需要共享存储的访问权限。</string>
+    <string name="grant_storage">授予存储权限</string>
+    <string name="save">保存</string>
+    <string name="saved">已保存到 %1$s</string>
+    <string name="save_failed">保存失败：%1$s</string>
+    <string name="load_failed">无法读取 %1$s，未作改动：%2$s</string>
+    <string name="angle">ANGLE</string>
+    <string name="no_error">忽略 GL 错误</string>
+    <string name="depth_clear_fix">ANGLE 深度清除修复</string>
+    <string name="gl_version">报告的 OpenGL 版本</string>
+    <string name="glsl_cache">GLSL 缓存大小（MiB，0 = 关闭）</string>
+    <string name="ext_compute_shader">启用 GL_ARB_compute_shader</string>
+    <string name="ext_timer_query">启用 GL_ARB_timer_query</string>
+    <string name="ext_dsa">启用 GL_ARB_direct_state_access</string>
+    <string name="fsr1">FSR 1 超分辨率</string>
+    <string-array name="angle_options">
+        <item>尽可能禁用</item>
+        <item>尽可能启用</item>
+        <item>强制禁用</item>
+        <item>强制启用</item>
+    </string-array>
+    <string-array name="no_error_options">
+        <item>自动</item>
+        <item>不忽略</item>
+        <item>忽略着色器/程序错误</item>
+        <item>忽略着色器/程序/帧缓冲错误</item>
+    </string-array>
+    <string-array name="depth_clear_fix_options">
+        <item>关闭</item>
+        <item>模式 1</item>
+    </string-array>
+    <string name="gl_version_default">默认</string>
+</resources>

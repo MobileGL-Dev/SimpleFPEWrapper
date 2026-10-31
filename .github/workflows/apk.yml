@@ -92,16 +92,9 @@ jobs:
         working-directory: android-plugin/backends/MobileGL/3rdparty/glslang
         run: python update_glslang_sources.py
 
-      # The release key, when the repository has one; without it the build
-      # signs with the debug key, so a fork's APK still installs.
-      - name: Install signing key
-        env:
-          SIGNING_KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
-        run: |
-          if [ -n "${SIGNING_KEYSTORE_BASE64}" ]; then
-            echo "${SIGNING_KEYSTORE_BASE64}" | base64 -d > android-plugin/keystore.jks
-          fi
-
+      # Signed with MobileGL's key (android-plugin/keystore.jks, the same file
+      # MobileGL's plugin commits) when the repository has its passwords as
+      # secrets; without them, with the debug key, so a fork's APK still installs.
       - name: Build plugin APK
         run: ./gradlew --no-daemon :app:assembleRelease -Psfpew.apkSuffix="${GITHUB_SHA}" --max-workers "$(nproc)"
         working-directory: android-plugin

@@ -37,6 +37,7 @@ git clone --recurse-submodules -b dev https://github.com/MobileGL-Dev/MobileGL.g
 ./gradlew :app:assembleRelease          # JDK 17+; arm64-v8a, or -Psfpew.abis=...
 ```
 
-The APK is signed with `keystore.jks` and `SIGNING_*` from the environment
-when present, with the debug key otherwise. `.github/workflows/apk.yml` builds
+The APK is signed with `keystore.jks` - MobileGL's plugin key, the same file
+MobileGL commits - when `SIGNING_STORE_PASSWORD`, `SIGNING_KEY_ALIAS` and
+`SIGNING_KEY_PASSWORD` are in the environment, with the debug key otherwise. `.github/workflows/apk.yml` builds
 it the same way on every push.

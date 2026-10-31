@@ -1256,29 +1256,29 @@ bool sfpewPrepareBgraUpload(GLsizei width, GLsizei height, GLenum type, const vo
         source = static_cast<const uint8_t*>(pixels);
     }
 
+    // Grown, never shrunk: resizing to each upload's own size zero-fills
+    // whatever it grows back into, a pass over bytes about to be overwritten.
     thread_local std::vector<uint8_t> scratch;
-    scratch.resize((size_t)width * (size_t)height * 4u);
-    SFPEW_PERF_TIMED(copy_bgra_convert, scratch.size());
+    const size_t converted_size = (size_t)width * (size_t)height * 4u;
+    if (scratch.size() < converted_size) scratch.resize(converted_size);
+    SFPEW_PERF_TIMED(copy_bgra_convert, converted_size);
     for (size_t row = 0; row < (size_t)height; ++row) {
         const uint8_t* in = source + start + row * row_px * 4u;
         uint8_t* line = scratch.data() + row * (size_t)width * 4u;
-        if (type == GL_UNSIGNED_INT_8_8_8_8) {
-            // Big-endian component packing: bytes in memory are A,R,G,B on a
-            // little-endian host.
-            for (size_t px = 0; px < (size_t)width * 4u; px += 4) {
-                line[px + 0] = in[px + 1];
-                line[px + 1] = in[px + 2];
-                line[px + 2] = in[px + 3];
-                line[px + 3] = in[px + 0];
+        // Whole pixels as little-endian words, which vectorizes; memcpy keeps
+        // the unaligned source and destination defined.
+        for (size_t px = 0; px < (size_t)width * 4u; px += 4) {
+            uint32_t v;
+            std::memcpy(&v, in + px, 4);
+            if (type == GL_UNSIGNED_INT_8_8_8_8) {
+                // Big-endian component packing: bytes in memory are A,R,G,B
+                // on a little-endian host.
+                v = (v >> 8) | (v << 24);
+            } else {
+                // GL_UNSIGNED_BYTE and _REV both lay the bytes out B,G,R,A.
+                v = (v & 0xFF00FF00u) | ((v >> 16) & 0xFFu) | ((v & 0xFFu) << 16);
             }
-        } else {
-            // GL_UNSIGNED_BYTE and _REV both lay the bytes out B,G,R,A.
-            for (size_t px = 0; px < (size_t)width * 4u; px += 4) {
-                line[px + 0] = in[px + 2];
-                line[px + 1] = in[px + 1];
-                line[px + 2] = in[px + 0];
-                line[px + 3] = in[px + 3];
-            }
+            std::memcpy(line + px, &v, 4);
         }
     }
 

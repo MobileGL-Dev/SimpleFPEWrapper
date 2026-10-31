@@ -843,6 +843,45 @@ client_array_kind_t classifyClientArrays(const vertex_pointer_array_t& raw, GLui
     return client_array_kind_t::mixed;
 }
 
+namespace {
+
+// One attribute's elements, src_stride apart, into every dst_stride-th slot
+// of an interleaved stream. A memcpy of a constant size compiles to a few
+// moves; one of a runtime size is a library call per vertex - an order of
+// magnitude slower over a whole draw. The common element sizes get the
+// former.
+template <size_t Bytes>
+void copyStridedElements(uint8_t* dst, size_t dst_stride, const uint8_t* src, size_t src_stride, GLsizei count) {
+    for (GLsizei v = 0; v < count; ++v) std::memcpy(dst + (size_t)v * dst_stride, src + (size_t)v * src_stride, Bytes);
+}
+
+void copyStridedElements(uint8_t* dst, size_t dst_stride, const uint8_t* src, size_t src_stride, GLsizei count,
+                         size_t bytes) {
+    switch (bytes) {
+    case 4:
+        return copyStridedElements<4>(dst, dst_stride, src, src_stride, count);
+    case 8:
+        return copyStridedElements<8>(dst, dst_stride, src, src_stride, count);
+    case 12:
+        return copyStridedElements<12>(dst, dst_stride, src, src_stride, count);
+    case 16:
+        return copyStridedElements<16>(dst, dst_stride, src, src_stride, count);
+    default:
+        for (GLsizei v = 0; v < count; ++v)
+            std::memcpy(dst + (size_t)v * dst_stride, src + (size_t)v * src_stride, bytes);
+    }
+}
+
+// The gathers' output buffer, grown and never shrunk: resizing it to each
+// draw's own size zero-fills whatever it grows back into, a pass over bytes
+// the gather is about to overwrite.
+uint8_t* gatherScratch(std::vector<uint8_t>& buffer, size_t size) {
+    if (buffer.size() < size) buffer.resize(size);
+    return buffer.data();
+}
+
+} // namespace
+
 // Multiple INDEPENDENT client-memory arrays (classic GL 1.1: separate
 // glVertexPointer/glColorPointer allocations) cannot be expressed by
 // normalize()'s single interleave stride. Gather them into one interleaved
@@ -900,7 +939,7 @@ bool gather_client_arrays(const vertex_pointer_array_t& raw, GLint first, GLsize
     static thread_local std::vector<uint8_t> gathered;
     const size_t total_size = (size_t)count * total_stride;
     if (total_size > (size_t)std::numeric_limits<GLsizei>::max()) return false;
-    gathered.resize(total_size);
+    uint8_t* const stream = gatherScratch(gathered, total_size);
     SFPEW_PERF_TIMED(copy_client_gather, total_size);
 
     *out = raw;
@@ -911,15 +950,12 @@ bool gather_client_arrays(const vertex_pointer_array_t& raw, GLint first, GLsize
         const size_t src_stride =
             attr.stride != 0 ? (size_t)attr.stride : element_bytes[i];
         const auto* src = static_cast<const uint8_t*>(attr.pointer) + (size_t)first * src_stride;
-        uint8_t* dst = gathered.data() + attribute_offset;
-        for (GLsizei v = 0; v < count; ++v)
-            std::memcpy(dst + (size_t)v * total_stride, src + (size_t)v * src_stride,
-                        element_bytes[i]);
+        copyStridedElements(stream + attribute_offset, total_stride, src, src_stride, count, element_bytes[i]);
         out->attributes[i].pointer = (const void*)attribute_offset;
         out->attributes[i].stride = (GLsizei)total_stride;
         attribute_offset += element_bytes[i];
     }
-    out->starting_pointer = gathered.data();
+    out->starting_pointer = stream;
     out->stride = (GLsizei)total_stride;
     return true;
 }
@@ -998,7 +1034,7 @@ bool gather_mixed_client_arrays(const vertex_pointer_array_t& raw, GLint first, 
 
     static thread_local std::vector<uint8_t> gathered;
     static thread_local std::vector<uint8_t> attribute_scratch;
-    gathered.resize(total_size);
+    uint8_t* const stream = gatherScratch(gathered, total_size);
     SFPEW_PERF_TIMED(copy_client_gather, total_size);
 
     *out = raw;
@@ -1010,7 +1046,7 @@ bool gather_mixed_client_arrays(const vertex_pointer_array_t& raw, GLint first, 
                                    attribute_scratch)) {
             return false;
         }
-        uint8_t* dst = gathered.data() + attribute_offset;
+        uint8_t* dst = stream + attribute_offset;
         if (attr.type == GL_DOUBLE) {
             for (GLsizei v = 0; v < count; ++v) {
                 for (GLint c = 0; c < attr.size; ++c) {
@@ -1025,17 +1061,14 @@ bool gather_mixed_client_arrays(const vertex_pointer_array_t& raw, GLint first, 
             }
             out->attributes[i].type = GL_FLOAT;
         } else {
-            for (GLsizei v = 0; v < count; ++v) {
-                std::memcpy(dst + (size_t)v * total_stride,
-                            attribute_scratch.data() + (size_t)v * element_bytes[i],
-                            element_bytes[i]);
-            }
+            copyStridedElements(dst, total_stride, attribute_scratch.data(), element_bytes[i], count,
+                                element_bytes[i]);
         }
         out->attributes[i].pointer = (const void*)attribute_offset;
         out->attributes[i].stride = (GLsizei)total_stride;
         attribute_offset += element_bytes[i];
     }
-    out->starting_pointer = gathered.data();
+    out->starting_pointer = stream;
     out->stride = (GLsizei)total_stride;
     return true;
 }

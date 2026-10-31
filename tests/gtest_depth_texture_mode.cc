@@ -7,8 +7,10 @@
 // End of Source File Header
 
 // GL_ARB_depth_texture: GL_DEPTH_COMPONENT/16/24/32F pass straight through to
-// the backend unmodified (both GLES3 and desktop GL3 core accept them
-// natively), so the base upload-and-sample path needs no wrapper code. What
+// the backend (both GLES3 and desktop GL3 core accept them natively), except
+// that GLES takes the unsized GL_DEPTH_COMPONENT only with integer types: a
+// GL_FLOAT upload of it - legal desktop GL, and how 1.16 allocates its main
+// framebuffer's depth - must reach GLES as GL_DEPTH_COMPONENT32F. What else
 // this exercises is the legacy GL_DEPTH_TEXTURE_MODE fidelity on top of that:
 // the GL_TEXTURE_SWIZZLE_RGBA the wrapper applies to reproduce the fixed
 // pipeline's LUMINANCE/INTENSITY/ALPHA replication, including re-swizzling a
@@ -93,13 +95,13 @@ protected:
         get_error_();
     }
 
-    GLuint UploadDepthTexture(GLfloat depth) {
+    GLuint UploadDepthTexture(GLfloat depth, GLenum internalformat = GL_DEPTH_COMPONENT32F_) {
         GLuint texture = 0;
         gen_textures_(1, &texture);
         bind_texture_(GL_TEXTURE_2D_, texture);
         tex_parameteri_(GL_TEXTURE_2D_, GL_TEXTURE_MIN_FILTER_, GL_NEAREST_);
         tex_parameteri_(GL_TEXTURE_2D_, GL_TEXTURE_MAG_FILTER_, GL_NEAREST_);
-        tex_image2d_(GL_TEXTURE_2D_, 0, GL_DEPTH_COMPONENT32F_, 1, 1, 0, GL_DEPTH_COMPONENT_,
+        tex_image2d_(GL_TEXTURE_2D_, 0, static_cast<GLint>(internalformat), 1, 1, 0, GL_DEPTH_COMPONENT_,
                     GL_FLOAT_, &depth);
         return texture;
     }
@@ -155,6 +157,19 @@ TEST_F(DepthTextureModeTest, DefaultLuminanceModeReplicatesDepthAcrossRgbWithOpa
     EXPECT_EQ(pixel.r, pixel.g) << "default GL_LUMINANCE mode replicates depth into G";
     EXPECT_EQ(pixel.g, pixel.b) << "default GL_LUMINANCE mode replicates depth into B";
     EXPECT_EQ(pixel.a, 255) << "GL_LUMINANCE's alpha component is the fixed 1.0";
+}
+
+TEST_F(DepthTextureModeTest, UnsizedDepthComponentTakesFloatData) {
+    UploadDepthTexture(0.6f, GL_DEPTH_COMPONENT_);
+    ASSERT_EQ(get_error_(), GL_NO_ERROR_) << "GL_DEPTH_COMPONENT with GL_FLOAT is a valid desktop GL upload";
+    enable_(GL_TEXTURE_2D_);
+    DrawTexturedQuad();
+    ASSERT_EQ(get_error_(), GL_NO_ERROR_);
+
+    const auto pixel = probe_->At(kSize / 2, kSize / 2);
+    const int expected = static_cast<int>(std::lround(0.6 * 255.0));
+    EXPECT_NEAR(pixel.r, expected, 2) << "the texture holds the uploaded depth";
+    EXPECT_EQ(pixel.r, pixel.g) << "and is still a depth texture: GL_LUMINANCE mode replicates it";
 }
 
 TEST_F(DepthTextureModeTest, ModeDefaultsToLuminanceAndRoundTripsThroughAllFourSetters) {

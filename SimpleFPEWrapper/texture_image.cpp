@@ -1448,7 +1448,15 @@ void glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei widt
             return;
         }
 
-        g_glFuncs.glTexImage2D(target, level, internalformat, width, height, border, format, type, pixels);
+        // GLES pairs the unsized GL_DEPTH_COMPONENT only with integer types;
+        // desktop GL also takes GL_FLOAT (1.16's main framebuffer depth
+        // texture), which GLES spells as the sized GL_DEPTH_COMPONENT32F.
+        // Metadata keeps the app's internalformat.
+        const GLint backend_internalformat =
+            internalformat == GL_DEPTH_COMPONENT && type == GL_FLOAT && sfpewBackendIsES()
+                ? GL_DEPTH_COMPONENT32F
+                : internalformat;
+        g_glFuncs.glTexImage2D(target, level, backend_internalformat, width, height, border, format, type, pixels);
         if (target == GL_TEXTURE_2D ||
             (target >= GL_TEXTURE_CUBE_MAP_POSITIVE_X && target <= GL_TEXTURE_CUBE_MAP_NEGATIVE_Z)) {
             const GLuint bound = sfpewLogicalTextureBinding(textureMetadataTarget(target));

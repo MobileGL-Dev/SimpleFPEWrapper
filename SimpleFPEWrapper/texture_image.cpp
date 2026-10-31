@@ -1484,7 +1484,12 @@ void glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei widt
 
     // Proxy textures only test whether an allocation would be accepted. Do not let a
     // backend inspect or copy the caller's pixels for a target that has no storage.
-    g_glFuncs.glTexImage2D(target, level, internalformat, width, height, border, format, type, nullptr);
+    // GLES has no proxy targets at all: forwarding one raised GL_INVALID_ENUM for
+    // what is a legal query (Minecraft probes its maximum atlas size this way), so
+    // only a desktop backend sees the call. The answer comes from the state
+    // recorded below either way.
+    if (!sfpewBackendIsES())
+        g_glFuncs.glTexImage2D(target, level, internalformat, width, height, border, format, type, nullptr);
 
     if (level < 0) return;
 

@@ -44,6 +44,36 @@ namespace SFPEW::Utils::BackendLoader {
 #endif
     }
 
+#if !defined(__WIN32) && !defined(_WIN32) && !defined(__APPLE__)
+    // The backend's own resolver, and the library it lives in.
+    static External::EGL::eglGetProcAddress_PTR g_backendResolver = nullptr;
+    static void* g_backendLib = nullptr;
+
+    // Whether a pointer lands inside this library's image.
+    static bool IsOwnDefinition(const void* pointer) {
+        static const void* const ownBase = [] {
+            Dl_info self{};
+            return dladdr(reinterpret_cast<void*>(&IsOwnDefinition), &self) != 0 ? self.dli_fbase : nullptr;
+        }();
+        Dl_info info{};
+        return pointer != nullptr && ownBase != nullptr && dladdr(pointer, &info) != 0 && info.dli_fbase == ownBase;
+    }
+
+    // The backend's eglGetProcAddress, minus the answers that point back
+    // here. A backend that resolves GL names with dlsym(RTLD_DEFAULT) - as
+    // a desktop-GL layer can - finds this library's exports first whenever
+    // the wrapper was loaded globally, which is how launchers load it; the
+    // wrapper then "forwards" each call to itself, and a tail call such as
+    // glGetError's spins forever. The backend library's own scope has the
+    // definition meant.
+    static __eglMustCastToProperFunctionPointerType BackendProcAddress(const char* name) {
+        auto pointer = g_backendResolver(name);
+        if (!IsOwnDefinition(reinterpret_cast<void*>(pointer))) return pointer;
+        pointer = reinterpret_cast<__eglMustCastToProperFunctionPointerType>(ProcAddress(g_backendLib, name));
+        return IsOwnDefinition(reinterpret_cast<void*>(pointer)) ? nullptr : pointer;
+    }
+#endif
+
     bool AcquireBackendGLFunctions(External::BackendGLFunctionsTable& funcs,
                                    External::EGL::eglGetProcAddress_PTR procAddress) {
         if (!procAddress) {
@@ -525,6 +555,13 @@ namespace SFPEW::Utils::BackendLoader {
             INIT_EGL_FUNC(eglGetPlatformDisplay)
             INIT_EGL_FUNC(eglWaitSync)
         }
+#if !defined(__WIN32) && !defined(_WIN32) && !defined(__APPLE__)
+        if (funcs.eglGetProcAddress != nullptr) {
+            g_backendResolver = funcs.eglGetProcAddress;
+            g_backendLib = eglLib;
+            funcs.eglGetProcAddress = BackendProcAddress;
+        }
+#endif
         return true;
     }
 

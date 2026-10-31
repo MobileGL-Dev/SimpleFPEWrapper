@@ -415,6 +415,19 @@ if(NOT ANDROID)
                         sfpew_add_gtest(sfpew_translator_test SOURCES tests/gtest_translator.cc
                                         LIBRARIES ${SFPEW_TEST_EGL} ${SFPEW_TEST_GLES})
 
+                        # A backend resolving GL names through the global
+                        # scope, for the egl_exports case that loads the
+                        # wrapper globally the way a launcher does.
+                        add_library(sfpew_global_resolver_backend SHARED tests/global_resolver_backend.c)
+                        target_include_directories(sfpew_global_resolver_backend PRIVATE ${CMAKE_SOURCE_DIR}/include)
+                        # Nothing here calls GL; the dependency is what holds
+                        # the definitions this backend should hand out.
+                        target_link_options(sfpew_global_resolver_backend PRIVATE "LINKER:--no-as-needed")
+                        target_link_libraries(sfpew_global_resolver_backend PRIVATE dl ${SFPEW_TEST_EGL} ${SFPEW_TEST_GLES})
+                        target_compile_definitions(sfpew_egl_exports_test PRIVATE
+                                SFPEW_GLOBAL_RESOLVER_BACKEND="$<TARGET_FILE:sfpew_global_resolver_backend>")
+                        add_dependencies(sfpew_egl_exports_test sfpew_global_resolver_backend)
+
 
 
 

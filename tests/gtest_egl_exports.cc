@@ -68,6 +68,8 @@ protected:
         return copy;
     }
 
+    void RunSession();
+
     template <typename Fn>
     Fn Export(const char* name) {
         return reinterpret_cast<Fn>(dlsym(wrapper_, name));
@@ -85,9 +87,7 @@ TEST_F(EglExportsTest, EveryEgl15CoreCommandIsExported) {
 
 // Display, config, surface, context and make-current through the wrapper's
 // own exports alone, then a clear read back through its GL.
-TEST_F(EglExportsTest, ASessionRunsThroughTheExportsAlone) {
-    wrapper_ = dlopen(WRAPPER_LIB_PATH, RTLD_NOW | RTLD_LOCAL);
-    ASSERT_NE(wrapper_, nullptr) << dlerror();
+void EglExportsTest::RunSession() {
     auto get_display = Export<EGLDisplay (*)(EGLNativeDisplayType)>("eglGetDisplay");
     auto initialize = Export<EGLBoolean (*)(EGLDisplay, EGLint*, EGLint*)>("eglInitialize");
     auto choose_config = Export<EGLBoolean (*)(EGLDisplay, const EGLint*, EGLConfig*, EGLint, EGLint*)>("eglChooseConfig");
@@ -129,9 +129,34 @@ TEST_F(EglExportsTest, ASessionRunsThroughTheExportsAlone) {
     EXPECT_LT(pixel[0], 20);
     EXPECT_GT(pixel[1], 235) << "the clear did not reach the surface made current through the exports";
 
+    auto get_error = reinterpret_cast<unsigned (*)()>(resolve("glGetError"));
+    ASSERT_NE(get_error, nullptr);
+    while (get_error() != 0 /* GL_NO_ERROR */) {
+    }
+
     make_current(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     destroy_context(display, context);
     destroy_surface(display, surface);
+}
+
+TEST_F(EglExportsTest, ASessionRunsThroughTheExportsAlone) {
+    wrapper_ = dlopen(WRAPPER_LIB_PATH, RTLD_NOW | RTLD_LOCAL);
+    ASSERT_NE(wrapper_, nullptr) << dlerror();
+    RunSession();
+}
+
+// A launcher loads the wrapper globally, and a backend that resolves GL
+// names with dlsym(RTLD_DEFAULT) then finds the wrapper's own exports ahead
+// of its own definitions. Taking those as the backend's made every call
+// forward to itself: glGetError's tail call spun forever, as the drain loop
+// above would here. The alarm turns that hang into a failure.
+TEST_F(EglExportsTest, BackendResolvingGloballyIsNotHandedTheWrapper) {
+    setenv("SFPEW_EGL", SFPEW_GLOBAL_RESOLVER_BACKEND, 1);
+    wrapper_ = dlopen(WRAPPER_LIB_PATH, RTLD_NOW | RTLD_GLOBAL);
+    ASSERT_NE(wrapper_, nullptr) << dlerror();
+    alarm(60);
+    RunSession();
+    alarm(0);
 }
 
 // A bare SFPEW_EGL name is found beside the wrapper: here a backend alias

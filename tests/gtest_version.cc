@@ -45,7 +45,7 @@ std::string VersionAfter(const std::string& text, const char* marker) {
     return text.substr(start, end == std::string::npos ? std::string::npos : end - start);
 }
 
-// "26.08", optionally ".<patch>", optionally a "-suffix".
+// "26.11", optionally ".<patch>", optionally a "-suffix".
 bool LooksLikeCalendarVersion(const std::string& v) {
     size_t i = 0;
     auto digits = [&] {
@@ -89,7 +89,7 @@ void CheckCommonIdentity(const Identity& id, const std::string& version_token) {
         << "GL_VERSION no longer starts with the GL level: " << id.version;
 
     EXPECT_TRUE(LooksLikeCalendarVersion(version_token))
-        << '"' << version_token << "\" is not a calendar version (expected e.g. 26.08-dev)";
+        << '"' << version_token << "\" is not a calendar version (expected e.g. 26.11-dev)";
 
     // The commit is what actually identifies a build, so it travels with it.
     const size_t git = id.version.find("GIT@");

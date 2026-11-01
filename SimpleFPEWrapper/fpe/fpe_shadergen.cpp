@@ -1113,14 +1113,17 @@ const char* glEnumToString(GLenum e) {
 // first, then sampler2DShadow the same way when GL_ARB_shadow added it)
 // tolerate the omission anyway; GLES spec-conformant ones correctly refuse
 // to compile with "No precision specified in this scope for type `...'".
+//
+// The precision statements are unconditional: the source is always ESSL, so
+// GL_ES is always defined on a real driver, and a backend that rewrites the
+// #version to desktop GLSL (MobileGL does) no longer defines it - a guarded
+// statement would vanish there and every float would compile as fp32.
 constexpr std::string_view mg_shader_header = "#version 300 es\n"
                                                "// MobileGlues FPE Shader\n"
-                                               "#ifdef GL_ES\n"
                                                "precision highp float;\n"
                                                "precision highp int;\n"
                                                "precision highp sampler3D;\n"
-                                               "precision highp sampler2DShadow;\n"
-                                               "#endif\n";
+                                               "precision highp sampler2DShadow;\n";
 constexpr std::string_view mg_vs_header = "// ** Vertex Shader **\n";
 // Fragment math defaults to mediump, the precision GLES fixed-function
 // emulation has always used (gl4es does the same): on Mali and other tilers
@@ -1128,11 +1131,13 @@ constexpr std::string_view mg_vs_header = "// ** Vertex Shader **\n";
 // color, texenv and fog arithmetic here is 8-bit-per-channel work. What feeds
 // a texture coordinate or a distance stays highp, declared so explicitly:
 // texcoords sampled from a 1024-texel atlas need more than fp16's 11-bit
-// mantissa, or texel edges land on the neighbor.
+// mantissa, or texel edges land on the neighbor. The 2D and cube samplers are
+// declared mediump too: ESSL already defaults them to lowp, but a backend
+// compiling the source as desktop GLSL would default them to highp.
 constexpr std::string_view mg_fs_header = "// ** Fragment Shader **\n"
-                                          "#ifdef GL_ES\n"
                                           "precision mediump float;\n"
-                                          "#endif\n";
+                                          "precision mediump sampler2D;\n"
+                                          "precision mediump samplerCube;\n";
 constexpr std::string_view mg_fog_linear_func = "float fog_linear(highp float distance, highp float start, highp float end) {\n"
                                                 "    return clamp((end - distance) / max(end - start, 1e-6), 0., 1.);\n"
                                                 "}\n";

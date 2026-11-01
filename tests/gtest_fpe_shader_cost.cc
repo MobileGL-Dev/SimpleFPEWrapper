@@ -182,6 +182,12 @@ TEST_F(FpeShaderCostTest, FragmentMathIsMediumpWhileCoordinatesStayHighp) {
     ASSERT_FALSE(fs.empty()) << "no fixed-function program recorded for the draw";
     EXPECT_NE(fs.find("precision mediump float;"), std::string::npos)
         << "fragment math is not mediump by default:\n" << fs;
+    // A backend that compiles ESSL as desktop GLSL leaves GL_ES undefined, so
+    // a guarded precision statement would silently drop to fp32 there.
+    EXPECT_EQ(fs.find("GL_ES"), std::string::npos)
+        << "the precision statements depend on GL_ES being defined:\n" << fs;
+    EXPECT_NE(fs.find("precision mediump sampler2D;"), std::string::npos)
+        << "2D texture results fall back to highp under a desktop default:\n" << fs;
     EXPECT_TRUE(std::regex_search(fs, std::regex(R"(in highp vec2 texCoord0;)")))
         << "the texture coordinate lost highp under the mediump default:\n" << fs;
     EXPECT_NE(fs.find("highp float distance"), std::string::npos)

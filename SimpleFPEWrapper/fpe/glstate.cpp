@@ -265,22 +265,7 @@ void glstate_t::send_uniforms(program_t& program) {
             values.texture_env_color[i] = env_color;
         }
 
-        GLfloat lod_bias = fpe_uniform.texture_env[i].lod_bias;
-        if (!texture_lod_bias.empty()) {
-            // The bound texture's own bias, where the wrapper keeps it
-            // (texture_lod_bias, GLES backends): GL samples with the sum.
-            GLenum target = GL_NONE;
-            switch (active_texture_target(fpe_state, i)) {
-            case texture_target_kind_t::tex2d: target = GL_TEXTURE_2D; break;
-            case texture_target_kind_t::tex3d: target = GL_TEXTURE_3D; break;
-            case texture_target_kind_t::cube: target = GL_TEXTURE_CUBE_MAP; break;
-            case texture_target_kind_t::none: break;
-            }
-            if (target != GL_NONE) {
-                const auto it = texture_lod_bias.find(sfpewLogicalTextureBindingForUnit(GL_TEXTURE0 + i, target));
-                if (it != texture_lod_bias.end()) lod_bias += it->second;
-            }
-        }
+        const GLfloat lod_bias = effective_lod_bias(i);
         if (differs(lod_bias, values.lod_bias[i])) {
             if (locations.lod_bias[i] >= 0) g_glFuncs.glUniform1f(locations.lod_bias[i], lod_bias);
             values.lod_bias[i] = lod_bias;
@@ -408,6 +393,33 @@ void glstate_t::send_uniforms(program_t& program) {
     values.initialized = true;
 }
 
+GLfloat glstate_t::effective_lod_bias(int unit) const {
+    GLfloat lod_bias = fpe_uniform.texture_env[unit].lod_bias;
+    if (!texture_lod_bias.empty()) {
+        // The bound texture's own bias, where the wrapper keeps it
+        // (texture_lod_bias, GLES backends): GL samples with the sum.
+        GLenum target = GL_NONE;
+        switch (active_texture_target(fpe_state, unit)) {
+        case texture_target_kind_t::tex2d: target = GL_TEXTURE_2D; break;
+        case texture_target_kind_t::tex3d: target = GL_TEXTURE_3D; break;
+        case texture_target_kind_t::cube: target = GL_TEXTURE_CUBE_MAP; break;
+        case texture_target_kind_t::none: break;
+        }
+        if (target != GL_NONE) {
+            const auto it = texture_lod_bias.find(sfpewLogicalTextureBindingForUnit(GL_TEXTURE0 + unit, target));
+            if (it != texture_lod_bias.end()) lod_bias += it->second;
+        }
+    }
+    return lod_bias;
+}
+
+void glstate_t::resync_texture_lod_bias() {
+    for (int i = 0; i < MAX_TEX; ++i) {
+        fpe_state.fpe_bools.texture_lod_biased[i] =
+            active_texture_target(fpe_state, i) != texture_target_kind_t::none && effective_lod_bias(i) != 0.0f;
+    }
+}
+
 void glstate_t::resync_texture_shadow_sample() {
     for (int i = 0; i < MAX_TEX; ++i) {
         bool shadow = false;
@@ -433,6 +445,7 @@ program_key_t glstate_t::program_hash(const vertex_pointer_array_t& va) {
     // normalized the vertex array, so avoid two heap allocations and a second
     // normalization just to build the shader-program key.
     resync_texture_shadow_sample();
+    resync_texture_lod_bias();
     const auto& sizes = fpe_state.fpe_draw.current_data.sizes;
 
     // Canonical parameter values: a parameter the generator does not read under

@@ -18,6 +18,9 @@
 //    test. A discard anywhere in a fragment shader costs the whole draw its
 //    early depth test and forward pixel kill on Mali, and opaque terrain
 //    drawn with the test off paid that once the game had used it anywhere.
+//  - LOD bias: only a unit sampling with a nonzero bias passes one to
+//    texture(); on Mali a plain lookup of an unmodified varying fuses the
+//    varying load into the texture instruction.
 //  - Varyings: every component is written out per vertex and interpolated
 //    per fragment on a tiler, so only what the fragment stage reads is
 //    passed - texcoords sized to their unit's sampler, no normal, the eye z
@@ -63,6 +66,8 @@ constexpr GLenum kNormalArray = 0x8075;
 constexpr GLenum kTexCoordArray = 0x8078;
 constexpr GLenum kTexture0 = 0x84C0;
 constexpr GLenum kTexture1 = 0x84C1;
+constexpr GLenum kTextureFilterControl = 0x8500;
+constexpr GLenum kTextureLodBias = 0x8501;
 constexpr GLenum kFogDistanceModeNV = 0x855A;
 constexpr GLenum kEyeRadialNV = 0x855B;
 
@@ -90,6 +95,8 @@ protected:
         tex_image_2d_ = Get<void (*)(GLenum, GLint, GLint, GLsizei, GLsizei, GLint, GLenum, GLenum,
                                      const void*)>("glTexImage2D");
         tex_parameteri_ = Get<void (*)(GLenum, GLenum, GLint)>("glTexParameteri");
+        tex_parameterf_ = Get<void (*)(GLenum, GLenum, GLfloat)>("glTexParameterf");
+        tex_envf_ = Get<void (*)(GLenum, GLenum, GLfloat)>("glTexEnvf");
         read_pixels_ = Get<PixelProbe::ReadPixelsFn>("glReadPixels");
         enable_client_state_ = Get<void (*)(GLenum)>("glEnableClientState");
         vertex_pointer_ = Get<void (*)(GLint, GLenum, GLsizei, const void*)>("glVertexPointer");
@@ -148,6 +155,8 @@ protected:
     void (*bind_texture_)(GLenum, GLuint) = nullptr;
     void (*tex_image_2d_)(GLenum, GLint, GLint, GLsizei, GLsizei, GLint, GLenum, GLenum, const void*) = nullptr;
     void (*tex_parameteri_)(GLenum, GLenum, GLint) = nullptr;
+    void (*tex_parameterf_)(GLenum, GLenum, GLfloat) = nullptr;
+    void (*tex_envf_)(GLenum, GLenum, GLfloat) = nullptr;
     PixelProbe::ReadPixelsFn read_pixels_ = nullptr;
     void (*enable_client_state_)(GLenum) = nullptr;
     void (*vertex_pointer_)(GLint, GLenum, GLsizei, const void*) = nullptr;
@@ -192,6 +201,39 @@ TEST_F(FpeShaderCostTest, FragmentMathIsMediumpWhileCoordinatesStayHighp) {
         << "the texture coordinate lost highp under the mediump default:\n" << fs;
     EXPECT_NE(fs.find("highp float distance"), std::string::npos)
         << "the fog distance lost highp under the mediump default:\n" << fs;
+}
+
+TEST_F(FpeShaderCostTest, OnlyABiasedUnitPassesALodBias) {
+    const GLubyte green[4] = {0, 255, 0, 255};
+    SolidTexture(green);
+    enable_(kTexture2D);
+    color4f_(1.0f, 1.0f, 1.0f, 1.0f);
+    const auto draw = [&] {
+        clear_color_(0.0f, 0.0f, 0.0f, 1.0f);
+        clear_(0x00004000 /* GL_COLOR_BUFFER_BIT */);
+        DrawQuad(/*textured=*/true);
+        EXPECT_GT(Center().g, 200) << "the textured quad did not draw its texel";
+        return Source();
+    };
+
+    std::string fs = draw();
+    EXPECT_NE(fs.find("texture(Sampler0, texCoord0.xy)"), std::string::npos)
+        << "an unbiased unit does not sample with a plain texture():\n" << fs;
+    EXPECT_EQ(fs.find("LodBias"), std::string::npos) << "an unbiased unit still passes a bias:\n" << fs;
+
+    tex_envf_(kTextureFilterControl, kTextureLodBias, 0.5f);
+    fs = draw();
+    EXPECT_NE(fs.find("texture(Sampler0, texCoord0.xy, LodBias0)"), std::string::npos)
+        << "the texture-env bias is not applied:\n" << fs;
+
+    tex_envf_(kTextureFilterControl, kTextureLodBias, 0.0f);
+    tex_parameterf_(kTexture2D, kTextureLodBias, 0.5f);
+    fs = draw();
+    EXPECT_NE(fs.find("LodBias0"), std::string::npos) << "the texture object's own bias is not applied:\n" << fs;
+
+    tex_parameterf_(kTexture2D, kTextureLodBias, 0.0f);
+    fs = draw();
+    EXPECT_EQ(fs.find("LodBias"), std::string::npos) << "a bias reset to zero still passes one:\n" << fs;
 }
 
 TEST_F(FpeShaderCostTest, OnlyAlphaTestedDrawsCarryADiscard) {

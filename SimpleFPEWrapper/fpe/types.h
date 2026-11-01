@@ -252,6 +252,12 @@ struct fixed_function_bool_t {      // glEnable/glDisable
     // Derived from per-texture-object state at the top of program_hash()
     // (glstate.cpp) - see resync_texture_shadow_sample().
     bool texture_shadow_sample[MAX_TEX] = {false};
+    // Unit i samples with a nonzero LOD bias (the texture-env bias plus, on
+    // GLES backends, the bound object's own). Only such a unit passes a bias
+    // to texture(): on Mali a plain lookup of an unmodified varying fuses the
+    // varying load into the texture instruction. Derived per draw by
+    // resync_texture_lod_bias() (glstate.cpp).
+    bool texture_lod_biased[MAX_TEX] = {false};
 };
 
 struct light_t {
@@ -1226,6 +1232,13 @@ struct glstate_t {
     // point both draw paths converge, so the shader-visible booleans are
     // always current before the hash/cache key is built from them.
     void resync_texture_shadow_sample();
+
+    // The bias unit i samples with: the texture-env GL_TEXTURE_LOD_BIAS plus
+    // the bound texture's own where the wrapper keeps it (texture_lod_bias).
+    GLfloat effective_lod_bias(int unit) const;
+    // Derives fpe_bools.texture_lod_biased[i] from effective_lod_bias(), at
+    // the same point as resync_texture_shadow_sample().
+    void resync_texture_lod_bias();
 
     program_key_t program_hash() { return program_hash(fpe_state.normalized_vpa); }
     // The same key for an explicit normalized layout: the immediate-mode path

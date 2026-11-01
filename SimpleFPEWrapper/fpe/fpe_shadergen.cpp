@@ -1819,7 +1819,7 @@ void add_fs_uniforms(const fixed_function_state_t& state, [[maybe_unused]] scrat
                                    : state.fpe_bools.texture_shadow_sample[i] ? "sampler2DShadow"
                                                                               : "sampler2D";
         fs += std::format("uniform {} Sampler{};\n", sampler_type, i);
-        fs += std::format("uniform highp float LodBias{};\n", i);
+        if (state.fpe_bools.texture_lod_biased[i]) fs += std::format("uniform highp float LodBias{};\n", i);
         if (state.texture_env_mode[i] == GL_BLEND || state.texture_env_mode[i] == GL_COMBINE) {
             fs += std::format("uniform vec4 TexEnvColor{};\n", i);
         }
@@ -1991,6 +1991,9 @@ void add_fs_body(const fixed_function_state_t& state, scratch_t& scratch, std::s
                 "1.0 - gl_PointCoord.y : gl_PointCoord.y) : {})",
                 coord);
         }
+        // Only a biased unit passes the bias (fixed_function_bool_t::texture_lod_biased).
+        const std::string bias =
+            state.fpe_bools.texture_lod_biased[i] ? std::format(", LodBias{}", i) : std::string();
         if (state.fpe_bools.texture_shadow_sample[i]) {
             // GL 1.4/ARB_shadow: the R texcoord is the reference depth. A
             // sampler2DShadow overload of texture() returns a plain float
@@ -2004,13 +2007,13 @@ void add_fs_body(const fixed_function_state_t& state, scratch_t& scratch, std::s
                                                             : std::string("0.0");
             fs += std::format("\n"
                               "    // Texturing #{0} (GL_ARB_shadow depth compare)\n"
-                              "    vec4 texcolor{0} = vec4(texture(Sampler{0}, vec3({1}, {2}), LodBias{0}));\n",
-                              i, coord, ref);
+                              "    vec4 texcolor{0} = vec4(texture(Sampler{0}, vec3({1}, {2}){3}));\n",
+                              i, coord, ref, bias);
         } else {
             fs += std::format("\n"
                               "    // Texturing #{0}\n"
-                              "    vec4 texcolor{0} = texture(Sampler{0}, {1}, LodBias{0});\n",
-                              i, coord);
+                              "    vec4 texcolor{0} = texture(Sampler{0}, {1}{2});\n",
+                              i, coord, bias);
         }
     }
 
